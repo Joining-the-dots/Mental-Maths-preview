@@ -1,0 +1,1410 @@
+/* ================================================================
+   My Island — "Pixel Blocks" v3 light skin (docs/island3d/v3: host-ui.json restyle,
+   plan-v3 chunk W1.8, contracts.islandPixelCss; D14, D19, D37, D45, D83; the land-shop
+   hooks are chunk W1b.3: D99, D110, D114, D115). CSS only.
+
+   Solid white blocks with a 3px navy line and a hard lip, a banded pastel sky, Pixelify
+   Sans for headings of 20px and more, Outfit for every other word. No glass, no blur,
+   no glow, no overshoot.
+
+   SCOPE (the one rule): the island only — .slw and everything inside it (HUD, island bar,
+   stage, 3D anchors, edit bar, legend), the sheets (.slw-ov / .slw-sheet), .slw-cele,
+   .slw-toast, .slw-loading and .slw-cannons. Nothing here names .slg: the games keep the
+   Encore night look and Unbounded titles. :root gains --px-* tokens only; the Encore
+   --sle-* tokens are re-pointed INSIDE the island scopes, never on :root (the game HUDs
+   read them), so every Encore rule that paints from a token turns Pixel by itself and
+   the rest are restated below.
+
+   LOAD ORDER: linked by slLoadWorld right AFTER island-encore.css and awaited with it
+   (both sheets, 4 s cap), so the island never shows dark glass first. Every rule starts
+   with `html body` (or `html.sl-low body`) like the Encore sheet: equal-specificity
+   Encore rules lose on order and the injected #slwCss rules are out-ranked; where an
+   Encore rule is more specific, its selector is repeated here. !important appears only
+   where an inline style or an injected !important must be beaten (marked "beats inline /
+   injected"). No backdrop-filter, blur, :is(), :where() or :has() (old iPad Safari).
+
+   FONTS (the Google Fonts link adds one weight, display=swap):
+     Pixelify+Sans:wght@700   headings ≥ 20px only, never all-caps; it lives only in
+                              --px-display (set that to the Outfit stack to switch it off, D19)
+     Outfit                   600–800 for UI words, 400/500 for body text (--sle-ui / --sle-body)
+
+   HOOKS (the class allow-list: every class styled here is in the rewards-world.js /
+   island3d.js / world-art.js markup, styled by island-encore.css, or listed here):
+   nav.slw-isles            the island bar, between the HUD and the stage
+     ul.slw-islechips         the chip strip; scrolls sideways inside itself
+       .slw-islechip            a 44px block per island: span.ic (the pixel icon, its lock
+                                badge included) + span.tx; .here (visited: sun, bold, a navy
+                                base bar), .open (unlocked), .locked (off grey, dashed), .new
+                                (with a static span.slw-chipnew tag), .map (the Sky map chip,
+                                3D only; aria-pressed while shown). aria-disabled="true"
+                                (place mode) = the dashed off look.
+     .slw-here                the here row, a white panel: .ic icon, .nm name (Pixelify
+                              20px), .st status (hidden on phones held sideways), then its
+                              .slw-btn / .slw-buy
+   .slw-skydip              the sky dip inside .slw-3d (island3d owns it, D45): fills the
+                            stage in var(--slw-dip) (inline: the sky's mid-band colour) and
+                            fades its opacity 0.3 s each way. Add .on (or set an inline
+                            opacity) to fade in; reduced motion keeps it (it IS the cut).
+   .slw-sign.isle           a land's sign: a cream block while locked; .open = white
+                            ("Jungle ›"); .gate = at a Home gate pad (a post under it); its
+                            .pr price line hides while the host sets .slw-narrow on the
+                            .slw-stagewrap (< 480px)
+   .slw-shopisle            a Sky islands shop section (h3 = icon + name, Pixelify 20px);
+                            a dotted line between sections
+   .slw-islefilter          the Sky islands filter row; its chips are .slw-btn + aria-pressed
+   .slw-card.lm             a landmark card: dashed sun edge, no price line
+   .slw-take                the "Take it where?" list: .slw-btn rows go full width, icon
+                            first ('Full' ones are :disabled)
+   .slw-lock2d              2D locked island: one centred cream block button (lock icon,
+                            unlock words, a .pr price chip)
+   .slw-bridge2d            2D "Back to Home Island" on the dock's outer edge (the host sets
+                            left / top inline)
+   .slw-cell.dock           2D bridge-landing cell: plank stripes, a navy dashed border
+   .slw-act.slw-act-<act>.go   2D sprite act groups. world-art draws ONE group per sprite,
+                            visible, in its rest pose, with NO transform= of its own (place
+                            it with an outer <g>; CSS animates transform, transform-box
+                            fill-box). Adding .go plays it once, rotation / translation only,
+                            inside the act's seconds; reduced motion: none (rest = the end).
+         ride 3 s           the mounts bob and swing side to side
+         slide 3 s          the rider goes up to the top and spirals down
+         open 0.5 s         the doors settle (the sprite redraws open / shut)
+         wobble 3 s         the planks rock ±6° (origin: the middle)
+         skate 3 s          the skater runs a figure of eight
+         wheel 4 s          a quarter turn about the centre (draw 8 gondolas: the end
+                            pose then matches the rest pose)
+         lift 4 s           the basket rises 2.2 × its height and comes back
+         zip 4 s            the rider zips down-right 1.6 × its size, waves, is pulled back
+         drawbridge 1.5 s   the bridge settles on its hinge (origin: top)
+         penguins 6 s       the group waddles out left, slides down and comes back
+   .slw-cele.reveal         the land reveal card: a clear-centred navy vignette and the card
+                            low, so the landmark shows above it
+   .slw-vh, #slwLive        visually hidden (#slwLive announces each trip)
+   2D sky                   .slw-stagewrap:not(.slw-is3d) .slw-stage paints the 13 DAY bands
+                            (+ 2 pixel clouds and a sun); .slw.showtime fades its ::before —
+                            the 13 NIGHT bands, the clouds, a moon and stars — in over 2.0 s
+                            (opacity only). The v2 .dusk haze is gone.
+   html.sl-low              LOW tier: shine-2 holds still, one confetti burst
+   LAND SHOPS (the shop and crew sheets, the edit bar, the land-shop sprites):
+   .slw-shelfhd             a shelf's sub-heading inside an island's shop section (an h4):
+                            Outfit 800 17px over a 2px line; span.n = its count, a small
+                            well chip. The jump chips scroll to it (scroll-margin keeps it
+                            clear of the sticky rows)
+   .slw-shelfjump           the row of shelf jump chips under an island's heading: span.lb
+                            ('Jump to') + one .slw-btn per shelf. They scroll to a shelf and
+                            never filter: well-coloured, never aria-pressed. One sideways
+                            strip on phones
+   .slw-islefilter.sticky   the island chip row of the shop. On phones it sticks under the
+                            tab row (the sheet's .slw-cats, which sticks first) at the top of
+                            the shop sheet: two 44px rows, each a 56px white band with its
+                            lip and focus room. Phones held sideways: only the tab row
+                            sticks. Wider screens: both stay in the flow. Sticky lives only
+                            inside .slw-sheet
+   .slw-isleacc             'All five': an island's collapsed header, a white block row:
+                            button.tg (the toggle, aria-expanded: span.ic pixel icon +
+                            span.nm name), a status .chip (as on cards), span.ct (the count)
+                            and its .slw-btn (Go there / Fly over). The toggle's ▸ turns to
+                            ▾ with aria-expanded="true"; add .open to the row while its
+                            section shows (a well fill and a navy base bar)
+   .slw-crewacc             the same header for a land's group in the shop's Crew tab (name,
+                            status .chip, span.ct). The row may itself be the button
+                            (aria-expanded on it turns the ▸ and opens it)
+   .slw-crewland            a land's group in the Crew tab: its .slw-crewacc header, then the
+                            .slw-grid of two mascots and four pieces of gear
+   .slw-card.isle           the All tab's island card (icon, 'Open the … shop', the count):
+                            a doorway, not an item — a sky well, a blue lip, no plinth and
+                            no price line
+   .slw-wearslots           the crew sheet's four wear rows (hats, neck, face, back): each
+                            child row = span.lb (the slot's name) + a .slw-tray that scrolls
+                            sideways inside itself; the worn .slw-trayitem carries
+                            aria-pressed="true" (or .on): violet-soft, a violet line,
+                            pressed in
+   .slw-colourbtn           the edit bar's 'Next colour' button (a .slw-btn that also carries
+                            this class): a four-colour pixel swatch before its words
+   .slw-act.slw-anim-<class>.go   2D acts of the land-shop sprites (D110): the sprite's one
+                            .slw-act group carries the class ACT_INFO names (anim2d); adding
+                            .go plays it once — rotation / translation only, inside the
+                            shortest act that uses it and never over 3 s; reduced motion:
+                            none. Lengths are sprite units (CSS px inside the sprite's SVG).
+         .slw-anim-spin 2 s      turns 180° about its centre and back
+         .slw-anim-lift 2.4 s    rises 20 units, holds, returns
+         .slw-anim-swing 2.4 s   swings ±12° about its top, twice
+         .slw-anim-slide 2.4 s   travels 30 units along the footprint (to the right) and back
+         .slw-anim-shake 1.2 s   rocks ±4° on its base, twice
+         .slw-anim-pop 0.5 s     hops 6 units, once
+         .slw-anim-hop 1.2 s     hops 12 units, twice
+         .slw-anim-sway 1.6 s    leans ±6° on its base, slowly
+         .slw-anim-none          no motion (a toggle redraws the sprite; fx-only acts show
+                                 their glyph)
+   Optional custom properties, set from JS:
+   --slw-dip                the sky dip colour (inline on .slw-skydip)
+   --slw-g                  a game card's colours (inline on .slw-game: its 14px top band;
+                            a V4.54 inline background is folded into the same band)
+   --sle-member             the child's colour (confetti, the loading spark)
+   ================================================================ */
+
+/* ---------------- tokens (--px-* only: :root keeps every --sle-* for the games) ---------------- */
+@property --px-foil {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root {
+  /* type: Pixelify Sans for headings ≥ 20px; Outfit stands in while it loads */
+  --px-display: "Pixelify Sans", "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ink and blocks */
+  --px-ink: #1B2150; --px-ink-2: #474E7E; --px-line: #2B3A80; --px-panel: #FFFFFF; --px-well: #EEF7FF;
+  --px-cloud: #F4F8FF;
+  /* the sky: pixel.js bands, hard stops */
+  --px-sky-1: #4FBCFF; --px-sky-2: #6BCAFF; --px-sky-3: #8FD9FF; --px-sky-4: #B7E8FF; --px-sky-5: #DAF2FF;
+  --px-sky-6: #F6EDFB; --px-sky-7: #FFE6F2;
+  /* Showtime: the .slw backdrop turns violet night; panels stay white */
+  --px-night-1: #1B2150; --px-night-2: #2A2F7A; --px-night-3: #4A3FA8; --px-night-4: #6A4CC0;
+  /* fills and their lips */
+  --px-sun: #FFD23F; --px-sun-lip: #C99A00; --px-blue: #45C3F5; --px-blue-lip: #1C8FC2; --px-leaf: #7EDB7E;
+  --px-leaf-lip: #3E9E52; --px-pink: #FF5FA2; --px-pink-lip: #C2306F; --px-violet: #5B3FD6;
+  --px-violet-lip: #3A259A; --px-violet-soft: #ECE6FF; --px-white-lip: #C9D3EC;
+  /* states */
+  --px-off: #E3E8F4; --px-off-fg: #4A5272; --px-off-lip: #C5CDE2; --px-err: #C0262D; --px-ok: #17663A;
+  --px-gold-ink: #8A5A00; --px-sign: #FFF4D6; --px-mint: #DFF7E6;
+  /* shop-card chips: fill / text (a 2px edge in the text colour) */
+  --px-own: #DDF7E3; --px-own-fg: #17663A; --px-lock: #ECE6FF; --px-lock-fg: #4B33B8; --px-rep: #FFF1C9;
+  --px-rep-fg: #7A5200; --px-uni: #DDF1FF; --px-uni-fg: #135E8C;
+  /* the voxel plinth (flat tiers, one colour each) and the dock planks */
+  --px-grass: #85DF84; --px-soil: #C98B5A; --px-soil-2: #A86E43; --px-plank: #E9C9A0;
+  /* the scrim is navy, never white */
+  --px-scrim: rgba(27, 33, 80, 0.45);
+  /* shape: a hard lip (no blur) under every block */
+  --px-r-btn: 6px; --px-r-panel: 14px; --px-r-card: 10px; --px-lip: 0 4px 0 0; --px-bw: 3px;
+  /* motion: presses 120 ms, sheets 200 ms, no overshoot */
+  --px-press: 120ms; --px-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* the four-point pixel sparkle ✦ on a 9 × 9 grid (never the five-point ⭐) */
+  --px-spark: polygon(44.44% 0%, 55.56% 0%, 55.56% 33.33%, 66.67% 33.33%, 66.67% 44.44%, 100% 44.44%, 100% 55.56%, 66.67% 55.56%, 66.67% 66.67%, 55.56% 66.67%, 55.56% 100%, 44.44% 100%, 44.44% 66.67%, 33.33% 66.67%, 33.33% 55.56%, 0% 55.56%, 0% 44.44%, 33.33% 44.44%, 33.33% 33.33%, 44.44% 33.33%);
+}
+
+/* ---------------- the island scopes re-point the Encore tokens ---------------- */
+html body .slw, html body .slw-ov, html body .slw-cele, html body .slw-toast, html body .slw-loading {
+  --sle-display: var(--px-display); --sle-fg: var(--px-ink); --sle-fg-2: var(--px-ink-2);
+  --sle-ink: var(--px-ink); --sle-gold: var(--px-gold-ink); --sle-gold-soft: var(--px-gold-ink);
+  --sle-ok: var(--px-ok); --sle-coral: var(--px-err); --sle-cyan: var(--px-line);
+  --sle-magenta: var(--px-pink); --sle-stage: var(--px-sky-3); --sle-panel-bg: var(--px-panel);
+  --sle-panel-solid: var(--px-panel); --sle-panel-edge: var(--px-line); --sle-panel-fg: var(--px-ink);
+  --sle-panel-fg-2: var(--px-ink-2); --sle-panel-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.22);
+  --sle-show-bg: var(--px-panel); --sle-show-solid: var(--px-panel); --sle-show-edge: var(--px-line);
+  --sle-show-fg: var(--px-ink); --sle-show-fg-2: var(--px-ink-2); --sle-card: var(--px-panel);
+  --sle-card-edge: var(--px-line); --sle-toast-bg: var(--px-ink); --sle-bar-bg: var(--px-panel);
+  --sle-new-bg: var(--px-panel); --sle-new-fg: var(--px-ink); --sle-drop: 0 6px 0 0 rgba(27, 33, 80, 0.22);
+  --sle-blur: none; --sle-blur-bar: none;
+  /* button families: one flat fill (a = b), its text, and the colour of its hard lip */
+  --sle-plain-a: var(--px-panel); --sle-plain-b: var(--px-panel); --sle-plain-fg: var(--px-ink); --sle-plain-lip: var(--px-white-lip);
+  --sle-primary-a: var(--px-sun); --sle-primary-b: var(--px-sun); --sle-primary-fg: var(--px-ink); --sle-primary-lip: var(--px-sun-lip);
+  --sle-go-a: var(--px-sun); --sle-go-b: var(--px-sun); --sle-go-fg: var(--px-ink); --sle-go-lip: var(--px-sun-lip);
+  --sle-secondary-a: var(--px-blue); --sle-secondary-b: var(--px-blue); --sle-secondary-fg: var(--px-ink); --sle-secondary-lip: var(--px-blue-lip);
+  --sle-deep-a: var(--px-violet); --sle-deep-b: var(--px-violet); --sle-deep-fg: #FFFFFF; --sle-deep-lip: var(--px-violet-lip);
+  --sle-buy-a: var(--px-leaf); --sle-buy-b: var(--px-leaf); --sle-buy-fg: var(--px-ink); --sle-buy-lip: var(--px-leaf-lip);
+  --sle-gold-a: var(--px-sun); --sle-gold-b: var(--px-sun); --sle-gold-fg: var(--px-ink); --sle-gold-lip: var(--px-sun-lip);
+  --sle-amber-a: var(--px-panel); --sle-amber-b: var(--px-panel); --sle-amber-fg: var(--px-ink); --sle-amber-lip: var(--px-white-lip);
+  --sle-night-a: var(--px-panel); --sle-night-b: var(--px-panel); --sle-night-fg: var(--px-ink); --sle-night-lip: var(--px-white-lip);
+  --sle-off-bg: var(--px-off); --sle-off-fg: var(--px-off-fg); --sle-off-lip: var(--px-off-lip);
+  --sle-points-a: var(--px-panel); --sle-points-b: var(--px-panel); --sle-points-fg: var(--px-ink); --sle-points-lip: var(--px-white-lip);
+}
+/* the one inverse surface: white words on the ink toast */
+html body .slw-toast {
+  --sle-fg: #FFFFFF; --sle-fg-2: #FFFFFF;
+}
+
+/* ---------------- island root: the banded sky; Showtime fades a banded night in ---------------- */
+html body .slw {
+  padding: 12px 12px 18px;
+  background: linear-gradient(180deg,
+    var(--px-sky-1) 0%, var(--px-sky-1) 14.29%, var(--px-sky-2) 14.29%, var(--px-sky-2) 28.57%,
+    var(--px-sky-3) 28.57%, var(--px-sky-3) 42.86%, var(--px-sky-4) 42.86%, var(--px-sky-4) 57.14%,
+    var(--px-sky-5) 57.14%, var(--px-sky-5) 71.43%, var(--px-sky-6) 71.43%, var(--px-sky-6) 85.71%,
+    var(--px-sky-7) 85.71%, var(--px-sky-7) 100%) var(--px-sky-3);
+  border: var(--px-bw) solid var(--px-line); border-radius: 18px;
+  box-shadow: 0 6px 0 0 rgba(27, 33, 80, 0.22); color: var(--px-ink); font-family: var(--sle-body);
+}
+html body .slw::before { content: none; }
+/* the night always exists and only fades its opacity, linearly over the same 2.0 s as
+   the 3D blend (D14): every band pair moves < 0.20 luminance in any 0.5 s */
+html body .slw::after {
+  border-radius: 15px;   /* the frame's inner radius */
+  opacity: 0; transition: opacity 2s linear;
+  background: linear-gradient(180deg,
+    var(--px-night-1) 0%, var(--px-night-1) 14.29%, var(--px-night-2) 14.29%, var(--px-night-2) 28.57%,
+    var(--px-night-2) 28.57%, var(--px-night-2) 42.86%, var(--px-night-3) 42.86%, var(--px-night-3) 57.14%,
+    var(--px-night-4) 57.14%, var(--px-night-4) 71.43%, var(--px-night-4) 71.43%, var(--px-night-4) 85.71%,
+    var(--px-night-4) 85.71%, var(--px-night-4) 100%);
+}
+html body .slw.showtime::after { opacity: 1; }
+html body .slw.showtime {
+  --sle-panel-bg: var(--px-panel); --sle-panel-solid: var(--px-panel); --sle-panel-edge: var(--px-line);
+  --sle-panel-fg: var(--px-ink); --sle-panel-fg-2: var(--px-ink-2);
+  --sle-panel-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.22);
+}
+
+/* ---------------- panels: white blocks, so no word sits on the sky ---------------- */
+html body .slw-hud, html body .slw-bar, html body .slw-legend, html body .slw-here {
+  background: var(--px-panel); border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-panel);
+  box-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.22); color: var(--px-ink);
+}
+html body .slw-hud { padding: 8px; margin: 0 0 14px; gap: 8px; }
+html body .slw-acts { gap: 8px; }
+html body .slw-bar { padding: 10px 12px; margin-top: 14px; gap: 8px; }
+html body .slw-bar .msg { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 15px; }
+html body .slw-bar .msg.bad { color: var(--px-err); }
+html body .slw-legend {
+  margin: 14px auto 0; padding: 8px 14px; color: var(--px-ink-2); font-family: var(--sle-ui);
+  font-weight: 600;
+}
+html body .slw-legend i { border: 2px solid var(--px-ink); border-radius: 4px; }
+html body .slw-legend i[style*="background:#fff;"] { color: var(--px-ink); }
+/* the 2D phone pan hint: a small white block under the stage */
+html body .slw-pan {
+  width: fit-content; max-width: 100%; margin: 10px auto 0; padding: 4px 12px; background: var(--px-panel);
+  border: 2px solid var(--px-line); border-radius: var(--px-r-btn); color: var(--px-ink-2);
+  font-family: var(--sle-ui); font-weight: 700;
+}
+
+/* ---------------- block buttons: flat fill, 3px line, a hard lip in the fill's lip colour ---------------- */
+html body .slw-btn, html body .slw-learn, html body .slw-buy, html body .slw-goalbtn,
+html body .slw-toast button {
+  --sle-a: var(--sle-plain-a); --sle-b: var(--sle-plain-b); --sle-fg: var(--sle-plain-fg);
+  --sle-lip: var(--sle-plain-lip); --sle-ring: 0 0 0 0 transparent; --px-lift: 4px;
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn); min-height: 44px;
+  min-width: 44px; padding: 8px 14px; font-family: var(--sle-ui); font-weight: 700; font-size: 15px;
+  line-height: 1.15; letter-spacing: 0.01em;
+}
+/* paint ([class] out-ranks the injected state rules; `.slw .slw-btn[class]` the injected fades) */
+html body .slw-btn[class], html body .slw-learn[class], html body .slw-buy[class],
+html body .slw-goalbtn[class], html body .slw-toast button[class], html body .slw-toast button,
+html body .slw .slw-btn[class] {
+  background: var(--sle-a); border-color: var(--px-line); color: var(--sle-fg);
+  box-shadow: 0 var(--px-lift) 0 0 var(--sle-lip), var(--sle-ring);
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out, background-color var(--px-press) ease-out, color var(--px-press) ease-out;
+}
+html body .slw-btn.big { font-size: 16px; padding: 10px 16px; }
+html body .slw-learn { border-radius: var(--px-r-btn); }
+/* selected / toggled on: violet with white words, AND pressed in (2px down, a 2px lip),
+   so "on" is a shape as well as a colour */
+html body .slw-btn.on, html body .slw-btn[aria-pressed="true"] {
+  --sle-a: var(--sle-deep-a); --sle-b: var(--sle-deep-b);
+  --sle-fg: var(--sle-deep-fg); --sle-lip: var(--sle-deep-lip);
+  --px-lift: 2px; transform: translateY(2px);
+}
+/* primary: Shop, and the big primary (Nice, Next, Put it here, Yes buy it) — sun, standing up */
+html body .slw-btn[data-act="shop"], html body .slw-btn.big.on {
+  --sle-a: var(--sle-primary-a); --sle-b: var(--sle-primary-b);
+  --sle-fg: var(--sle-primary-fg); --sle-lip: var(--sle-primary-lip);
+}
+html body .slw-btn.big.on { --px-lift: 4px; transform: none; }
+/* Games: blue */
+html body .slw-btn[data-act="games"] {
+  --sle-a: var(--sle-secondary-a); --sle-b: var(--sle-secondary-b);
+  --sle-fg: var(--sle-secondary-fg); --sle-lip: var(--sle-secondary-lip);
+}
+/* the light toggle names its next look (icon + word); a plain block either way */
+html body .slw-btn[data-act="showtime"], html body .slw-btn[data-act="showtime"][data-on="1"] {
+  --sle-a: var(--sle-plain-a); --sle-b: var(--sle-plain-b);
+  --sle-fg: var(--sle-plain-fg); --sle-lip: var(--sle-plain-lip);
+}
+/* BUY: leaf */
+html body .slw-buy {
+  --sle-a: var(--sle-buy-a); --sle-b: var(--sle-buy-b);
+  --sle-fg: var(--sle-buy-fg); --sle-lip: var(--sle-buy-lip);
+  font-weight: 800; padding: 8px 12px;
+}
+/* savings-goal toggle: white with gold-ink words; chosen = sun, pressed in */
+html body .slw-goalbtn {
+  --sle-a: var(--px-panel); --sle-b: var(--px-panel);
+  --sle-fg: var(--px-gold-ink); --sle-lip: var(--px-white-lip);
+  padding: 8px 12px;
+}
+html body .slw-goalbtn.on {
+  --sle-a: var(--sle-gold-a); --sle-b: var(--sle-gold-b);
+  --sle-fg: var(--sle-gold-fg); --sle-lip: var(--sle-gold-lip);
+  --px-lift: 2px; transform: translateY(2px);
+}
+/* toast actions: sun on the ink toast */
+html body .slw-toast button {
+  --sle-a: var(--sle-primary-a); --sle-b: var(--sle-primary-b);
+  --sle-fg: var(--sle-primary-fg); --sle-lip: var(--sle-primary-lip);
+  padding: 6px 12px; font-size: 14px; flex: 0 0 auto;
+}
+/* disabled / aria-disabled: off grey, a DASHED line and no lip (state as shape) */
+html body .slw-btn[class]:disabled, html body .slw-buy[class]:disabled,
+html body .slw-goalbtn[class]:disabled, html body .slw-btn[class][aria-disabled="true"],
+html body .slw-buy[class][aria-disabled="true"] {
+  --sle-a: var(--sle-off-bg); --sle-b: var(--sle-off-bg);
+  --sle-fg: var(--sle-off-fg); --sle-lip: transparent;
+  --px-lift: 0px; border-style: dashed; cursor: not-allowed; filter: none; transform: none;
+}
+@media (hover: hover) {
+  html body .slw-btn:hover:not(:disabled), html body .slw-learn:hover,
+  html body .slw-buy:hover:not(:disabled), html body .slw-goalbtn:hover:not(:disabled),
+  html body .slw-toast button:hover { filter: brightness(0.95); }
+}
+/* pressed: 3px down onto a 1px lip, 120 ms */
+html body .slw-btn:active:not(:disabled), html body .slw-learn:active,
+html body .slw-buy:active:not(:disabled), html body .slw-goalbtn:active:not(:disabled),
+html body .slw-toast button:active {
+  --px-lift: 1px; transform: translateY(3px); box-shadow: 0 1px 0 0 var(--sle-lip), var(--sle-ring);
+}
+/* focus: a 3px ink ring with a white halo (≥ 7:1 on white, on every sky band, and at night) */
+html body .slw-btn:focus-visible, html body .slw-learn:focus-visible, html body .slw-buy:focus-visible,
+html body .slw-goalbtn:focus-visible, html body .slw-goal:focus-visible, html body .slw-x:focus-visible,
+html body .slw-trayitem:focus-visible, html body .slw-card .ic:focus-visible,
+html body .slw-sign:focus-visible, html body .slw-pet:focus-visible, html body .slw-me:focus-visible,
+html body .slw-obj:focus-visible, html body .slw-cell:focus-visible,
+html body .slw-sheet input:focus-visible, html body .slw-islechip:focus-visible,
+html body .slw-lock2d:focus-visible, html body .slw-bridge2d:focus-visible,
+html body .slw-camctl button:focus-visible {
+  outline: 3px solid var(--px-ink); outline-offset: 3px; --sle-ring: 0 0 0 8px var(--px-panel);
+}
+/* on the ink toast the ring is sun */
+html body .slw-toast button:focus-visible {
+  outline: 3px solid var(--px-sun); outline-offset: 3px; --sle-ring: 0 0 0 0 transparent;
+}
+
+/* ---------------- ⭐ points + savings goal ---------------- */
+html body .slw-pts {
+  min-height: 44px; padding: 4px 14px; background: var(--px-panel); color: var(--px-ink);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  box-shadow: var(--px-lip) var(--px-white-lip); font-family: var(--sle-ui); font-weight: 800;
+  font-size: 18px; font-variant-numeric: tabular-nums;
+}
+/* the 0.4 s shimmer when the points change stays (a sun sheen on white) */
+html body .slw-pts::after {
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 210, 63, 0.55) 50%, transparent 70%) 0 0 / 250% 100% no-repeat;
+}
+html body .slw-pts.sparkle::after { animation: pxShimmer 0.4s ease-out; }
+
+html body .slw-goal {
+  min-height: 48px; padding: 6px 12px; background: var(--px-panel);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring, 0 0 0 0 transparent); color: var(--px-ink);
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out;
+}
+html body .slw-goal .gt { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+/* a pixel meter: an off-grey track in a 2px line, the sun fill stepped every 12px */
+html body .slw-goal .gb {
+  height: 12px; background: var(--px-off); border: 2px solid var(--px-line); border-radius: 3px;
+  box-shadow: none;
+}
+html body .slw-goal .gb > i {
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, var(--px-sun) 0, var(--px-sun) 10px, var(--px-sun-lip) 10px, var(--px-sun-lip) 12px);
+  box-shadow: none;
+}
+html body .slw-goal.ready,
+html body .slw-goal.slw-trial { background: var(--px-mint); border-color: var(--px-line); }
+html body .slw-goal.ready .gt,
+html body .slw-goal.slw-trial .gt { color: var(--px-ok); }
+@media (hover: hover) {
+  html body button.slw-goal:hover { background: var(--px-well); border-color: var(--px-line); }
+}
+html body button.slw-goal:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring, 0 0 0 0 transparent);
+}
+
+/* ---------------- the island bar: chips, the here row ---------------- */
+html body .slw-isles {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0 0 12px;
+}
+/* the chip strip scrolls inside itself (the padding keeps lips and focus halos unclipped) */
+html body .slw-islechips {
+  display: flex; flex-wrap: nowrap; gap: 8px; margin: -8px; padding: 8px 8px 10px; list-style: none;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+html body .slw-islechips > li { flex: none; margin: 0; padding: 0; scroll-snap-align: start; }
+html body .slw-islechip {
+  --sle-ring: 0 0 0 0 transparent; display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+  min-width: 44px; padding: 0 12px; background: var(--px-panel); color: var(--px-ink);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring); font-family: var(--sle-ui);
+  font-weight: 700; font-size: 15px; line-height: 1; white-space: nowrap; cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out, background-color var(--px-press) ease-out;
+}
+html body .slw-islechip .ic { display: inline-flex; flex: none; width: 22px; height: 22px; }
+html body .slw-islechip .ic svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
+html body .slw-islechip.map { background: var(--px-well); }
+/* new (unlocked, never visited): a pink lip under the chip, beside its static New tag */
+html body .slw-islechip.new { box-shadow: var(--px-lip) var(--px-pink-lip), var(--sle-ring); }
+/* here: sun, bold, and a 4px navy bar along the base (a shape as well as a colour) */
+html body .slw-islechip.here {
+  background: var(--px-sun); font-weight: 800;
+  box-shadow: inset 0 -4px 0 0 var(--px-ink), var(--px-lip) var(--px-sun-lip), var(--sle-ring);
+}
+/* locked: off grey, a dashed line, ink-2 words; the icon carries the lock badge */
+html body .slw-islechip.locked {
+  background: var(--px-off); color: var(--px-ink-2); border-style: dashed; box-shadow: var(--sle-ring);
+}
+/* the Sky map while it is shown: violet, pressed in */
+html body .slw-islechip[aria-pressed="true"] {
+  background: var(--px-violet); color: #FFFFFF; transform: translateY(2px);
+  box-shadow: 0 2px 0 0 var(--px-violet-lip), var(--sle-ring);
+}
+/* place mode: travel waits (the dashed off look; a tap explains why) */
+html body .slw-islechip[aria-disabled="true"] {
+  background: var(--px-off); color: var(--px-off-fg); border-style: dashed; box-shadow: var(--sle-ring);
+  transform: none; cursor: not-allowed;
+}
+/* the visited chip keeps its navy base bar while travel waits */
+html body .slw-islechip.here[aria-disabled="true"] { box-shadow: inset 0 -4px 0 0 var(--px-ink), var(--sle-ring); }
+@media (hover: hover) {
+  html body .slw-islechip:hover:not([aria-disabled="true"]):not(.here):not(.locked) { background: var(--px-well); }
+}
+html body .slw-islechip:active:not([aria-disabled="true"]) {
+  transform: translateY(3px); box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring);
+}
+/* New: a static pink tag (no pulse) */
+html body .slw-chipnew {
+  display: inline-block; padding: 2px 6px; background: var(--px-pink); color: var(--px-ink);
+  border: 2px solid var(--px-ink); border-radius: 4px; font-family: var(--sle-ui); font-weight: 800;
+  font-size: 12px; line-height: 1.1;
+}
+/* the here row: name, status, then its buttons */
+html body .slw-here {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px;
+}
+html body .slw-here .ic { display: inline-flex; flex: none; width: 28px; height: 28px; }
+html body .slw-here .ic svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
+html body .slw-here .nm {
+  font-family: var(--px-display); font-weight: 700; font-size: 20px; line-height: 1.2;
+  letter-spacing: 0.01em; color: var(--px-ink);
+}
+html body .slw-here .st { flex: 1 1 160px; min-width: 0; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 600; font-size: 14px; }
+html body .slw-here .slw-btn,
+html body .slw-here .slw-buy { flex: 0 0 auto; }
+
+/* ---------------- the stage frame ---------------- */
+/* the same 3px line in every mode, so entering edit mode never resizes the 3D canvas */
+html body .slw-stagewrap {
+  border: var(--px-bw) solid var(--px-line); border-radius: 16px;
+  box-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.22);
+}
+html body .slw.showtime .slw-stagewrap {
+  border-color: var(--px-line); box-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.22);
+}
+/* edit and place: a dashed ink frame inside a 3px sun ring (a shape change, not colour alone) */
+html body .slw.slw-edit .slw-stagewrap {
+  border-style: dashed; border-color: var(--px-ink);
+  box-shadow: 0 0 0 3px var(--px-sun), 0 8px 0 0 rgba(27, 33, 80, 0.22);
+}
+html body .slw-3d { border-radius: 13px; }   /* the frame's inner radius */
+/* 3D: the sky's mid band before the first paint; the night colour at Showtime (behind the canvas) */
+html body .slw-stagewrap.slw-is3d {
+  background: var(--px-sky-3); transition: background-color 2s linear;
+}
+html body .slw.showtime .slw-stagewrap.slw-is3d { background-color: var(--px-night-3); }
+
+/* 2D: 13 hard-stop DAY bands down the whole stage, two pixel clouds and a sun in the pad
+   above the island (the island art floats on them). The v1 sky blue and the v2 dusk go. */
+html body .slw-stagewrap:not(.slw-is3d) { background: var(--px-sky-3); }
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage {
+  background:
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 11.84% 2.6% / 5% 1.63% no-repeat,
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 10.34% 4.26% / 9.38% 1.63% no-repeat,
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 8.63% 5.91% / 13.13% 1.63% no-repeat,
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 74.68% 3.54% / 3.75% 1.4% no-repeat,
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 75.68% 4.95% / 7.5% 1.4% no-repeat,
+    linear-gradient(var(--px-cloud), var(--px-cloud)) 76.92% 6.37% / 10.63% 1.4% no-repeat,
+    linear-gradient(var(--px-sun), var(--px-sun)) 93.06% 1% / 2.75% 6.51% no-repeat,
+    linear-gradient(var(--px-sun), var(--px-sun)) 93.51% 1.72% / 3.75% 5.12% no-repeat,
+    linear-gradient(180deg,
+      #4FBCFF 0%, #4FBCFF 7.69%, #5CC3FF 7.69%, #5CC3FF 15.38%,
+      #6BCAFF 15.38%, #6BCAFF 23.08%, #7CD2FF 23.08%, #7CD2FF 30.77%,
+      #8FD9FF 30.77%, #8FD9FF 38.46%, #A3E1FF 38.46%, #A3E1FF 46.15%,
+      #B7E8FF 46.15%, #B7E8FF 53.85%, #C9EEFF 53.85%, #C9EEFF 61.54%,
+      #DAF2FF 61.54%, #DAF2FF 69.23%, #E9F1FF 69.23%, #E9F1FF 76.92%,
+      #F6EDFB 76.92%, #F6EDFB 84.62%, #FFE6F2 84.62%, #FFE6F2 92.31%,
+      #FFDFEE 92.31%, #FFDFEE 100%);
+}
+/* the NIGHT layer always exists under the island art (z 0, first in the stage) and only
+   fades its opacity: 2.0 s linear (D14), kept under reduced motion (a fade is not motion).
+   Every cloud and the moon sit exactly over their day twins, so no pixel moves more than
+   0.20 luminance in any 0.5 s. */
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0;
+  transition: opacity 2s linear;
+  background:
+    linear-gradient(var(--px-sign), var(--px-sign)) 26.38% 2.35% / 0.5% 0.93% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 43.97% 5.4% / 0.5% 0.93% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 58.42% 1.88% / 0.5% 0.93% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 63.44% 7.28% / 0.5% 0.93% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 84.17% 2.82% / 0.5% 0.93% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 11.84% 2.6% / 5% 1.63% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 10.34% 4.26% / 9.38% 1.63% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 8.63% 5.91% / 13.13% 1.63% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 74.68% 3.54% / 3.75% 1.4% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 75.68% 4.95% / 7.5% 1.4% no-repeat,
+    linear-gradient(#7E70C4, #7E70C4) 76.92% 6.37% / 10.63% 1.4% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 93.06% 1% / 2.75% 6.51% no-repeat,
+    linear-gradient(var(--px-sign), var(--px-sign)) 93.51% 1.72% / 3.75% 5.12% no-repeat,
+    linear-gradient(180deg,
+      #1F1B52 0%, #1F1B52 7.69%, #241F5C 7.69%, #241F5C 15.38%,
+      #2A2366 15.38%, #2A2366 23.08%, #302770 23.08%, #302770 30.77%,
+      #372B79 30.77%, #372B79 38.46%, #3F2F82 38.46%, #3F2F82 46.15%,
+      #48338A 46.15%, #48338A 53.85%, #523791 53.85%, #523791 61.54%,
+      #5D3B97 61.54%, #5D3B97 69.23%, #693F9B 69.23%, #693F9B 76.92%,
+      #76449D 76.92%, #76449D 84.62%, #84499D 84.62%, #84499D 92.31%,
+      #924F9B 92.31%, #924F9B 100%);
+}
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::after { content: none; }
+/* a V4.54 host still adds .dusk to the 2D island: Pixel is daytime, so it adds nothing
+   (this comes before the Showtime rule, which wins when both are set) */
+html body .slw.dusk .slw-stagewrap:not(.slw-is3d) .slw-stage::before { opacity: 0; }
+html body .slw.showtime .slw-stagewrap:not(.slw-is3d) .slw-stage::before { opacity: 1; }
+
+/* the sky dip (reduced-motion travel, D45): the stage's own sky colour, opacity only */
+html body .slw-skydip {
+  position: absolute; inset: 0;
+  z-index: 3;   /* over the canvas and the labels, under the camera buttons */
+  background: var(--slw-dip, var(--px-sky-3)); opacity: 0; pointer-events: none;
+  transition: opacity 0.3s linear;
+}
+html body .slw-skydip.on { opacity: 1; }
+
+/* ---------------- labels: 3D anchors and the 2D stage ---------------- */
+html body .slw-tag {
+  font-family: var(--sle-ui); font-weight: 800; letter-spacing: 0.02em; border: 2px solid var(--px-ink);
+  border-radius: 4px;
+}
+html body .slw-tag.play { background: var(--px-sun); color: var(--px-ink); box-shadow: 0 3px 0 0 var(--px-sun-lip); }
+html body .slw-dot {
+  background: var(--px-panel); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 4px;
+  box-shadow: 0 2px 0 0 rgba(27, 33, 80, 0.3);
+}
+/* NEW!: a pink block with ink words (the 0.5 Hz pulse stays; none under reduced motion) */
+html body .slw-new {
+  background: var(--px-pink); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 4px;
+  box-shadow: 0 2px 0 0 var(--px-pink-lip); font-family: var(--sle-ui); font-weight: 800;
+  letter-spacing: 0.02em; padding: 1px 8px;
+}
+/* signs: a cream block in a 3px line with a sun lip; an open land's sign is white */
+html body .slw-sign {
+  --sle-ring: 0 0 0 0 transparent; min-width: 44px; min-height: 44px; padding: 6px 12px;
+  background: var(--px-sign); color: var(--px-ink); border: var(--px-bw) solid var(--px-line);
+  border-radius: var(--px-r-btn); box-shadow: var(--px-lip) var(--px-sun-lip), var(--sle-ring);
+  font-family: var(--sle-ui); font-weight: 700;
+}
+html body .slw-sign.isle.open {
+  background: var(--px-panel); box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring);
+}
+/* a gate sign stands on a short plank post (signs are always positioned: absolute in 2D,
+   relative inside a .slw-tag3d) */
+html body .slw-sign.isle.gate::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: 6px; height: 12px; margin: 4px 0 0 -3px;
+  background: var(--px-soil); border: 2px solid var(--px-line); border-top: 0; pointer-events: none;
+}
+html body .slw-sign .pr { display: block; font-variant-numeric: tabular-nums; }
+html body .slw-stagewrap.slw-narrow .slw-sign.isle .pr { display: none; }
+/* pressed: the lip shrinks (2D signs keep their own placing transform) */
+html body .slw-sign:active { box-shadow: 0 1px 0 0 var(--px-sun-lip), var(--sle-ring); }
+html body .slw-pet .nm, html body .slw-tag3d > .nm {
+  background: var(--px-panel); color: var(--px-ink); border: 2px solid var(--px-ink);
+  box-shadow: 0 2px 0 0 rgba(27, 33, 80, 0.25); font-family: var(--sle-ui); font-weight: 700;
+}
+html body .slw-tag3d > .nm { border-radius: 4px; }
+html body .slw-bubble3d > .nm { background: var(--px-sign); border-color: var(--px-ink); }
+/* tap glyphs: ink with a hard white edge (no blur) */
+html body .slw-fx {
+  color: var(--px-ink); text-shadow: 2px 0 0 #FFFFFF, -2px 0 0 #FFFFFF, 0 2px 0 #FFFFFF, 0 -2px 0 #FFFFFF;
+}
+
+/* 3D keyboard focus: a white ring inside a navy one, readable on grass, sand, water and sky */
+html body .slw-focusring {
+  border: 3px solid #FFFFFF; border-radius: 8px; box-shadow: 0 0 0 3px var(--px-ink);
+}
+
+/* camera buttons: 44px white squares */
+html body .slw-camctl { gap: 8px; }
+html body .slw-camctl button {
+  --sle-ring: 0 0 0 0 transparent; width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  border: var(--px-bw) solid var(--px-line); border-radius: 8px; background: var(--px-panel);
+  color: var(--px-ink); box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring); font-weight: 800;
+  transition: background-color var(--px-press) ease-out, transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out;
+}
+html body .slw.showtime .slw-camctl button { border-color: var(--px-line); }
+html body .slw-camctl button:disabled {
+  opacity: 1; background: var(--px-off); color: var(--px-off-fg); border-style: dashed;
+  box-shadow: var(--sle-ring);
+}
+@media (hover: hover) {
+  html body .slw-camctl button:hover:not(:disabled) { background: var(--px-well); }
+}
+html body .slw-camctl button:active:not(:disabled) {
+  transform: translateY(3px); background: var(--px-well);
+  box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring);
+}
+
+/* ---------------- 2D placement cells ---------------- */
+html body .slw-cell { border-radius: 4px; }
+html body .slw-cell.ok { background: rgba(126, 219, 126, 0.4); border: 3px solid var(--px-leaf-lip); box-shadow: none; }
+/* invalid: coral, pulsing at 1.5 Hz (≤ LED_CHASE_HZ; static under reduced motion) */
+html body .slw-cell.bad {
+  background: rgba(255, 111, 97, 0.4); border: 3px solid var(--px-err);
+  animation: pxBadCell 0.333s ease-in-out infinite alternate;
+}
+html body .slw-cell.door { background: rgba(255, 210, 63, 0.3); border: 3px dashed var(--px-sun); }
+/* the bridge landing: plank stripes in a navy dashed line (paths only) */
+html body .slw-cell.dock {
+  background: repeating-linear-gradient(45deg, var(--px-plank) 0, var(--px-plank) 8px, var(--px-soil) 8px, var(--px-soil) 16px);
+  border: 3px dashed var(--px-ink);
+}
+
+/* ---------------- 2D sky islands: the locked block and the bridge home ---------------- */
+html body .slw-lock2d {
+  --sle-ring: 0 0 0 0 transparent; position: absolute; left: 50%; top: 50%; z-index: 700;
+  transform: translate(-50%, -50%); display: inline-flex; flex-direction: column; align-items: center;
+  gap: 6px; min-width: 44px; min-height: 56px; max-width: 90%; padding: 12px 20px;
+  background: var(--px-sign); color: var(--px-ink); border: var(--px-bw) solid var(--px-line);
+  border-radius: var(--px-r-panel); box-shadow: 0 5px 0 0 var(--px-sun-lip), var(--sle-ring);
+  font-family: var(--sle-ui); font-weight: 800; font-size: 18px; line-height: 1.2; text-align: center;
+  cursor: pointer; touch-action: manipulation;
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out;
+}
+html body .slw-lock2d .pr {
+  padding: 2px 10px; background: var(--px-sun); color: var(--px-ink); border: 2px solid var(--px-ink);
+  border-radius: 4px; font-size: 16px; font-variant-numeric: tabular-nums;
+}
+html body .slw-lock2d:active {
+  transform: translate(-50%, -50%) translateY(3px);
+  box-shadow: 0 2px 0 0 var(--px-sun-lip), var(--sle-ring);
+}
+html body .slw-bridge2d {
+  --sle-ring: 0 0 0 0 transparent; position: absolute; z-index: 800; display: inline-flex;
+  align-items: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 6px 12px;
+  background: var(--px-panel); color: var(--px-ink); border: var(--px-bw) solid var(--px-line);
+  border-radius: var(--px-r-btn); box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring);
+  font-family: var(--sle-ui); font-weight: 800; font-size: 14px; white-space: nowrap; cursor: pointer;
+  touch-action: manipulation;
+}
+html body .slw-bridge2d:active { box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring); }
+
+/* ---------------- edit bar + bag tray ---------------- */
+html body .slw-tray { gap: 10px; padding: 10px 10px 12px; }
+html body .slw-trayitem {
+  --sle-ring: 0 0 0 0 transparent; width: 92px; min-height: 44px; padding: 6px; background: var(--px-well);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-card);
+  box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring); color: var(--px-ink);
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out, background-color var(--px-press) ease-out;
+}
+html body .slw-trayitem span { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 600; font-size: 11.5px; line-height: 1.2; }
+/* the count badge: violet with white figures */
+html body .slw-trayitem b {
+  background: var(--px-violet); color: #FFFFFF; border: 2px solid var(--px-ink); border-radius: 4px;
+  box-shadow: none; font-family: var(--sle-ui); font-weight: 800; font-variant-numeric: tabular-nums;
+}
+/* the chosen style / accessory (its label also ends with ✓): violet-soft, a violet line */
+html body .slw-trayitem[style*="background:#f1edfb"] {
+  background: var(--px-violet-soft) !important;   /* beats inline */
+  border-color: var(--px-violet) !important;   /* beats inline */
+}
+/* a style not owned yet: the dashed off look instead of 55% opacity (words stay ≥ 4.5:1) */
+html body .slw-trayitem[style*="opacity:.55"] {
+  opacity: 1 !important;   /* beats inline */
+  background: var(--px-off); border-style: dashed; box-shadow: var(--sle-ring);
+}
+@media (hover: hover) {
+  html body .slw-trayitem:hover { transform: none; background-color: var(--px-panel); border-color: var(--px-line); }
+}
+html body .slw-trayitem:active {
+  transform: translateY(3px); box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring);
+}
+/* "Take it where?": one full-width row per island */
+html body .slw-take .slw-btn { width: 100%; justify-content: flex-start; }
+html body .slw-take .slw-btn + .slw-btn { margin-top: 8px; }
+
+/* ---------------- sheets + overlays ---------------- */
+html body .slw-ov {
+  background: var(--px-scrim); animation: pxFade 200ms ease-out both;
+}
+html body .slw-sheet {
+  padding: 18px 18px 20px; background: var(--px-panel); border: 4px solid var(--px-line);
+  border-radius: 16px; box-shadow: 0 8px 0 0 rgba(27, 33, 80, 0.25); color: var(--px-ink);
+  color-scheme: light; font-family: var(--sle-body); font-weight: 500;
+  animation: pxRise 200ms var(--px-ease) both;
+}
+html body .slw-sheet h2 {
+  margin: 0 0 8px; font-family: var(--px-display); font-weight: 700; font-size: 24px; line-height: 1.2;
+  letter-spacing: 0.01em; color: var(--px-ink);
+}
+html body .slw-x {
+  --sle-ring: 0 0 0 0 transparent; width: 44px; height: 44px; background: var(--px-panel);
+  color: var(--px-ink); border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring); font-family: var(--sle-ui);
+  font-size: 18px; font-weight: 800;
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out, background-color var(--px-press) ease-out;
+}
+@media (hover: hover) {
+  html body .slw-x:hover { background: var(--px-well); }
+}
+html body .slw-x:active {
+  transform: translateY(3px); box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring);
+}
+html body .slw-cats { gap: 8px; margin: 10px 0 14px; }
+html body .slw-cats .slw-btn { border-radius: var(--px-r-btn); padding: 8px 14px; font-size: 14px; }
+html body .slw-err { color: var(--px-err); font-family: var(--sle-ui); font-weight: 700; }
+html body .slw-need { color: var(--px-gold-ink); font-family: var(--sle-ui); font-weight: 700; font-variant-numeric: tabular-nums; }
+html body .slw-unlocks {
+  background: var(--px-well); border: 2px solid var(--px-white-lip); border-radius: var(--px-r-card);
+  box-shadow: none; color: var(--px-ink); font-family: var(--sle-body); font-weight: 500;
+}
+html body .slw-sheet input {
+  min-height: 44px; background: var(--px-panel); color: var(--px-ink);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn); font-family: var(--sle-ui);
+  font-weight: 600;
+}
+html body .slw-sheet input[style*="border:2px solid #d9d2ee"] {
+  border: var(--px-bw) solid var(--px-line) !important;   /* beats inline */
+  border-radius: var(--px-r-btn) !important;   /* beats inline */
+}
+/* inline text colours from the V4.54 sheets: the Encore night re-maps turn back to light-safe inks */
+html body .slw-sheet [style*="color:#6b5a22"] { color: var(--px-gold-ink) !important; }   /* beats inline */
+html body .slw-sheet [style*="color:#1d8a4c"] { color: var(--px-ok) !important; }   /* beats inline */
+html body .slw-sheet [style*="color:#b9821a"] {
+  color: var(--px-gold-ink) !important;   /* beats inline */
+  font-family: var(--sle-ui) !important;   /* beats inline */
+  font-variant-numeric: tabular-nums;
+}
+html body .slw-time[style*="background:#f1edfb"] {
+  background: var(--px-sign) !important;   /* beats inline */
+  border-color: var(--px-sun-lip) !important;   /* beats inline */
+}
+
+/* plain cards (the crew sheet) */
+html body .slw-card {
+  background: var(--px-panel); border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-card);
+  box-shadow: 0 4px 0 0 var(--px-white-lip); color: var(--px-ink);
+}
+html body .slw-card .nm { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; }
+
+/* ---------------- shop cards: white blocks, a sky well, the item on a voxel plinth ---------------- */
+html body .slw-grid { gap: 14px; }
+html body .slw-grid > .slw-card {
+  padding: 8px 8px 10px; background: var(--px-panel); border: var(--px-bw) solid var(--px-line);
+  border-radius: var(--px-r-card); box-shadow: 0 4px 0 0 var(--px-white-lip);
+}
+/* the image well: a two-band sky; the plinth replaces the Gunmetal riser and its ring */
+html body .slw-grid > .slw-card .ic {
+  background: linear-gradient(180deg, #DAF2FF 0%, #DAF2FF 62%, #FFFFFF 62%, #FFFFFF 100%);
+  border: 2px solid #DAF2FF; border-radius: var(--px-r-btn);
+}
+/* three flat tiers stepping out: a grass top over two soil steps (one colour per tier) */
+html body .slw-grid > .slw-card .ic::after, html body .slw-cele .ic::after {
+  content: ""; position: absolute; left: 20%; right: 20%; bottom: 5%; height: 15%; z-index: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(var(--px-grass), var(--px-grass)) 50% 0 / 70% 34% no-repeat,
+    linear-gradient(var(--px-soil), var(--px-soil)) 50% 50% / 85% 33% no-repeat,
+    linear-gradient(var(--px-soil-2), var(--px-soil-2)) 50% 100% / 100% 34% no-repeat;
+  box-shadow: none;
+}
+/* no tilt glare on a flat block */
+html body .slw-grid > .slw-card .ic::before { content: none; }
+html body .slw-grid > .slw-card .nm { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 15px; line-height: 1.2; }
+html body .slw-grid > .slw-card .ds { color: var(--px-ink-2); font-family: var(--sle-body); font-weight: 400; font-size: 13px; line-height: 1.4; }
+html body .slw-grid > .slw-card .pr { color: var(--px-gold-ink); font-family: var(--sle-ui); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+/* chips: a light fill, words and a 2px edge in the text colour (the same chips show an
+   island's status in the collapsed shop headers) */
+html body .slw-card .chip, html body .slw-isleacc .chip, html body .slw-crewacc .chip {
+  padding: 2px 8px; background: var(--px-well); border: 2px solid currentColor; border-radius: 4px;
+  box-shadow: none; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 11.5px;
+  line-height: 1.2;
+}
+html body .slw-card .chip.own, html body .slw-isleacc .chip.own,
+html body .slw-crewacc .chip.own { background: var(--px-own); color: var(--px-own-fg); }
+html body .slw-card .chip.lock, html body .slw-isleacc .chip.lock,
+html body .slw-crewacc .chip.lock { background: var(--px-lock); color: var(--px-lock-fg); }
+html body .slw-card .chip.rep, html body .slw-isleacc .chip.rep,
+html body .slw-crewacc .chip.rep { background: var(--px-rep); color: var(--px-rep-fg); }
+html body .slw-card .chip.uni, html body .slw-isleacc .chip.uni,
+html body .slw-crewacc .chip.uni { background: var(--px-uni); color: var(--px-uni-fg); }
+html body .slw-free {
+  background: var(--px-leaf); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 4px;
+  box-shadow: none; font-family: var(--sle-ui); font-weight: 800;
+}
+
+/* shine by price (SLIslandLook.shineLevel), now pastel edges on white */
+html body .slw-grid > .slw-card.shine-0 { border-color: var(--px-line); }
+html body .slw-grid > .slw-card.shine-1 {
+  border: 3px solid transparent;
+  background: linear-gradient(var(--px-panel), var(--px-panel)) padding-box, linear-gradient(135deg, #FF9FCF, #8FD9FF) border-box;
+}
+/* 2 · a pastel edge drifting round over 8 s (still on LOW and under reduced motion) */
+html body .slw-grid > .slw-card.shine-2 {
+  border: 3px solid transparent; padding: 8px 8px 10px;
+  background: linear-gradient(var(--px-panel), var(--px-panel)) padding-box, conic-gradient(from var(--px-foil), #FF9FCF, #8FD9FF, #9DEBB0, #FFE27A, #FF9FCF) border-box;
+  animation: pxFoil 8s linear infinite;
+}
+/* 3 · a gold edge with two 4-point pixel glints per 4 s */
+html body .slw-grid > .slw-card.shine-3 {
+  border: 3px solid transparent; padding: 8px 8px 10px;
+  background: linear-gradient(var(--px-panel), var(--px-panel)) padding-box, linear-gradient(135deg, #FFE89A 0%, #F0C02F 32%, #C99A00 52%, #F0C02F 72%, #FFE89A 100%) border-box;
+}
+html body .slw-grid > .slw-card.shine-3::before, html body .slw-grid > .slw-card.shine-3::after {
+  width: 18px; height: 18px;
+  background: linear-gradient(var(--px-sun), var(--px-sun)) 50% 50% / 34% 34% no-repeat, var(--px-sun-lip);
+  clip-path: var(--px-spark); animation: pxGlint 4s ease-in-out infinite;
+}
+html body .slw-grid > .slw-card.shine-3::after { animation-delay: 2s; }
+/* a landmark comes free with its land: a dashed sun edge and no price line */
+html body .slw-grid > .slw-card.lm {
+  border: 3px dashed var(--px-sun-lip); background: var(--px-panel);
+}
+html body .slw-grid > .slw-card.lm .pr { display: none; }
+/* the All tab's island card opens that island's shop: a doorway, not an item — a sky well
+   on a blue lip, the island icon with no plinth under it, and no price line */
+html body .slw-grid > .slw-card.isle {
+  border: 3px solid var(--px-line); background: var(--px-well); box-shadow: 0 4px 0 0 var(--px-blue-lip);
+}
+html body .slw-grid > .slw-card.isle .ic::after { content: none; }
+html body .slw-grid > .slw-card.isle .pr { display: none; }
+/* desktop hover: the block lifts 2px instead of the Encore tilt (its glare layer is gone) */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  html body .slw-grid > .slw-card:hover { transform: translateY(-2px); }
+}
+
+/* Sky islands shop sections */
+html body .slw-shopisle {
+  margin: 0 0 16px; padding: 0 0 16px; border-bottom: 2px dotted var(--px-line);
+}
+html body .slw-shopisle:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+html body .slw-shopisle h3 {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; font-family: var(--px-display);
+  font-weight: 700; font-size: 20px; line-height: 1.2; letter-spacing: 0.01em; color: var(--px-ink);
+}
+html body .slw-shopisle h3 svg { flex: none; width: 24px; height: 24px; shape-rendering: crispEdges; }
+html body .slw-islefilter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+
+/* ---------------- the land shops: shelves, island headers, the Crew aisle, wear rows ---------------- */
+/* a shelf's sub-heading: Outfit (the pixel face is for 20px and more) over a 2px line; the
+   jump chips scroll to it */
+html body .slw-shelfhd {
+  display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; padding: 0 0 6px;
+  border-bottom: 2px solid var(--px-white-lip); color: var(--px-ink); font-family: var(--sle-ui);
+  font-weight: 800; font-size: 17px; line-height: 1.2; scroll-margin-top: 8px;
+}
+html body .slw-shelfhd .n {
+  padding: 1px 8px; background: var(--px-well); color: var(--px-ink-2); border: 2px solid currentColor;
+  border-radius: 4px; font-weight: 700; font-size: 12px; line-height: 1.2; font-variant-numeric: tabular-nums;
+}
+/* shelf jump chips: they scroll to a shelf — never filters, so never pressed in */
+html body .slw-shelfjump {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px;
+}
+html body .slw-shelfjump .lb {
+  color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13px;
+}
+html body .slw-shelfjump .slw-btn {
+  --sle-a: var(--px-well); --sle-b: var(--px-well); padding: 6px 12px; font-size: 14px;
+}
+/* collapsed headers: an island in 'All five', a land's group in the Crew tab. One white
+   block row each; the open one turns its ▸ down and stands on a navy base bar (a shape as
+   well as a colour) */
+html body .slw-isleacc, html body .slw-crewacc {
+  --sle-ring: 0 0 0 0 transparent; box-sizing: border-box; display: flex; flex-wrap: wrap;
+  align-items: center; gap: 8px 12px; width: 100%; min-width: 44px; min-height: 56px; margin: 0;
+  padding: 6px 12px; background: var(--px-panel); color: var(--px-ink);
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  box-shadow: var(--px-lip) var(--px-white-lip), var(--sle-ring); font-family: var(--sle-ui);
+  font-weight: 700; font-size: 15px; line-height: 1.2; text-align: left;
+}
+html body .slw-isleacc.open, html body .slw-crewacc.open,
+html body .slw-isleacc[aria-expanded="true"], html body .slw-crewacc[aria-expanded="true"] {
+  background: var(--px-well);
+  box-shadow: inset 0 -4px 0 0 var(--px-ink), var(--px-lip) var(--px-white-lip), var(--sle-ring);
+}
+/* the toggle inside a header: the icon and the name, as wide as the row allows */
+html body .slw-isleacc .tg, html body .slw-crewacc .tg {
+  --sle-ring: 0 0 0 0 transparent; display: inline-flex; align-items: center; gap: 8px; flex: 1 1 160px;
+  min-width: 44px; min-height: 44px; margin: 0; padding: 0; background: none; border: 0;
+  border-radius: 4px; box-shadow: var(--sle-ring); color: inherit; font: inherit; text-align: left;
+  touch-action: manipulation;
+}
+html body .slw-isleacc .tg, html body .slw-crewacc .tg, html body button.slw-isleacc,
+html body button.slw-crewacc { cursor: pointer; }
+/* ▸ on whatever carries aria-expanded (the inner toggle, or the row when it is the button) */
+html body .slw-isleacc .tg::before, html body .slw-crewacc .tg::before,
+html body .slw-isleacc[aria-expanded]::before, html body .slw-crewacc[aria-expanded]::before {
+  content: ""; flex: none; width: 0; height: 0; border-style: solid; border-width: 6px 0 6px 9px;
+  border-color: transparent transparent transparent var(--px-ink);
+}
+/* ▾ once it is open: the same triangle, pointing down */
+html body .slw-isleacc .tg[aria-expanded="true"]::before, html body .slw-crewacc .tg[aria-expanded="true"]::before,
+html body .slw-isleacc[aria-expanded="true"]::before, html body .slw-crewacc[aria-expanded="true"]::before {
+  border-width: 9px 6px 0; border-color: var(--px-ink) transparent transparent;
+}
+html body .slw-isleacc .ic, html body .slw-crewacc .ic { display: inline-flex; flex: none; width: 28px; height: 28px; }
+html body .slw-isleacc .ic svg,
+html body .slw-crewacc .ic svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
+html body .slw-isleacc .nm, html body .slw-crewacc .nm { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 17px; }
+html body .slw-isleacc .ct, html body .slw-crewacc .ct {
+  color: var(--px-ink-2); font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+html body .slw-isleacc .slw-btn,
+html body .slw-isleacc .slw-buy { flex: 0 0 auto; }
+html body .slw-isleacc:focus-visible, html body .slw-crewacc:focus-visible,
+html body .slw-isleacc .tg:focus-visible, html body .slw-crewacc .tg:focus-visible,
+html body .slw-colourbtn:focus-visible {
+  outline: 3px solid var(--px-ink); outline-offset: 3px; --sle-ring: 0 0 0 8px var(--px-panel);
+}
+/* a land's group in the Crew tab: its header, then its six cards */
+html body .slw-crewland { margin: 0 0 10px; }
+html body .slw-crewland > .slw-grid { margin: 14px 0 18px; }
+/* the crew sheet's wear rows: the slot's name, then its tray (it scrolls sideways inside itself) */
+html body .slw-wearslots { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+html body .slw-wearslots > * { display: flex; align-items: center; gap: 8px; min-width: 0; }
+html body .slw-wearslots .lb {
+  flex: 0 0 48px; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13px;
+}
+html body .slw-wearslots .slw-tray { flex: 1 1 auto; min-width: 0; overscroll-behavior-x: contain; }
+/* the worn one: violet-soft with a violet line, pressed in onto a 2px lip */
+html body .slw-wearslots .slw-trayitem[aria-pressed="true"], html body .slw-wearslots .slw-trayitem.on {
+  background: var(--px-violet-soft); border-color: var(--px-violet); transform: translateY(2px);
+  box-shadow: 0 2px 0 0 var(--px-violet-lip), var(--sle-ring);
+}
+/* 'Next colour' in the edit bar: a four-colour pixel swatch, then the words. The child steps
+   through the colourways; nothing is rolled */
+html body .slw-colourbtn { min-width: 44px; min-height: 44px; }
+html body .slw-colourbtn::before {
+  content: ""; flex: none; display: inline-block; width: 16px; height: 16px;
+  border: 2px solid var(--px-ink); border-radius: 3px;
+  background:
+    linear-gradient(var(--px-pink), var(--px-pink)) 0 0 / 50% 50% no-repeat,
+    linear-gradient(var(--px-sun), var(--px-sun)) 100% 0 / 50% 50% no-repeat,
+    linear-gradient(var(--px-leaf), var(--px-leaf)) 0 100% / 50% 50% no-repeat,
+    var(--px-blue);
+}
+
+/* ---------------- item detail, intro dots, games, info boxes ---------------- */
+html body .slw-detail .big {
+  background: linear-gradient(180deg, #DAF2FF 0%, #DAF2FF 62%, #FFFFFF 62%, #FFFFFF 100%);
+  border: var(--px-bw) solid var(--px-line); border-radius: 12px; box-shadow: none;
+}
+/* the Encore :has() riser goes: a light sky well needs none (same rank, later) */
+html body .slw-ov .slw-detail .big::after { content: none; }
+html body .slw-dots i { border-radius: 2px; background: var(--px-off-lip); }
+html body .slw-dots i.on { width: 24px; border-radius: 2px; background: var(--px-violet); }
+
+/* game cards: white with a 14px top band in the game's colours, ink words */
+html body .slw-game {
+  padding: 26px 16px 16px; color: var(--px-ink); background-color: var(--px-panel);
+  background-image: var(--slw-g, linear-gradient(90deg, var(--px-blue), var(--px-violet)));
+  background-size: 100% 14px; background-repeat: no-repeat; background-position: 0 0;
+  border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-card);
+  box-shadow: 0 4px 0 0 var(--px-white-lip);
+}
+/* the V4.54 host paints the whole card inline: fold its colours into the same band */
+html body .slw-game[style*="background:"] {
+  background-color: var(--px-panel) !important;   /* beats inline */
+  background-size: 100% 14px !important;   /* beats inline */
+  background-repeat: no-repeat !important;   /* beats inline */
+  background-position: 0 0 !important;   /* beats inline */
+}
+html body .slw-game::before { content: none; }   /* no night scrim: the words sit on white */
+html body .slw-game h3 {
+  font-family: var(--px-display); font-weight: 700; font-size: 22px; line-height: 1.2;
+  letter-spacing: 0.01em; color: var(--px-ink); text-shadow: none;
+}
+html body .slw-game .pb { opacity: 1; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 600; font-size: 13.5px; font-variant-numeric: tabular-nums; text-shadow: none; }
+html body .slw-game .slw-btn {
+  --sle-a: var(--sle-primary-a); --sle-b: var(--sle-primary-b);
+  --sle-fg: var(--sle-primary-fg); --sle-lip: var(--sle-primary-lip);
+}
+html body .slw-game.locked {
+  background: var(--px-off) !important;   /* beats injected */
+  color: var(--px-ink); border-style: dashed; box-shadow: none;
+}
+html body .slw-time {
+  background: var(--px-sign); border: 2px solid var(--px-sun-lip); border-radius: var(--px-r-card);
+  box-shadow: none; color: var(--px-ink); font-family: var(--sle-ui); font-weight: 600;
+}
+html body .slw-trialbar {
+  background: var(--px-mint); border: 2px solid var(--px-leaf-lip); border-radius: var(--px-r-card);
+  box-shadow: none; color: var(--px-ok); font-family: var(--sle-ui); font-weight: 600;
+}
+/* loading: a strip of sky with the child's pixel ✦, the words on white below it */
+html body .slw-loading {
+  max-width: 1120px; margin: 8px auto; padding: 0 16px 28px;
+  background:
+    linear-gradient(180deg,
+      var(--px-sky-1) 0%, var(--px-sky-1) 25%, var(--px-sky-2) 25%, var(--px-sky-2) 50%,
+      var(--px-sky-3) 50%, var(--px-sky-3) 75%, var(--px-sky-4) 75%, var(--px-sky-4) 100%) 0 0 / 100% 96px no-repeat,
+    var(--px-panel);
+  border: var(--px-bw) solid var(--px-line); border-radius: 18px;
+  box-shadow: 0 6px 0 0 rgba(27, 33, 80, 0.22); color: var(--px-ink); font-family: var(--sle-ui);
+  font-weight: 600; font-size: 18px;
+}
+html body .slw-loading::before {
+  width: 40px; height: 40px; margin: 28px auto 38px; background: var(--sle-member);
+  clip-path: var(--px-spark); animation: pxBob 2.4s ease-in-out infinite;
+}
+
+/* ---------------- celebrations: a white block over a navy scrim ---------------- */
+html body .slw-cele {
+  background: var(--px-scrim); animation: pxFade 200ms ease-out both;
+}
+html body .slw-cele::before {
+  background: var(--px-panel); border: 4px solid var(--px-line); border-radius: 16px;
+  box-shadow: 0 8px 0 0 rgba(27, 33, 80, 0.25); animation: pxRise 240ms var(--px-ease) both;
+}
+html body .slw-cele > * { animation: pxRise 240ms var(--px-ease) both; }
+html body .slw-cele.pop .ic { animation: pxRise 240ms var(--px-ease) both; }
+html body .slw-cele .t {
+  font-family: var(--px-display); font-weight: 700; font-size: clamp(24px, 6vw, 32px); line-height: 1.2;
+  letter-spacing: 0.01em; color: var(--px-ink); text-shadow: none;
+}
+html body .slw-cele .s { color: var(--px-ink-2); }
+/* the plinth sits under the icon (shared with the shop card rule above) */
+html body .slw-cele .ic::after { left: 14%; right: 14%; bottom: -4%; height: 14%; }
+/* encore: a lighter navy scrim so the 3D encore shows round the card */
+html body .slw-cele.encore { background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(27, 33, 80, 0.3) 0%, rgba(27, 33, 80, 0.14) 100%); }
+/* the land reveal: clear in the middle, navy at the edges, and the card sits low so the
+   new landmark stays in view above it */
+html body .slw-cele.reveal {
+  grid-template-rows: 1fr repeat(4, auto) 4vh;
+  background: radial-gradient(ellipse 75% 65% at 50% 38%, rgba(27, 33, 80, 0) 0%, rgba(27, 33, 80, 0) 45%, rgba(27, 33, 80, 0.35) 100%);
+}
+
+/* confetti: square pixel pieces (8–12px) in sun, pink, blue, leaf, violet and the
+   child's colour (6 of 14); the same 1.5 s bursts */
+html body .slw-cannons::before, html body .slw-cannons::after {
+  background:
+    linear-gradient(var(--sle-member), var(--sle-member)) 12% 78% / 10px 10px,
+    linear-gradient(var(--px-pink), var(--px-pink)) 22% 60% / 12px 12px,
+    linear-gradient(var(--px-sun), var(--px-sun)) 30% 84% / 8px 8px,
+    linear-gradient(var(--sle-member), var(--sle-member)) 38% 48% / 12px 12px,
+    linear-gradient(var(--px-blue), var(--px-blue)) 46% 70% / 10px 10px,
+    linear-gradient(var(--sle-member), var(--sle-member)) 52% 30% / 10px 10px,
+    linear-gradient(var(--px-leaf), var(--px-leaf)) 60% 55% / 8px 8px,
+    linear-gradient(var(--px-violet), var(--px-violet)) 66% 20% / 12px 12px,
+    linear-gradient(var(--sle-member), var(--sle-member)) 72% 42% / 8px 8px,
+    linear-gradient(var(--px-blue), var(--px-blue)) 78% 12% / 10px 10px,
+    linear-gradient(var(--sle-member), var(--sle-member)) 84% 34% / 10px 10px,
+    linear-gradient(var(--px-pink), var(--px-pink)) 88% 58% / 12px 12px,
+    linear-gradient(var(--px-sun), var(--px-sun)) 20% 30% / 10px 10px,
+    linear-gradient(var(--sle-member), var(--sle-member)) 40% 88% / 8px 8px;
+  background-repeat: no-repeat;
+}
+
+/* ---------------- toasts: an ink block at the top ---------------- */
+html body .slw-toast {
+  background: var(--px-ink); color: #FFFFFF; border: 3px solid var(--px-ink);
+  border-radius: var(--px-r-panel); box-shadow: 0 5px 0 0 rgba(27, 33, 80, 0.3); font-family: var(--sle-ui);
+  font-weight: 700; font-size: 15px; animation: pxToastIn 200ms var(--px-ease) both;
+}
+
+/* ---------------- visually hidden (screen readers only) ---------------- */
+html body .slw-vh, html body #slwLive {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ================================================================
+   2D sprite acts (world-art groups; rewards-world's tapItem restarts
+   `.go`). Each plays once inside its act's seconds, rotation and
+   translation only — no flashing, no scale; the rest pose is the end.
+   ================================================================ */
+html body .slw-act {
+  transform-box: fill-box; transform-origin: 50% 100%;
+}
+html body .slw-act-wheel,
+html body .slw-act-wobble { transform-origin: 50% 50%; }
+html body .slw-act-open { transform-origin: 0 50%; }
+html body .slw-act-drawbridge { transform-origin: 50% 0; }
+html body .slw-act.slw-act-ride.go { animation: pxActRide 3s ease-in-out; }
+html body .slw-act.slw-act-slide.go { animation: pxActSlide 3s ease-in-out; }
+html body .slw-act.slw-act-open.go { animation: pxActOpen 0.5s ease-out; }
+html body .slw-act.slw-act-wobble.go { animation: pxActWobble 3s ease-in-out; }
+html body .slw-act.slw-act-skate.go { animation: pxActSkate 3s ease-in-out; }
+html body .slw-act.slw-act-wheel.go { animation: pxActWheel 4s ease-in-out; }
+html body .slw-act.slw-act-lift.go { animation: pxActLift 4s ease-in-out; }
+html body .slw-act.slw-act-zip.go { animation: pxActZip 4s ease-in-out; }
+html body .slw-act.slw-act-drawbridge.go { animation: pxActDrawbridge 1.5s ease-out; }
+html body .slw-act.slw-act-penguins.go { animation: pxActPenguins 6s ease-in-out; }
+/* land-shop sprites (D110): the one .slw-act group carries the class ACT_INFO names (anim2d).
+   Nine classes serve all 79 acts, so each is no longer than the shortest act that uses it,
+   and none is over 3 s. A swing hangs from its top and a spin turns about its centre; the
+   rest stand on their base like every act group. */
+html body .slw-anim-spin { transform-origin: 50% 50%; }
+html body .slw-anim-swing { transform-origin: 50% 0; }
+html body .slw-act.slw-anim-spin.go { animation: pxAnimSpin 2s ease-in-out; }
+html body .slw-act.slw-anim-lift.go { animation: pxAnimLift 2.4s ease-in-out; }
+html body .slw-act.slw-anim-swing.go { animation: pxAnimSwing 2.4s ease-in-out; }
+html body .slw-act.slw-anim-slide.go { animation: pxAnimSlide 2.4s ease-in-out; }
+html body .slw-act.slw-anim-shake.go { animation: pxAnimShake 1.2s ease-in-out; }
+html body .slw-act.slw-anim-pop.go { animation: pxAnimPop 0.5s ease-out; }
+html body .slw-act.slw-anim-hop.go { animation: pxAnimHop 1.2s ease-in-out; }
+html body .slw-act.slw-anim-sway.go { animation: pxAnimSway 1.6s ease-in-out; }
+/* a toggle redraws its sprite and an fx-only act shows its glyph: the group stays still */
+html body .slw-act.slw-anim-none.go { animation: none; }
+
+/* ---------------- LOW tier ---------------- */
+html.sl-low body .slw-grid > .slw-card.shine-2 { animation: none; }
+html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
+
+/* ---------------- phones ---------------- */
+@media (max-width: 640px) {
+  html body .slw { padding: 8px 6px 14px; border-radius: 18px; }
+  /* HUD: row 1 Back · ⭐ · goal (the goal takes the rest); row 2 the actions as one
+     sideways strip, Island Shop first */
+  html body .slw-hud { padding: 6px; gap: 6px; border-radius: 12px; }
+  html body .slw-learn,
+  html body .slw-pts { flex: 0 0 auto; }
+  html body .slw-goal { flex: 1 1 140px; min-width: 0; }
+  html body .slw-acts {
+    flex: 1 0 100%; flex-wrap: nowrap; min-width: 0; margin: 0 -6px -6px; padding: 6px 6px 10px;
+    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  html body .slw-acts > .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+  html body .slw-btn { padding: 8px 12px; font-size: 14px; }
+  html body .slw-btn.big { padding: 9px 14px; font-size: 15px; }
+  html body .slw-learn { padding: 8px 12px; font-size: 14px; }
+  html body .slw-pts { padding: 4px 12px; font-size: 16px; }
+  html body .slw-legend { border-radius: 12px; padding: 8px 12px; }
+  html body .slw-islechip { padding: 0 10px; font-size: 14px; }
+  /* the here row wraps under the chips: the name on one line, the buttons below */
+  html body .slw-here .nm { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html body .slw-here .st { flex: 1 1 100%; }
+  html body .slw-here .slw-btn,
+  html body .slw-here .slw-buy { flex: 1 1 auto; }
+}
+/* the shop's tab row on phones, upright or sideways (D99): it sticks to the top of the shop
+   sheet as one sideways strip while the list scrolls beneath it. The band is 56px: the 44px
+   row, room for its 4px lip and for a focus ring, white out to the sheet's edges (the sheet
+   pads 18px). Sticky rows exist only inside .slw-sheet; wider screens keep the rows in the
+   flow, where the tabs may wrap. */
+@media (max-width: 600px), (orientation: landscape) and (max-height: 540px) {
+  html body .slw-sheet .slw-cats {
+    position: -webkit-sticky; position: sticky; top: 0; z-index: 6; flex-wrap: nowrap;
+    margin: 10px -18px 8px; padding: 6px 18px; overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+    background: var(--px-panel); box-shadow: 0 2px 0 0 var(--px-white-lip);
+  }
+  html body .slw-sheet .slw-cats .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+  html body .slw-shelfhd { scroll-margin-top: 64px; }
+}
+@media (max-width: 600px) {
+  /* sheets are bottom sheets */
+  html body .slw-sheet {
+    border-width: 4px 4px 0; border-radius: 16px 16px 0 0; box-shadow: none;
+  }
+  html body .slw-sheet h2 { font-size: 22px; }
+  /* the reveal card sits at the bottom */
+  html body .slw-cele.reveal { grid-template-rows: 1fr repeat(4, auto) 0; }
+  /* the Sky islands filter row scrolls sideways, like the shop tabs */
+  html body .slw-islefilter {
+    flex-wrap: nowrap; margin: 0 -4px 14px; padding: 4px 4px 10px; overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  }
+  html body .slw-islefilter > .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+  /* in the shop it sticks under the tab row (top = that band's 56px): an opaque white band
+     out to the sheet's edges, so the cards scroll away beneath both rows */
+  html body .slw-sheet .slw-islefilter.sticky {
+    position: -webkit-sticky; position: sticky; top: 56px; z-index: 5; margin: 0 -18px 14px;
+    padding: 6px 18px; scrollbar-width: none; background: var(--px-panel);
+    box-shadow: 0 2px 0 0 var(--px-white-lip);
+  }
+  /* a shelf the jump chips scroll to lands under both bands, not behind them */
+  html body .slw-shelfhd { scroll-margin-top: 120px; }
+  /* the shelf jump chips are one sideways strip too */
+  html body .slw-shelfjump {
+    flex-wrap: nowrap; margin: 0 -6px 12px; padding: 6px 6px 10px; overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+  }
+  html body .slw-shelfjump > * { flex: 0 0 auto; scroll-snap-align: start; }
+}
+@media (max-width: 380px) {
+  /* light, music, sound and ? become 44px icon squares (their aria-labels name them):
+     the first glyph shows, the words move past the clipped edge */
+  html body .slw-btn[data-act="showtime"], html body .slw-btn[data-act="music"],
+  html body .slw-btn[data-act="sound"], html body .slw-btn[data-act="info"] {
+    width: 44px; min-width: 44px; padding: 0 0 0 9px; justify-content: flex-start; gap: 40px;
+    word-spacing: 40px; white-space: nowrap; overflow: hidden;
+  }
+  html body .slw-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); gap: 10px; }
+}
+/* phones held sideways: chips and the here row share one line (no status words), and the
+   stage leaves room for the island bar */
+@media (orientation: landscape) and (max-height: 540px) {
+  html body .slw-isles { flex-direction: row; align-items: center; gap: 8px; }
+  html body .slw-islechips { flex: 1 1 auto; min-width: 0; }
+  html body .slw-here { flex: 0 1 auto; flex-wrap: nowrap; padding: 4px 8px; }
+  html body .slw-here .st { display: none; }
+  html body .slw-stagewrap.slw-is3d .slw-stage {
+    height: calc(100vh - 124px); height: calc(100dvh - 124px);
+  }
+  /* a sideways phone is short: only the shop's tab row sticks, the island row scrolls away */
+  html body .slw-sheet .slw-islefilter.sticky { position: static; box-shadow: none; }
+  html body .slw-shelfhd { scroll-margin-top: 64px; }
+}
+
+/* ---------------- reduced motion: no loops, no presses, no rises ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  html body .slw-ov, html body .slw-sheet, html body .slw-toast, html body .slw-cele,
+  html body .slw-cele::before, html body .slw-cele > *,
+  html body .slw-cele.pop .ic { animation: pxFade 120ms ease-out both; }
+  html body .slw-cell.bad, html body .slw-loading::before, html body .slw-grid > .slw-card.shine-2,
+  html body .slw-pts.sparkle::after { animation: none; }
+  html body .slw-grid > .slw-card.shine-3::before,
+  html body .slw-grid > .slw-card.shine-3::after { animation: none; opacity: 0.9; }
+  html body .slw-cannons { display: none; }
+  /* 2D acts: the rest pose is the end state */
+  html body .slw-act.slw-act-ride.go, html body .slw-act.slw-act-slide.go,
+  html body .slw-act.slw-act-open.go, html body .slw-act.slw-act-wobble.go,
+  html body .slw-act.slw-act-skate.go, html body .slw-act.slw-act-wheel.go,
+  html body .slw-act.slw-act-lift.go, html body .slw-act.slw-act-zip.go,
+  html body .slw-act.slw-act-drawbridge.go,
+  html body .slw-act.slw-act-penguins.go { animation: none; }
+  html body .slw-act.slw-anim-spin.go, html body .slw-act.slw-anim-lift.go,
+  html body .slw-act.slw-anim-swing.go, html body .slw-act.slw-anim-slide.go,
+  html body .slw-act.slw-anim-shake.go, html body .slw-act.slw-anim-pop.go,
+  html body .slw-act.slw-anim-hop.go, html body .slw-act.slw-anim-sway.go,
+  html body .slw-act.slw-anim-none.go { animation: none; }
+  /* presses change colour and lip only; "on" keeps its still pressed-in shape */
+  html body .slw-btn, html body .slw-learn, html body .slw-buy, html body .slw-goalbtn,
+  html body .slw-toast button, html body .slw-goal, html body .slw-islechip, html body .slw-trayitem,
+  html body .slw-x, html body .slw-camctl button, html body .slw-lock2d, html body .slw-btn[class],
+  html body .slw-learn[class], html body .slw-buy[class], html body .slw-goalbtn[class],
+  html body .slw-toast button[class],
+  html body .slw .slw-btn[class] { transition-property: opacity, background-color, border-color, box-shadow, color, filter; transition-duration: 120ms; }
+  html body .slw-btn:active:not(:disabled), html body .slw-learn:active,
+  html body .slw-buy:active:not(:disabled), html body .slw-goalbtn:active:not(:disabled),
+  html body .slw-toast button:active, html body button.slw-goal:active,
+  html body .slw-islechip:active:not([aria-disabled="true"]), html body .slw-trayitem:active,
+  html body .slw-x:active,
+  html body .slw-camctl button:active:not(:disabled) { transform: none; }
+  html body .slw-btn.on:active:not(:disabled),
+  html body .slw-btn[aria-pressed="true"]:active:not(:disabled),
+  html body .slw-goalbtn.on:active:not(:disabled) { transform: translateY(2px); }
+  html body .slw-lock2d:active { transform: translate(-50%, -50%); }
+  /* the Showtime night and the sky dip stay fades (opacity is not motion) */
+  html body .slw::after { transition-duration: 2s; }
+}
+
+/* ---------------- keyframes ---------------- */
+@keyframes pxFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pxRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pxToastIn {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes pxShimmer {
+  0% { opacity: 1; background-position: 120% 0; }
+  100% { opacity: 1; background-position: -60% 0; }
+}
+@keyframes pxFoil { to { --px-foil: 360deg; } }
+/* one pixel ✦ glint per 4 s cycle, resting most of it */
+@keyframes pxGlint {
+  0%, 30%, 100% { opacity: 0; }
+  12% { opacity: 1; }
+}
+@keyframes pxBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes pxBadCell { from { background-color: rgba(255, 111, 97, 0.42); } to { background-color: rgba(255, 111, 97, 0.24); } }
+/* 2D acts: start and end at the rest pose (the wheel's quarter turn lands on its own
+   8-gondola symmetry, so its last frame IS the rest pose) */
+@keyframes pxActRide {
+  0%, 100% { transform: none; }
+  25% { transform: translate(-6%, -4%); }
+  50% { transform: translate(0, 0); }
+  75% { transform: translate(6%, -4%); }
+}
+@keyframes pxActSlide {
+  0%, 100% { transform: none; }
+  20% { transform: translate(-20%, -80%); }
+  45% { transform: translate(25%, -55%); }
+  70% { transform: translate(-15%, -25%); }
+}
+@keyframes pxActOpen {
+  0%, 100% { transform: none; }
+  50% { transform: rotate(-6deg); }
+}
+@keyframes pxActWobble {
+  0%, 100% { transform: none; }
+  17% { transform: rotate(6deg); }
+  33% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+  67% { transform: rotate(-6deg); }
+  83% { transform: rotate(4deg); }
+}
+@keyframes pxActSkate {
+  0%, 50%, 100% { transform: none; }
+  12.5% { transform: translate(20%, -8%); }
+  25% { transform: translate(40%, 0); }
+  37.5% { transform: translate(20%, 8%); }
+  62.5% { transform: translate(-20%, -8%); }
+  75% { transform: translate(-40%, 0); }
+  87.5% { transform: translate(-20%, 8%); }
+}
+@keyframes pxActWheel {
+  from { transform: none; }
+  to { transform: rotate(90deg); }
+}
+@keyframes pxActLift {
+  0%, 100% { transform: none; }
+  40%, 60% { transform: translateY(-220%); }
+}
+@keyframes pxActZip {
+  0%, 100% { transform: none; }
+  40% { transform: translate(160%, 120%); }
+  50% { transform: translate(160%, 120%) rotate(-8deg); }
+  60% { transform: translate(160%, 120%) rotate(8deg); }
+  70% { transform: translate(160%, 120%); }
+}
+@keyframes pxActDrawbridge {
+  0%, 100% { transform: none; }
+  40% { transform: rotate(-10deg); }
+}
+@keyframes pxActPenguins {
+  0%, 100% { transform: none; }
+  15% { transform: translate(-30%, 0) rotate(-6deg); }
+  25% { transform: translate(-55%, 0) rotate(6deg); }
+  40%, 60% { transform: translate(-90%, 25%); }
+  75% { transform: translate(-45%, 0) rotate(-6deg); }
+  90% { transform: translate(-10%, 0) rotate(6deg); }
+}
+/* land-shop 2D acts: lengths in sprite units; each starts and ends at the rest pose */
+@keyframes pxAnimSpin {
+  0%, 100% { transform: none; }
+  45%, 55% { transform: rotate(180deg); }
+}
+@keyframes pxAnimLift {
+  0%, 100% { transform: none; }
+  35%, 65% { transform: translateY(-20px); }
+}
+@keyframes pxAnimSwing {
+  0%, 100% { transform: none; }
+  12.5%, 62.5% { transform: rotate(12deg); }
+  37.5%, 87.5% { transform: rotate(-12deg); }
+}
+@keyframes pxAnimSlide {
+  0%, 100% { transform: none; }
+  45%, 55% { transform: translateX(30px); }
+}
+@keyframes pxAnimShake {
+  0%, 100% { transform: none; }
+  12.5%, 62.5% { transform: rotate(4deg); }
+  37.5%, 87.5% { transform: rotate(-4deg); }
+}
+@keyframes pxAnimPop {
+  0%, 100% { transform: none; }
+  40% { transform: translateY(-6px); }
+}
+@keyframes pxAnimHop {
+  0%, 50%, 100% { transform: none; }
+  25%, 75% { transform: translateY(-12px); }
+}
+@keyframes pxAnimSway {
+  0%, 100% { transform: none; }
+  25% { transform: rotate(6deg); }
+  75% { transform: rotate(-6deg); }
+}

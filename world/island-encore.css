@@ -1,0 +1,1906 @@
+/* ================================================================
+   My Island — "Encore City" v2 restyle (docs/island3d/v2 plan,
+   artBibleV2 uiV2; chunk B12). CSS only.
+
+   One dark theme: night-glass panels, flat 12px buttons, Unbounded
+   for display titles, Outfit for every other word. Golden hour is the
+   default HUD; .slw.showtime only adds the night glow. No sticker
+   borders, no lips, no overshoot.
+
+   FONTS (the Google Fonts link must load exactly these, display=swap):
+     Unbounded:wght@600;800        display only, never below 20px
+     Outfit:wght@400;500;600;700;800   UI (600–800) and body (400/500)
+
+   Loaded as <link rel=stylesheet> by the slLoadWorld chain. Both
+   rewards-world.js (#slwCss) and the game shell (#slgCss) inject their
+   own <style> AFTER this sheet, so every rule here starts with
+   `html body` (+0,0,2) and repeats any compound selector it overrides.
+   `[class]` on a paint rule lifts it above the injected `.slw-btn.on` /
+   `.slw-buy[disabled]` rules, so variants only set custom properties.
+   The shell's short-screen block re-sizes a few .slg rules with the
+   SAME selectors as here, so those keep exactly that form.
+   !important appears only where an inline style or an injected
+   !important must be beaten (marked "beats inline / injected").
+
+   HOOKS (all optional — without them the island keeps its layout):
+   .slw.showtime            Showtime HUD: night glow on the same panels
+                            (2D stage: the night layer fades in over 1.6 s)
+   .slw.dusk                golden-hour haze on the 2D stage (the host sets it
+                            on every 2D .slw; the dusk sky replaces #7fd6ff)
+   .slw-stagewrap.slw-is3d  3D stage: no sideways scroll; taller on phones
+                            (2:3 portrait, full height when held sideways)
+   .slw-3d                  island3d's persistent container holding
+     canvas.slw-3dcanvas      the WebGL canvas (crossfades on opacity)
+     .slw-anchors             projected HTML labels; each direct child is
+       .slw-tag3d               a zero-size wrapper island3d moves with
+                                translate3d. Put today's markup INSIDE it:
+                                .slw-tag.play, .slw-dot, .slw-new,
+                                .slw-sign, or a pet name <span class="nm">
+                                (.slw-bubble3d = the status bubble)
+     .slw-focusring           projected keyboard focus ring
+     .slw-camctl              ⟲ ⟳ ＋ － ⌂ buttons: a vertical ghost stack
+     .slw-sr-list             visually hidden <ul> of focusable buttons
+   .slw-pc                  icon wrapper (SVG, or a 3D photocard PNG)
+   .slw-ico                 inline-SVG line icon (24 grid, currentColor)
+   .slw-grid > .slw-card.shine-0..3   shop photocard, shine by PRICE only
+   .slw-cele                celebration: a centred glass card over a scrim
+   .slw-cele.encore         lighter scrim over the 3D encore moment
+   .slw-cannons             empty element: 2 confetti cannons (≥ 300 ⭐)
+   .slw-pts.sparkle         add for ~1 s when the points change (shimmer)
+   .slw-btn[data-act="shop"|"games"|"showtime"|"music"] (+ aria-pressed; the showtime toggle uses data-on="1" and is named by its next action)
+   html.sl-low              LOW tier: solid #15112A panels, no blur
+   2D city buildings (world-art sprites; tapItem restarts `.go`):
+     .slw-hatch .slw-pearls .slw-strip .slw-marquee .slw-onair .slw-eq
+     .slw-floor .slw-bean  → `.go` plays the act once (≤ 3 s)
+     .slw-neon (glows at Showtime; set color= to tint the glow),
+     .slw-win (lit at Showtime / dusk), .slw-beam (shown and sweeping
+     while .showtime is on — the toggle or the 8 s encore; its `.go` adds
+     nothing, so lifting .showtime never replays an act)
+     Draw each hook group visible, in its rest pose, with NO transform=
+     of its own (CSS animates `transform`; position it with an outer <g>).
+     CSS dims .slw-onair and hides .slw-beam until their act / Showtime.
+   game shell: .slg-ring    one expanding countdown ring; re-insert it
+                            each beat (inside .slg-count or beside it), at
+                            most 1.97 Hz (a faster count-in skips beats)
+               .slg-count.slg-rings   the shell draws the rings itself, so
+                            the CSS fallback ring stays off
+   Optional custom properties, set from JS:
+   --sle-member             the child's signature colour (u.color), on
+                            .slw, .slg or html
+   --sle-tilt-x/-y, --sle-shine-x   pointer tilt-shine on a shop card
+                            (deg, clamp ±6; %), desktop only
+   --slg-beat               seconds per count-in beat (countdown ring)
+   ================================================================ */
+
+/* ---------------- tokens ---------------- */
+@property --sle-foil {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root {
+  /* type: Unbounded for display titles only, Outfit for UI and body */
+  --sle-display: "Unbounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sle-ui: "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sle-body: "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ink (dark text on light chips) and the night stage */
+  --sle-ink: #14101F;
+  --sle-ink-2: #2A2348;
+  --sle-stage: #0E0B1A;
+  --sle-member: #8A5CFF;
+  --sle-holo: #FF7AD9, #7AD7FF, #9DFFCF, #FFE27A;
+  /* text on the dark theme */
+  --sle-fg: #FFFFFF;
+  --sle-fg-2: #B8B2D6;
+  --sle-gold: #FFD23F;
+  --sle-gold-soft: #FFE27A;
+  --sle-ok: #2ECC71;
+  --sle-coral: #FF5A6A;
+  --sle-cyan: #22E4FF;
+  --sle-magenta: #FF2E9A;
+  /* button colours: fill a → b at 120deg, text fg, 1px edge (lip) */
+  --sle-primary-a: #E0157F; --sle-primary-b: #7B4DFF; --sle-primary-fg: #FFFFFF; --sle-primary-lip: #FF5FB0;
+  --sle-deep-a: #6A3CF0; --sle-deep-b: #4B2BB8; --sle-deep-fg: #FFFFFF; --sle-deep-lip: #8A5CFF;
+  --sle-secondary-a: transparent; --sle-secondary-b: transparent; --sle-secondary-fg: #22E4FF; --sle-secondary-lip: #22E4FF;
+  --sle-go-a: #E0157F; --sle-go-b: #7B4DFF; --sle-go-fg: #FFFFFF; --sle-go-lip: #FF5FB0;
+  --sle-buy-a: #2ECC71; --sle-buy-b: #1FA463; --sle-buy-fg: #04301A; --sle-buy-lip: #1A8B54;
+  --sle-night-a: #2A1856; --sle-night-b: #1E1450; --sle-night-fg: #FFFFFF; --sle-night-lip: #8A5CFF;
+  --sle-plain-a: rgba(255, 255, 255, 0.06); --sle-plain-b: rgba(255, 255, 255, 0.06); --sle-plain-fg: #FFFFFF; --sle-plain-lip: rgba(255, 255, 255, 0.14);
+  --sle-gold-a: #FFD23F; --sle-gold-b: #FFE27A; --sle-gold-fg: #14101F; --sle-gold-lip: #C9A21F;
+  --sle-amber-a: transparent; --sle-amber-b: transparent; --sle-amber-fg: #FFB23E; --sle-amber-lip: #FFB23E;
+  /* disabled: lighter than the bible's #6E6890 so "Need 40 more ⭐" stays ≥ 4.5:1 */
+  --sle-off-bg: #221C3A; --sle-off-fg: #A39DC4; --sle-off-lip: #2E2748;
+  --sle-points-a: rgba(22, 18, 40, 0.72); --sle-points-b: rgba(22, 18, 40, 0.72); --sle-points-fg: #FFD23F; --sle-points-lip: rgba(255, 210, 63, 0.35);
+  --sle-new-bg: rgba(14, 11, 26, 0.86); --sle-new-fg: #FFFFFF;
+  --sle-drop: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* night-glass panels (one set for both presets; LOW / no blur → solid) */
+  --sle-panel-bg: rgba(22, 18, 40, 0.72);
+  --sle-panel-solid: #15112A;
+  --sle-panel-edge: rgba(255, 255, 255, 0.12);
+  --sle-panel-fg: #FFFFFF;
+  --sle-panel-fg-2: #B8B2D6;
+  --sle-panel-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --sle-show-bg: rgba(22, 18, 40, 0.72);
+  --sle-show-solid: #15112A;
+  --sle-show-edge: rgba(255, 95, 176, 0.3);
+  --sle-show-fg: #FFFFFF;
+  --sle-show-fg-2: #C9C3E6;
+  --sle-card: #1A1530;
+  --sle-card-edge: rgba(255, 255, 255, 0.1);
+  --sle-toast-bg: rgba(22, 18, 40, 0.92);
+  --sle-bar-bg: rgba(255, 255, 255, 0.06);
+  --sle-blur: blur(16px) saturate(1.3);
+  --sle-blur-bar: blur(10px);
+  /* motion: hover/press 160 ms, sheets 280 ms, toasts 200 ms — no overshoot */
+  --sle-press: 160ms;
+  --sle-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --sle-ease-sheet: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* the four-point ✦ spark (never the five-point ⭐ reward) */
+  --sle-star4: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+}
+
+/* the island tab is toggled with .hidden, but index.html has no rule for it */
+html body #worldView.hidden { display: none; }
+
+/* ---------------- island root: golden hour (default) and Showtime ---------------- */
+html body .slw {
+  position: relative;
+  isolation: isolate;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  padding: 12px 12px 18px;
+  background-color: var(--sle-stage);
+  border: 1px solid var(--sle-panel-edge);
+  border-radius: 24px;
+  box-shadow: var(--sle-drop);
+  color: var(--sle-fg);
+  font-family: var(--sle-body);
+  -webkit-tap-highlight-color: transparent;
+}
+/* two glow layers that crossfade (never a luminance jump): warm sun haze / city glow */
+html body .slw::before,
+html body .slw::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: opacity 0.6s ease-in-out;
+}
+html body .slw::before {
+  background:
+    radial-gradient(70% 46% at 18% 0%, rgba(255, 154, 122, 0.2) 0%, rgba(255, 154, 122, 0) 100%),
+    radial-gradient(60% 40% at 86% 0%, rgba(106, 61, 143, 0.32) 0%, rgba(106, 61, 143, 0) 100%);
+}
+html body .slw::after {
+  opacity: 0;
+  background:
+    radial-gradient(80% 50% at 50% 0%, rgba(194, 51, 143, 0.26) 0%, rgba(194, 51, 143, 0) 100%),
+    radial-gradient(60% 40% at 50% 100%, rgba(30, 20, 80, 0.55) 0%, rgba(30, 20, 80, 0) 100%);
+}
+html body .slw.showtime::before { opacity: 0; }
+html body .slw.showtime::after { opacity: 1; }
+html body .slw.showtime {
+  --sle-panel-bg: var(--sle-show-bg);
+  --sle-panel-solid: var(--sle-show-solid);
+  --sle-panel-edge: var(--sle-show-edge);
+  --sle-panel-fg: var(--sle-show-fg);
+  --sle-panel-fg-2: var(--sle-show-fg-2);
+  --sle-panel-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 22px rgba(138, 92, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* night-glass panels */
+html body .slw-hud,
+html body .slw-bar,
+html body .slw-legend {
+  background: var(--sle-panel-bg);
+  -webkit-backdrop-filter: var(--sle-blur);
+  backdrop-filter: var(--sle-blur);
+  border: 1px solid var(--sle-panel-edge);
+  border-radius: 16px;
+  box-shadow: var(--sle-panel-shadow);
+  color: var(--sle-panel-fg);
+}
+html body .slw-hud { padding: 8px; margin: 0 0 12px; gap: 8px; }
+html body .slw-acts { gap: 6px; }
+html body .slw-bar { padding: 10px 12px; margin-top: 12px; gap: 8px; }
+html body .slw-bar .msg { color: var(--sle-panel-fg); font-family: var(--sle-ui); font-weight: 700; font-size: 15px; }
+html body .slw-bar .msg.bad { color: var(--sle-coral); }
+html body .slw-legend {
+  width: fit-content;
+  max-width: 100%;
+  margin: 12px auto 0;
+  padding: 8px 16px;
+  color: var(--sle-panel-fg-2);
+  font-family: var(--sle-ui);
+  font-weight: 600;
+}
+/* the ✋ chip is white with no text colour of its own */
+html body .slw-legend i[style*="background:#fff;"] { color: var(--sle-ink); }
+html body .slw-pan { color: var(--sle-fg-2); font-family: var(--sle-ui); font-weight: 600; }
+
+/* ---------------- flat buttons ---------------- */
+html body .slw-btn,
+html body .slw-learn,
+html body .slw-buy,
+html body .slw-goalbtn,
+html body .slw-toast button {
+  --sle-a: var(--sle-plain-a);
+  --sle-b: var(--sle-plain-b);
+  --sle-fg: var(--sle-plain-fg);
+  --sle-lip: var(--sle-plain-lip);
+  --sle-bw: 1px;
+  --sle-glow: 0 0 0 0 transparent;
+  --sle-glow-press: 0 0 0 0 transparent;
+  --sle-ring: 0 0 0 0 transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: var(--sle-bw) solid var(--sle-lip);
+  border-radius: 12px;
+  box-shadow: var(--sle-glow), var(--sle-ring);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px 16px;
+  font-family: var(--sle-ui);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* paint from the custom properties ([class] out-ranks the injected state rules;
+   `.slw .slw-btn[class]` out-ranks the injected Showtime colour-fade transition) */
+html body .slw-btn[class],
+html body .slw-learn[class],
+html body .slw-buy[class],
+html body .slw-goalbtn[class],
+html body .slw-toast button[class],
+html body .slw-toast button,
+html body .slw .slw-btn[class] {
+  background: linear-gradient(120deg, var(--sle-a), var(--sle-b));
+  border-color: var(--sle-lip);
+  color: var(--sle-fg);
+  transition: transform var(--sle-press) ease-out, box-shadow var(--sle-press) ease-out, filter var(--sle-press) ease-out, color 0.45s ease, border-color 0.45s ease;
+}
+html body .slw-btn.big { font-size: 16px; padding: 11px 18px; }
+/* Back to learning: a quiet ghost */
+html body .slw-learn { border-radius: 12px; }
+/* selected / toggled on: deep violet (the label or icon changes too, never colour alone) */
+html body .slw-btn.on,
+html body .slw-btn[aria-pressed="true"] {
+  --sle-a: var(--sle-deep-a); --sle-b: var(--sle-deep-b);
+  --sle-fg: var(--sle-deep-fg); --sle-lip: var(--sle-deep-lip);
+}
+/* primary CTA: Shop, and the big primary (Nice, Next, Put it here) */
+html body .slw-btn[data-act="shop"],
+html body .slw-btn.big.on {
+  --sle-a: var(--sle-primary-a); --sle-b: var(--sle-primary-b);
+  --sle-fg: var(--sle-primary-fg); --sle-lip: transparent;
+  --sle-glow: 0 6px 20px rgba(224, 21, 127, 0.35);
+  --sle-glow-press: 0 3px 10px rgba(224, 21, 127, 0.18);
+}
+/* secondary: a 1.5px LED Cyan outline */
+html body .slw-btn[data-act="games"],
+html body .slw-toast button {
+  --sle-a: var(--sle-secondary-a); --sle-b: var(--sle-secondary-b);
+  --sle-fg: var(--sle-secondary-fg); --sle-lip: var(--sle-secondary-lip);
+  --sle-bw: 1.5px;
+}
+/* the Showtime toggle invites the night (violet); while Showtime is on it offers golden hour back (amber) */
+html body .slw-btn[data-act="showtime"] {
+  --sle-a: var(--sle-night-a); --sle-b: var(--sle-night-b);
+  --sle-fg: var(--sle-night-fg); --sle-lip: var(--sle-night-lip);
+  --sle-glow: 0 0 14px rgba(138, 92, 255, 0.3);
+  --sle-glow-press: 0 0 7px rgba(138, 92, 255, 0.15);
+}
+html body .slw-btn[data-act="showtime"][data-on="1"] {
+  --sle-a: var(--sle-amber-a); --sle-b: var(--sle-amber-b);
+  --sle-fg: var(--sle-amber-fg); --sle-lip: var(--sle-amber-lip);
+  --sle-bw: 1.5px;
+  --sle-glow: 0 0 14px rgba(255, 178, 62, 0.25);
+  --sle-glow-press: 0 0 7px rgba(255, 178, 62, 0.12);
+}
+/* BUY stays green */
+html body .slw-buy {
+  --sle-a: var(--sle-buy-a); --sle-b: var(--sle-buy-b);
+  --sle-fg: var(--sle-buy-fg); --sle-lip: transparent;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+/* savings-goal toggle: a gold outline; chosen = gold fill */
+html body .slw-goalbtn {
+  --sle-a: transparent; --sle-b: transparent;
+  --sle-fg: var(--sle-gold); --sle-lip: rgba(255, 210, 63, 0.55);
+  padding: 8px 12px;
+}
+html body .slw-goalbtn.on {
+  --sle-a: var(--sle-gold-a); --sle-b: var(--sle-gold-b);
+  --sle-fg: var(--sle-gold-fg); --sle-lip: transparent;
+}
+html body .slw-toast button {
+  padding: 8px 14px;
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+/* disabled: flat #221C3A (comes after every variant, same or higher rank) */
+html body .slw-btn[class]:disabled,
+html body .slw-buy[class]:disabled,
+html body .slw-goalbtn[class]:disabled {
+  --sle-a: var(--sle-off-bg); --sle-b: var(--sle-off-bg);
+  --sle-fg: var(--sle-off-fg); --sle-lip: var(--sle-off-lip);
+  --sle-glow: 0 0 0 0 transparent;
+  --sle-glow-press: 0 0 0 0 transparent;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+}
+@media (hover: hover) {
+  html body .slw-btn:hover:not(:disabled),
+  html body .slw-learn:hover,
+  html body .slw-buy:hover:not(:disabled),
+  html body .slw-goalbtn:hover:not(:disabled),
+  html body .slw-toast button:hover { filter: brightness(1.12); }
+}
+/* pressed: scale .97 and the glow halves */
+html body .slw-btn:active:not(:disabled),
+html body .slw-learn:active,
+html body .slw-buy:active:not(:disabled),
+html body .slw-goalbtn:active:not(:disabled),
+html body .slw-toast button:active {
+  transform: scale(0.97);
+  box-shadow: var(--sle-glow-press), var(--sle-ring);
+}
+/* the 3px #FFD23F ring, with a dark halo so it reads over the 3D canvas too */
+html body .slw-btn:focus-visible,
+html body .slw-learn:focus-visible,
+html body .slw-buy:focus-visible,
+html body .slw-goalbtn:focus-visible,
+html body .slw-toast button:focus-visible,
+html body .slw-goal:focus-visible,
+html body .slw-x:focus-visible,
+html body .slw-trayitem:focus-visible,
+html body .slw-card .ic:focus-visible,
+html body .slw-sign:focus-visible,
+html body .slw-pet:focus-visible,
+html body .slw-me:focus-visible,
+html body .slw-obj:focus-visible,
+html body .slw-cell:focus-visible,
+html body .slw-sheet input:focus-visible {
+  outline: 3px solid #FFD23F;
+  outline-offset: 2px;
+  --sle-ring: 0 0 0 6px rgba(14, 11, 26, 0.6);
+}
+
+/* inline-SVG line icons (world-art uiIcon): a 2px round stroke in currentColor,
+   20px, 22px on big buttons. A path's own fill/stroke attributes still win. */
+html body .slw-ico {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html body .slw-btn.big .slw-ico,
+html body .slg .slg-b .slw-ico { width: 22px; height: 22px; }
+
+/* ---------------- ⭐ points pill + savings goal ---------------- */
+html body .slw-pts {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 16px;
+  background: var(--sle-panel-bg);   /* glass on glass: the HUD already blurs */
+  color: var(--sle-points-fg);
+  border: 1px solid var(--sle-points-lip);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* one 0.4 s shimmer when the points change (.sparkle, added by onPointsChanged) */
+html body .slw-pts::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 226, 122, 0.45) 50%, transparent 70%) 0 0 / 250% 100% no-repeat;
+}
+html body .slw-pts.sparkle::after { animation: sleShimmer 0.4s ease-out; }
+
+html body .slw-goal {
+  min-height: 48px;
+  padding: 6px 12px;
+  background: var(--sle-panel-bg);
+  border: 1px solid rgba(255, 210, 63, 0.3);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--sle-ring, 0 0 0 0 transparent);
+  color: var(--sle-fg);
+  transition: transform var(--sle-press) ease-out, border-color var(--sle-press) ease-out;
+}
+html body .slw-goal .gt { color: var(--sle-fg); font-family: var(--sle-ui); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+html body .slw-goal .gb { height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 999px; box-shadow: none; }
+html body .slw-goal .gb > i { background: linear-gradient(90deg, #FFB23E, #FFD23F); box-shadow: 0 0 8px rgba(255, 210, 63, 0.4); }
+html body .slw-goal.ready { background: rgba(46, 204, 113, 0.12); border-color: rgba(46, 204, 113, 0.6); }
+html body .slw-goal.slw-trial { background: rgba(46, 204, 113, 0.12); border-color: rgba(46, 204, 113, 0.6); }
+html body .slw-goal.ready .gt,
+html body .slw-goal.slw-trial .gt { color: #8EF0B8; }
+@media (hover: hover) {
+  html body button.slw-goal:hover { border-color: rgba(255, 210, 63, 0.6); }
+}
+html body button.slw-goal:active { transform: scale(0.98); }
+
+/* ---------------- the stage frame ---------------- */
+/* a 2px frame in every mode, so the edit frame never resizes the 3D canvas */
+html body .slw-stagewrap {
+  isolation: isolate;   /* keeps the island's z-indexes under the app's sticky header */
+  border: 2px solid var(--sle-panel-edge);
+  border-radius: 20px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+html body .slw.showtime .slw-stagewrap {
+  border-color: rgba(255, 95, 176, 0.45);
+  box-shadow: 0 0 0 1px rgba(138, 92, 255, 0.25), 0 0 28px rgba(194, 51, 143, 0.3), 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+/* edit and place modes: a dashed Star Gold frame (a shape change, not colour alone) */
+html body .slw.slw-edit .slw-stagewrap { border-style: dashed; border-color: #FFD23F; }
+/* the 2D fallback stage: a Dusk Zenith → Dusk Horizon sky down to the horizon (the top
+   80 of the stage's 860 units), then the far bay under world-art's dusk island. It beats
+   the injected v1 sky blue (#7fd6ff). */
+html body .slw-stagewrap:not(.slw-is3d) {
+  background: linear-gradient(180deg, #2B1E5C 0%, #6A3D8F 5.5%, #FF9A7A 9.3%, #1E3F86 9.3%);
+}
+/* golden-hour haze (::before) and the Showtime night (::after) ALWAYS exist on the 2D
+   stage and only fade their opacity, over the same 1.6 s as the 3D blend and at an even
+   rate (linear: no steep middle), kept under reduced motion (a fade is not motion). So
+   toggling .showtime — the button or the 8 s encore — never jumps the stage's luminance:
+   even a bright beach under the darkest night stop moves < 0.2 in any 0.5 s. Items
+   (z ≥ 2) stay lit above both. */
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::before,
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.6s linear;
+}
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::before {
+  background: linear-gradient(180deg, rgba(255, 154, 122, 0.16) 0%, rgba(255, 154, 122, 0) 30%, rgba(255, 214, 160, 0.08) 100%);
+}
+html body .slw-stagewrap:not(.slw-is3d) .slw-stage::after {
+  background: linear-gradient(180deg, rgba(11, 10, 31, 0.6) 0%, rgba(30, 20, 80, 0.38) 45%, rgba(194, 51, 143, 0.14) 100%);
+}
+html body .slw.dusk .slw-stagewrap:not(.slw-is3d) .slw-stage::before { opacity: 1; }
+html body .slw.showtime .slw-stagewrap:not(.slw-is3d) .slw-stage::after { opacity: 1; }
+
+/* island labels (2D, and inside 3D anchors) */
+html body .slw-tag {
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+html body .slw-tag.play { background: #FFD23F; color: var(--sle-ink); box-shadow: 0 0 12px rgba(255, 210, 63, 0.45), 0 4px 10px rgba(0, 0, 0, 0.3); }
+/* the injected 2D label pulses slow down to 0.5 Hz (same keyframes) */
+html body .slw-tag.play,
+html body .slw-new { animation-duration: 2s; }
+html body .slw-dot {
+  background: var(--sle-new-bg);
+  border: 1.5px solid var(--sle-cyan);
+  box-shadow: 0 0 8px rgba(34, 228, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+/* NEW!: a Neon Magenta outline pill with white text */
+html body .slw-new {
+  background: var(--sle-new-bg);
+  border: 1.5px solid var(--sle-magenta);
+  color: var(--sle-new-fg);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 9px;
+  box-shadow: 0 0 10px rgba(255, 46, 154, 0.45);
+}
+/* locked-land sign: night glass with an LED Cyan hologram edge */
+html body .slw-sign {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--sle-new-bg);
+  color: var(--sle-fg);
+  border: 1.5px solid var(--sle-cyan);
+  border-radius: 12px;
+  box-shadow: 0 0 12px rgba(34, 228, 255, 0.35), 0 6px 14px rgba(0, 0, 0, 0.35);
+  font-family: var(--sle-ui);
+  font-weight: 700;
+}
+html body .slw-pet .nm,
+html body .slw-tag3d > .nm {
+  background: var(--sle-new-bg);
+  color: var(--sle-fg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  font-family: var(--sle-ui);
+  font-weight: 700;
+}
+html body .slw-fx { font-family: var(--sle-ui); font-weight: 800; color: var(--sle-fg); text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
+
+/* placement cells (2D): same meanings; invalid pulses at 1.5 Hz */
+html body .slw-cell { border-radius: 10px; }
+html body .slw-cell.ok { box-shadow: inset 0 0 0 2px rgba(34, 228, 255, 0.9); }
+html body .slw-cell.bad { animation: sleBadCell 0.333s ease-in-out infinite alternate; }
+
+/* ---------------- 3D stage ---------------- */
+html body .slw-stagewrap.slw-is3d { overflow: hidden; background: linear-gradient(180deg, #1E3F86 0%, #2C6FA3 100%); }
+html body .slw.showtime .slw-stagewrap.slw-is3d { background: #0B1440; }
+html body .slw-stagewrap.slw-is3d .slw-stage {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 260px;
+  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px);
+}
+/* tablets held upright: 4:3, the land fills the width */
+@media (orientation: portrait) and (min-width: 701px) {
+  html body .slw-stagewrap.slw-is3d .slw-stage { aspect-ratio: 4 / 3; }
+}
+/* phones held upright: the frame is width-limited, so the stage grows TALL (2:3) and the
+   camera zoom (pinch, or the phone zoom in camera.js) brings cells up to finger size
+   with whole rows still in view. Capped below the sticky header so it never traps a scroll. */
+@media (orientation: portrait) and (max-width: 700px) {
+  html body .slw-stagewrap.slw-is3d .slw-stage {
+    aspect-ratio: 2 / 3;
+    min-height: 340px;
+    max-height: calc(100vh - 150px);
+    max-height: calc(100dvh - 150px);
+  }
+}
+/* phones held sideways: the frame is height-limited, so the stage takes the viewport height */
+@media (orientation: landscape) and (max-height: 540px) {
+  html body .slw-stagewrap.slw-is3d .slw-stage {
+    aspect-ratio: auto;
+    height: calc(100vh - 72px);
+    height: calc(100dvh - 72px);
+    min-height: 240px;
+    max-height: none;
+  }
+}
+html body .slw-stagewrap.slw-is3d + .slw-pan { display: none !important; }   /* beats injected */
+
+html body .slw-3d {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;   /* over the 2D layer while it crossfades out */
+  overflow: hidden;
+  border-radius: 18px;   /* the frame's inner radius: clips the canvas corners */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+html body .slw-3dcanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+  touch-action: pan-y;   /* play: the page still scrolls vertically */
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 300ms ease-out;
+}
+html body .slw-edit .slw-3dcanvas { touch-action: none; }
+
+/* projected labels: island3d translates each direct child */
+html body .slw-anchors {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+html body .slw-anchors > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  will-change: transform;
+  transition: opacity 0.18s ease-out;
+}
+/* an anchor that is itself a label (no wrapper): island3d owns its transform,
+   so drop the 2D offsets and any transform keyframes (out-ranks .slw-tag.play) */
+html body .slw-anchors > :not(.slw-tag3d) { top: 0; bottom: auto; animation: none; }
+/* zero-size wrapper: its content stacks upward, centred on the anchor point */
+html body .slw-tag3d {
+  width: 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+html body .slw-tag3d[hidden] { display: none; }
+html body .slw-tag3d > * {
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  flex: none;
+  transform: none;
+  white-space: nowrap;
+}
+html body .slw-tag3d > .slw-tag { font-size: 13px; padding: 3px 11px; }
+html body .slw-tag3d > .slw-new { font-size: 12px; }
+html body .slw-tag3d > .slw-tag.play,
+html body .slw-tag3d > .slw-new { animation: sleBeat 2s ease-in-out infinite; }
+html body .slw-tag3d > .slw-dot { width: 24px; height: 24px; font-size: 13px; }
+html body .slw-tag3d > .slw-sign { font-size: 13px; line-height: 1.2; text-align: center; }
+html body .slw-tag3d > .nm { display: block; font-size: 12px; padding: 2px 9px; border-radius: 999px; }
+html body .slw-bubble3d > .nm { font-size: 13px; padding: 4px 11px; border-color: rgba(255, 210, 63, 0.5); }
+html body .slw-anchors button,
+html body .slw-anchors .slw-sign { pointer-events: auto; }
+
+html body .slw-focusring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  width: 64px;
+  height: 64px;
+  border: 3px solid #FFD23F;
+  border-radius: 14px;
+  box-shadow: 0 0 0 3px rgba(14, 11, 26, 0.6), 0 0 18px 2px rgba(255, 210, 63, 0.5);
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+}
+
+/* camera controls: a vertical ghost stack (no backdrop blur over the live canvas) */
+html body .slw-camctl {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+html body .slw-camctl button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(14, 11, 26, 0.66);
+  color: var(--sle-fg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-family: var(--sle-ui);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color var(--sle-press) ease-out, transform var(--sle-press) ease-out;
+}
+/* rotate · zoom · reset read as three small groups */
+html body .slw-camctl button[data-cam="in"],
+html body .slw-camctl button[data-cam="reset"] { margin-top: 6px; }
+html body .slw-camctl button:disabled { opacity: 0.4; cursor: default; }
+@media (hover: hover) {
+  html body .slw-camctl button:hover:not(:disabled) { background: rgba(42, 35, 72, 0.86); }
+}
+html body .slw-camctl button:active:not(:disabled) { transform: scale(0.94); background: rgba(58, 42, 110, 0.9); }
+html body .slw-camctl button:focus-visible { outline: 3px solid #FFD23F; outline-offset: 2px; }
+html body .slw.showtime .slw-camctl button { border-color: rgba(255, 95, 176, 0.35); }
+
+/* keyboard list: visually hidden, still focusable (focus shows .slw-focusring) */
+html body .slw-sr-list {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  list-style: none;
+}
+
+/* ---------------- icons: SVG, or a 3D photocard PNG ---------------- */
+/* display: contents keeps every existing `svg` sizing rule working */
+html body .slw-pc { display: contents; }
+html body .slw-pc > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  object-fit: contain;
+  animation: sleFade 0.2s ease-out;
+}
+html body .slw-goal .gi .slw-pc > img { width: 100%; height: 100%; }
+html body .slw-trayitem .slw-pc > img { width: 100%; height: 56px; }
+html body .slw-detail .big .slw-pc > img { width: auto; max-height: 240px; }
+html body .slw-cele .ic .slw-pc > img { width: 100%; }
+
+/* ---------------- edit bar + storage tray ---------------- */
+html body .slw-tray {
+  gap: 10px;
+  padding: 8px 6px 12px;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+html body .slw-trayitem {
+  width: 92px;
+  padding: 6px;
+  background: var(--sle-card);
+  border: 1px solid var(--sle-card-edge);
+  border-radius: 14px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
+  color: var(--sle-fg);
+  scroll-snap-align: start;
+  transition: transform var(--sle-press) ease-out, border-color var(--sle-press) ease-out;
+}
+html body .slw-trayitem span { color: var(--sle-fg); font-family: var(--sle-ui); font-weight: 600; font-size: 11.5px; line-height: 1.2; }
+html body .slw-trayitem b {
+  top: -8px;
+  right: -4px;
+  padding: 0 7px;
+  background: linear-gradient(120deg, var(--sle-primary-a), var(--sle-primary-b));
+  color: #FFFFFF;
+  border: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/* the chosen style / accessory (its label also ends with ✓) */
+html body .slw-trayitem[style*="background:#f1edfb"] {
+  background: rgba(138, 92, 255, 0.22) !important;   /* beats inline */
+  border-color: #8A5CFF !important;   /* beats inline */
+}
+@media (hover: hover) {
+  html body .slw-trayitem:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.28); }
+}
+html body .slw-trayitem:active { transform: scale(0.97); }
+
+/* ---------------- sheets + overlays ---------------- */
+html body .slw-ov {
+  background: rgba(14, 11, 26, 0.66);
+  animation: sleFade 200ms ease-out both;
+}
+html body .slw-sheet {
+  padding: 18px 18px 20px;
+  background: var(--sle-panel-bg);
+  -webkit-backdrop-filter: var(--sle-blur);
+  backdrop-filter: var(--sle-blur);
+  border: 1px solid var(--sle-panel-edge);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--sle-fg);
+  color-scheme: dark;
+  font-family: var(--sle-body);
+  font-weight: 500;
+  overscroll-behavior: contain;
+  animation: sleSheetIn 280ms var(--sle-ease-sheet) both;
+}
+/* sheet headings: Unbounded 600 */
+html body .slw-sheet h2 {
+  margin: 0 0 8px;
+  font-family: var(--sle-display);
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--sle-fg);
+}
+html body .slw-sheet b { font-weight: 700; }
+html body .slw-x {
+  width: 44px;
+  height: 44px;
+  right: 10px;
+  top: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sle-fg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  box-shadow: none;
+  font-family: var(--sle-ui);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform var(--sle-press) ease-out, background-color var(--sle-press) ease-out;
+}
+@media (hover: hover) {
+  html body .slw-x:hover { background: rgba(255, 255, 255, 0.12); }
+}
+html body .slw-x:active { transform: scale(0.94); }
+html body .slw-cats { gap: 8px; margin: 10px 0 12px; }
+html body .slw-cats .slw-btn { border-radius: 999px; padding: 8px 14px; font-size: 14px; }
+html body .slw-err { color: var(--sle-coral); font-family: var(--sle-ui); font-weight: 700; }
+html body .slw-need { color: var(--sle-gold-soft); font-family: var(--sle-ui); font-weight: 700; font-variant-numeric: tabular-nums; }
+html body .slw-unlocks {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: none;
+  color: #E6E1F7;
+  font-family: var(--sle-body);
+  font-weight: 500;
+}
+html body .slw-sheet input {
+  min-height: 44px;
+  background: var(--sle-stage);
+  color: var(--sle-fg);
+  font-family: var(--sle-ui);
+  font-weight: 600;
+}
+/* inline text colours written for the old light sheets, re-mapped for the night theme */
+html body .slw [style*="color:#4a3f75"],
+html body .slw-sheet [style*="color:#4a3f75"] { color: var(--sle-fg) !important; }   /* beats inline */
+html body .slw [style*="color:#6b6585"],
+html body .slw [style*="color:#6b6390"],
+html body .slw [style*="color:#7c8696"],
+html body .slw [style*="color:#8a84a3"],
+html body .slw [style*="color:#9a94b5"],
+html body .slw-sheet [style*="color:#6b6585"],
+html body .slw-sheet [style*="color:#6b6390"],
+html body .slw-sheet [style*="color:#7c8696"],
+html body .slw-sheet [style*="color:#8a84a3"],
+html body .slw-sheet [style*="color:#9a94b5"] { color: var(--sle-fg-2) !important; }   /* beats inline */
+html body .slw-sheet [style*="color:#6b5a22"] { color: var(--sle-gold-soft) !important; }   /* beats inline */
+html body .slw-sheet [style*="color:#1d8a4c"] { color: var(--sle-ok) !important; }   /* beats inline */
+html body .slw-sheet [style*="color:#b9821a"] {
+  color: var(--sle-gold) !important;   /* beats inline */
+  font-family: var(--sle-ui) !important;   /* beats inline */
+  font-variant-numeric: tabular-nums;
+}
+html body .slw-time[style*="background:#f1edfb"] {
+  background: rgba(255, 255, 255, 0.05) !important;   /* beats inline */
+  border-color: rgba(255, 255, 255, 0.14) !important;   /* beats inline */
+}
+
+/* plain cards (the crew sheet) */
+html body .slw-card {
+  background: var(--sle-card);
+  border: 1px solid var(--sle-card-edge);
+  border-radius: 14px;
+  box-shadow: none;
+  color: var(--sle-fg);
+}
+html body .slw-card .nm { color: var(--sle-fg); font-family: var(--sle-ui); font-weight: 700; }
+
+/* ---------------- shop: dark "drop" photocards (3:4) ---------------- */
+html body .slw-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(152px, 100%), 1fr));
+  gap: 14px;
+}
+html body .slw-grid > .slw-card {
+  aspect-ratio: 3 / 4;   /* at least 3:4; grows taller when the content needs it */
+  align-self: stretch;   /* aspect-ratio items don't stretch by default: keep rows even */
+  width: 100%;           /* the track sets the width; a stretched height must never widen the card past it */
+  min-width: 0;
+  gap: 5px;
+  padding: 8px 8px 10px;
+  background: var(--sle-card);
+  border: 1px solid var(--sle-card-edge);
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  transition: transform var(--sle-press) ease-out, box-shadow var(--sle-press) ease-out;
+}
+/* image well: a night radial with the item on a Gunmetal riser and a Neon Magenta ring */
+html body .slw-grid > .slw-card .ic {
+  position: relative;
+  height: auto;
+  aspect-ratio: 5 / 4;
+  padding: 8% 10% 13%;
+  overflow: hidden;
+  isolation: isolate;
+  background: radial-gradient(circle at 50% 35%, #3A2A6E 0%, #15112A 70%);
+  border: 0;
+  border-radius: 10px;
+}
+html body .slw-grid > .slw-card .ic svg,
+html body .slw-grid > .slw-card .ic img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+html body .slw-grid > .slw-card .ic::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 6%;
+  height: 12%;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 30%, #E6E9F2 0 8%, #7C8194 32%, #5A5F72 62%, #2A2D3A 100%);
+  box-shadow: 0 0 0 1.5px #FF2E9A, 0 0 12px rgba(255, 46, 154, 0.45);
+}
+/* tilt-shine glare: off until hovered (desktop) — never over the card's text */
+html body .slw-grid > .slw-card .ic::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.35) 46%, rgba(255, 255, 255, 0) 60%) var(--sle-shine-x, 140%) 0 / 250% 100% no-repeat;
+  transition: opacity var(--sle-press) ease-out, background-position 0.7s ease-out;
+}
+html body .slw-grid > .slw-card .nm { color: var(--sle-fg); font-family: var(--sle-ui); font-weight: 700; font-size: 15px; line-height: 1.2; }
+/* 3 lines at most (the detail sheet shows it all) so one long blurb can't stretch a row */
+html body .slw-grid > .slw-card .ds {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--sle-fg-2);
+  font-family: var(--sle-body);
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.4;
+}
+html body .slw-grid > .slw-card .pr { color: var(--sle-gold); font-family: var(--sle-ui); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+html body .slw-grid > .slw-card .row { gap: 6px; }
+/* chips: 999px pills with a 1px edge, tinted on the dark card */
+html body .slw-card .chip {
+  padding: 3px 9px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: none;
+  color: var(--sle-fg-2);
+  font-family: var(--sle-ui);
+  font-weight: 700;
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+html body .slw-card .chip.own { background: rgba(46, 204, 113, 0.14); border-color: rgba(46, 204, 113, 0.5); color: #8EF0B8; }
+html body .slw-card .chip.lock { background: rgba(138, 92, 255, 0.16); border-color: rgba(138, 92, 255, 0.5); color: #CDBEFF; }
+html body .slw-card .chip.rep { background: rgba(255, 210, 63, 0.1); border-color: rgba(255, 210, 63, 0.45); color: #FFE27A; }
+html body .slw-card .chip.uni { background: rgba(34, 228, 255, 0.1); border-color: rgba(34, 228, 255, 0.4); color: #9EEFFF; }
+html body .slw-free {
+  background: linear-gradient(120deg, var(--sle-buy-a), var(--sle-buy-b));
+  color: var(--sle-buy-fg);
+  box-shadow: none;
+  font-family: var(--sle-ui);
+  font-weight: 800;
+}
+
+/* shine levels (price only, deterministic — SLIslandLook.shineLevel) */
+/* 0 · under 200: the plain edge (the base card) */
+html body .slw-grid > .slw-card.shine-0 { border-color: var(--sle-card-edge); }
+/* 1 · 200–599: a 1.5px foil edge */
+html body .slw-grid > .slw-card.shine-1 {
+  border: 1.5px solid transparent;
+  background: linear-gradient(var(--sle-card), var(--sle-card)) padding-box, linear-gradient(135deg, #FF7AD9, #7AD7FF) border-box;
+  box-shadow: 0 0 10px rgba(122, 215, 255, 0.22), 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+/* 2 · 600–1199: an animated foil border, 8 s hue drift */
+html body .slw-grid > .slw-card.shine-2 {
+  border: 2px solid transparent;
+  padding: 7px 7px 9px;
+  background: linear-gradient(var(--sle-card), var(--sle-card)) padding-box, conic-gradient(from var(--sle-foil), #FF7AD9, #7AD7FF, #9DFFCF, #FFE27A, #FF7AD9) border-box;
+  box-shadow: 0 0 14px rgba(255, 122, 217, 0.22), 0 10px 24px rgba(0, 0, 0, 0.35);
+  animation: sleFoil 8s linear infinite;
+}
+/* 3 · 1200 and up: gold foil with 2 glints every 4 s */
+html body .slw-grid > .slw-card.shine-3 {
+  border: 2px solid transparent;
+  padding: 7px 7px 9px;
+  background: linear-gradient(var(--sle-card), var(--sle-card)) padding-box, linear-gradient(135deg, #FFE89A 0%, #F0C02F 32%, #C9921A 52%, #F0C02F 72%, #FFE89A 100%) border-box;
+  box-shadow: 0 0 16px rgba(240, 192, 47, 0.3), 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+html body .slw-grid > .slw-card.shine-3::before,
+html body .slw-grid > .slw-card.shine-3::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  background: radial-gradient(circle, #FFFFFF 0 22%, #FFE89A 48%, #F0C02F 74%);
+  clip-path: var(--sle-star4);
+  pointer-events: none;
+  animation: sleGlint 4s ease-in-out infinite;
+}
+html body .slw-grid > .slw-card.shine-3::before { top: -8px; right: 16px; }
+html body .slw-grid > .slw-card.shine-3::after { bottom: -8px; left: 16px; animation-delay: 2s; }
+
+/* tilt-shine: desktop pointer only, never on touch or under reduced motion.
+   Only the hovered card is transformed (no 3D layer per card at rest).
+   JS may set --sle-tilt-x/-y (±6deg) and --sle-shine-x to follow the pointer. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  html body .slw-grid > .slw-card:hover {
+    transform: perspective(800px) rotateX(var(--sle-tilt-y, 3deg)) rotateY(var(--sle-tilt-x, -4deg)) translateY(-3px);
+  }
+  html body .slw-grid > .slw-card:hover .ic::before {
+    opacity: 1;
+    background-position: var(--sle-shine-x, -40%) 0;
+  }
+}
+
+/* ---------------- item detail, confirm, home, crew, intro, games ---------------- */
+html body .slw-detail .big {
+  background: radial-gradient(circle at 50% 35%, #3A2A6E 0%, #15112A 72%);
+  border: 1px solid var(--sle-card-edge);
+  border-radius: 16px;
+  box-shadow: none;
+}
+html body .slw-detail .big svg,
+html body .slw-detail .big img { position: relative; z-index: 1; }
+/* the Gunmetal riser under a plain icon (the 3D turntable and game demos bring their own stage) */
+html body .slw-detail .big:has(> svg, > .slw-pc)::after {
+  content: "";
+  position: absolute;
+  left: 26%;
+  right: 26%;
+  bottom: 8%;
+  height: 9%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 30%, #E6E9F2 0 8%, #7C8194 32%, #5A5F72 62%, #2A2D3A 100%);
+  box-shadow: 0 0 0 2px #FF2E9A, 0 0 16px rgba(255, 46, 154, 0.5);
+}
+html body .slw-dots i { background: rgba(255, 255, 255, 0.2); transition: width var(--sle-press) ease-out, background-color var(--sle-press) ease-out; }
+html body .slw-dots i.on { width: 24px; border-radius: 999px; background: linear-gradient(90deg, var(--sle-primary-a), var(--sle-primary-b)); }
+
+html body .slw-games { gap: 14px; }
+html body .slw-game {
+  position: relative;
+  isolation: isolate;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+/* a night scrim under the text: the card colours are inline and too light for white text */
+html body .slw-game::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 15px;   /* the card's inner radius */
+  background: linear-gradient(180deg, rgba(14, 11, 26, 0.66) 0%, rgba(14, 11, 26, 0.58) 60%, rgba(14, 11, 26, 0.4) 100%);
+}
+html body .slw-game h3 {
+  font-family: var(--sle-display);
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-shadow: none;
+}
+html body .slw-game .pb { opacity: 1; color: #EAE6F7; font-family: var(--sle-ui); font-weight: 600; font-size: 13.5px; font-variant-numeric: tabular-nums; text-shadow: none; }
+html body .slw-game .slw-btn {
+  --sle-a: var(--sle-primary-a); --sle-b: var(--sle-primary-b);
+  --sle-fg: var(--sle-primary-fg); --sle-lip: transparent;
+}
+html body .slw-time {
+  background: rgba(255, 210, 63, 0.08);
+  border: 1px solid rgba(255, 210, 63, 0.4);
+  border-radius: 12px;
+  box-shadow: none;
+  color: #FFE7A3;
+  font-family: var(--sle-ui);
+  font-weight: 600;
+}
+html body .slw-trialbar {
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.55);
+  border-radius: 12px;
+  box-shadow: none;
+  color: #A6F2C6;
+  font-family: var(--sle-ui);
+  font-weight: 600;
+}
+/* loading: a member-colour ✦ spark on its own night panel (shown before .slw exists) */
+html body .slw-loading {
+  margin: 8px auto;
+  max-width: 1120px;
+  background: var(--sle-stage);
+  border-radius: 24px;
+  color: var(--sle-fg-2);
+  font-family: var(--sle-ui);
+  font-weight: 600;
+  font-size: 18px;
+}
+html body .slw-loading::before {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 14px;
+  background: radial-gradient(circle at 50% 50%, #FFFFFF 0 16%, var(--sle-member) 58%);
+  clip-path: var(--sle-star4);
+  animation: sleBob 2.4s ease-in-out infinite;
+}
+
+/* ---------------- celebrations: a centred glass card over a 40% scrim ---------------- */
+/* .slw-cele is the full-screen hit area; ::before is the card, spanning the 4 content
+   rows. The 1fr spacer rows centre the card and collapse when it is taller than the
+   screen, so the title is never scrolled out of reach. */
+html body .slw-cele {
+  display: grid;
+  grid-template-columns: minmax(0, 420px);
+  grid-template-rows: 1fr repeat(4, auto) 1fr;
+  justify-content: center;
+  isolation: isolate;
+  overflow-y: auto;
+  background: rgba(14, 11, 26, 0.4);
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  font-family: var(--sle-body);
+  animation: sleFade 200ms ease-out both;
+}
+html body .slw-cele::before {
+  content: "";
+  grid-column: 1;
+  grid-row: 2 / 6;
+  z-index: -1;
+  background: var(--sle-panel-bg);
+  -webkit-backdrop-filter: var(--sle-blur);
+  backdrop-filter: var(--sle-blur);
+  border: 1px solid var(--sle-panel-edge);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: sleCardIn 320ms var(--sle-ease-sheet) both;
+}
+html body .slw-cele > * {
+  grid-column: 1;
+  padding-left: 24px;
+  padding-right: 24px;
+  animation: sleRiseIn 320ms var(--sle-ease-sheet) both;
+}
+html body .slw-cele .t {
+  grid-row: 2;
+  max-width: none;
+  padding-top: 26px;
+  font-family: var(--sle-display);
+  font-weight: 800;
+  font-size: clamp(22px, 6vw, 30px);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--sle-fg);
+  text-shadow: 0 0 22px rgba(138, 92, 255, 0.45);
+  overflow-wrap: anywhere;
+}
+html body .slw-cele .ic {
+  grid-row: 3;
+  position: relative;
+  width: min(200px, 52vw, 30vh);
+  margin: 14px auto 4px;
+  padding: 0;
+}
+/* the retired slwPopIn overshoot: the icon rises with the rest of the card */
+html body .slw-cele.pop .ic { animation: sleRiseIn 320ms var(--sle-ease-sheet) both; }
+html body .slw-cele .ic svg,
+html body .slw-cele .ic img { position: relative; z-index: 1; }
+/* the Gunmetal riser with its Neon Magenta ring */
+html body .slw-cele .ic::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: -3%;
+  height: 13%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 30%, #E6E9F2 0 8%, #7C8194 32%, #5A5F72 62%, #2A2D3A 100%);
+  box-shadow: 0 0 0 2px #FF2E9A, 0 0 20px rgba(255, 46, 154, 0.55);
+}
+html body .slw-cele .s {
+  grid-row: 4;
+  max-width: none;
+  margin-top: 10px;
+  color: var(--sle-fg-2);
+  font-family: var(--sle-body);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.45;
+}
+html body .slw-cele .btns {
+  grid-row: 5;
+  gap: 10px;
+  margin-top: 18px;
+  padding-bottom: 22px;
+}
+/* encore: a lighter scrim so the 3D encore shows around the card */
+html body .slw-cele.encore { background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(14, 11, 26, 0.34) 0%, rgba(14, 11, 26, 0.16) 100%); }
+
+/* confetti cannons from both screen edges: one empty element, two bursts.
+   Thin paper rectangles, sparks and streamers (no hearts, no circles);
+   the member colour is 6 of 14 pieces (≈ 40%), the rest Magenta, Cyan,
+   Electric Violet and Bone White. */
+html body .slw-cannons {
+  position: fixed;
+  inset: 0;
+  z-index: 9550;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+html body .slw-cannons::before,
+html body .slw-cannons::after {
+  content: "";
+  position: absolute;
+  bottom: -12vmin;
+  width: 78vmin;
+  height: 78vmin;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  background:
+    linear-gradient(35deg, transparent 40%, var(--sle-member) 40% 60%, transparent 60%) 12% 78% / 14px 9px,
+    linear-gradient(55deg, transparent 38%, #FF2E9A 38% 62%, transparent 62%) 22% 60% / 16px 10px,
+    linear-gradient(-35deg, transparent 46%, #F4F2FA 46% 54%, transparent 54%) 30% 84% / 10px 10px,
+    linear-gradient(-55deg, transparent 38%, var(--sle-member) 38% 62%, transparent 62%) 38% 48% / 18px 11px,
+    linear-gradient(80deg, transparent 47%, #22E4FF 47% 53%, transparent 53%) 46% 70% / 6px 30px,
+    linear-gradient(70deg, transparent 38%, var(--sle-member) 38% 62%, transparent 62%) 52% 30% / 16px 10px,
+    linear-gradient(45deg, transparent 46%, #F4F2FA 46% 54%, transparent 54%) 60% 55% / 11px 11px,
+    linear-gradient(20deg, transparent 38%, #8A5CFF 38% 62%, transparent 62%) 66% 20% / 18px 10px,
+    linear-gradient(-80deg, transparent 47%, var(--sle-member) 47% 53%, transparent 53%) 72% 42% / 6px 28px,
+    linear-gradient(-60deg, transparent 38%, #22E4FF 38% 62%, transparent 62%) 78% 12% / 16px 10px,
+    linear-gradient(10deg, transparent 38%, var(--sle-member) 38% 62%, transparent 62%) 84% 34% / 15px 9px,
+    linear-gradient(40deg, transparent 38%, #FF2E9A 38% 62%, transparent 62%) 88% 58% / 17px 10px,
+    linear-gradient(-15deg, transparent 46%, #F4F2FA 46% 54%, transparent 54%) 20% 30% / 10px 10px,
+    linear-gradient(85deg, transparent 47%, var(--sle-member) 47% 53%, transparent 53%) 40% 88% / 6px 26px;
+  background-repeat: no-repeat;
+  animation: sleCannonL 1.5s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+html body .slw-cannons::before { left: -18vmin; }
+html body .slw-cannons::after { right: -18vmin; animation-name: sleCannonR; animation-delay: 0.12s; }
+
+/* ---------------- toasts: drop 8px in from the top ---------------- */
+html body .slw-toast {
+  top: max(12px, env(safe-area-inset-top));
+  bottom: auto;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 8px 8px 8px 16px;
+  background: var(--sle-toast-bg);
+  -webkit-backdrop-filter: var(--sle-blur);
+  backdrop-filter: var(--sle-blur);
+  color: var(--sle-fg);
+  border: 1px solid var(--sle-panel-edge);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-family: var(--sle-ui);
+  font-weight: 600;
+  font-size: 15px;
+  animation: sleToastIn 200ms var(--sle-ease) both;
+}
+
+/* ================================================================
+   2D fallback city buildings (world-art sprites). rewards-world's
+   tapItem restarts `.go` (remove, reflow, add); every act ends within
+   3 s and nothing switches faster than LED_CHASE_HZ (1.5 Hz).
+   ================================================================ */
+html body .slw-hatch,
+html body .slw-pearls,
+html body .slw-strip,
+html body .slw-marquee,
+html body .slw-eq,
+html body .slw-bean,
+html body .slw-beam {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+html body .slw-hatch { transform-origin: 50% 0; }
+html body .slw-beam { transform-origin: 50% 0; opacity: 0; transition: opacity 0.6s ease-in-out; }
+html body .slw-onair { opacity: 0.5; transition: opacity 0.3s ease-out; }
+/* the Showtime glow and lit windows fade with the stage, never a hard switch */
+html body .slw-neon { transition: filter 0.6s ease-in-out; }
+html body .slw-win { transition: fill 0.6s ease-in-out; }
+html body .slw-hatch.go { animation: sleHatch 1.6s ease-in-out; }
+html body .slw-pearls.go { animation: slePearls 0.75s ease-in-out 2; }
+html body .slw-strip.go { animation: sleStrip 1.2s ease-out both; }
+/* the LED tower's name marquee scrolls slowly; a tap wipes to the next show */
+html body .slw-marquee { animation: sleMarquee 8s linear infinite; }
+html body .slw-marquee.go { animation: sleMarquee 8s linear infinite, sleWipe 0.5s ease-out; }
+html body .slw-onair.go { animation: sleOnAir 3s ease-in-out; }
+/* the VU / EQ bars: smooth heights (no steps, never on/off), two peaks per 1.5 s, so no
+   pixel of a bar lights and goes dark faster than 1.33 Hz (≤ LED_CHASE_HZ) */
+html body .slw-eq.go { animation: sleEq 1.5s ease-in-out 2; }
+/* the light-up floor: an alternating checker chase at 1.33 Hz, never full contrast */
+html body .slw-floor.go > * { animation: sleFloor 0.75s steps(1, end) 4; }
+html body .slw-floor.go > :nth-child(even) { animation-delay: 0.375s; }
+html body .slw-bean.go { animation: sleBean 0.9s ease-in-out; }
+/* Showtime (and the 8 s encore): beams fade in and sweep, neon glows, windows light up.
+   The beams belong to .showtime alone — the encore's .slw-beam.go has no animation, so
+   when the host lifts .showtime the beams just fade out (nothing to replay) */
+html body .slw.showtime .slw-beam { opacity: 0.8; animation: sleBeam 4s ease-in-out infinite alternate; }
+html body .slw.showtime .slw-neon { filter: drop-shadow(0 0 4px currentColor) brightness(1.25); }
+/* windows: Window Warm at golden hour, brighter at Showtime (the 2D .slw always carries
+   .dusk, so the Showtime fill comes after it and wins) */
+html body .slw.dusk .slw-win { fill: #FFD08A; }
+html body .slw.showtime .slw-win { fill: #FFE9A8; }
+
+/* ================================================================
+   Game shell (.slg-*, world/games/shell.js): night stage, glass bar,
+   flat buttons, an Unbounded countdown, spotlit results.
+   ================================================================ */
+html body .slg { background: var(--sle-stage); font-family: var(--sle-ui); color-scheme: dark; }
+html body .slg .slg-top {
+  padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
+  background: var(--sle-bar-bg);
+  -webkit-backdrop-filter: var(--sle-blur-bar);
+  backdrop-filter: var(--sle-blur-bar);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+html body .slg .slg-top .ttl { font-family: var(--sle-ui); font-weight: 800; font-size: 18px; letter-spacing: 0.01em; }
+html body .slg .slg-top .hud {
+  padding: 4px 12px;
+  background: rgba(22, 18, 40, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+html body .slg .slg-top .hud:empty { display: none; }
+
+/* buttons: flat ghost; .alt = LED Cyan secondary; .go = the CTA gradient */
+html body .slg .slg-b {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sle-fg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: none;
+  font-family: var(--sle-ui);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  transition: transform var(--sle-press) ease-out, box-shadow var(--sle-press) ease-out, background-color var(--sle-press) ease-out, filter var(--sle-press) ease-out;
+}
+html body .slg .slg-b.alt {
+  background: transparent;
+  color: var(--sle-secondary-fg);
+  border: 1.5px solid var(--sle-secondary-lip);
+}
+html body .slg .slg-b.go {
+  padding: 12px 28px;
+  background: linear-gradient(120deg, var(--sle-go-a), var(--sle-go-b));
+  color: var(--sle-go-fg);
+  border: 0;
+  box-shadow: 0 6px 20px rgba(224, 21, 127, 0.35);
+  font-weight: 800;
+  font-size: 20px;
+}
+@media (hover: hover) {
+  html body .slg .slg-b:hover:not(:disabled) { background-color: rgba(255, 255, 255, 0.12); }
+  html body .slg .slg-b.alt:hover:not(:disabled) { background-color: rgba(34, 228, 255, 0.08); }
+  html body .slg .slg-b.go:hover:not(:disabled) { filter: brightness(1.1); }
+}
+html body .slg .slg-b:active:not(:disabled) { transform: scale(0.97); }
+html body .slg .slg-b.go:active:not(:disabled) { box-shadow: 0 3px 10px rgba(224, 21, 127, 0.18); }
+html body .slg .slg-b:focus-visible,
+html body .slg .slg-var:focus-visible,
+html body .slg .slg-pad:focus-visible {
+  outline: 3px solid #FFD23F;
+  outline-offset: 2px;
+}
+/* results buttons ignore taps for 0.65 s: keep that quiet; a real 'no' goes flat */
+html body .slg .slg-b:disabled { opacity: 0.6; cursor: default; }
+html body .slg .slg-b:disabled[data-stay] {
+  opacity: 1;
+  background: var(--sle-off-bg);
+  color: var(--sle-off-fg);
+  border-color: var(--sle-off-lip);
+  box-shadow: none;
+}
+
+/* menu chips (variants, rivals, options) */
+html body .slg .slg-var {
+  min-height: 44px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sle-fg);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  box-shadow: none;
+  font-family: var(--sle-ui);
+  font-weight: 700;
+  font-size: 15px;
+  transition: transform var(--sle-press) ease-out, border-color var(--sle-press) ease-out, background-color var(--sle-press) ease-out;
+}
+html body .slg .slg-var.on {
+  background: rgba(255, 210, 63, 0.14);
+  border-color: #FFD23F;
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.3);
+}
+/* never colour alone: the chosen chip also gets a tick */
+html body .slg .slg-var.on::before { content: "✓ "; content: "✓ " / ""; }
+html body .slg .slg-var:disabled { opacity: 0.55; cursor: not-allowed; }
+html body .slg .slg-var:active:not(:disabled) { transform: scale(0.97); }
+html body .slg .slg-opt .lb { color: var(--sle-fg-2); opacity: 1; font-family: var(--sle-ui); font-weight: 600; }
+html body .slg .slg-lock { color: var(--sle-fg-2); opacity: 1; }
+
+/* touch pads: flat night glass, the shell's clamp sizes; state borders by colour AND glow */
+html body .slg .slg-touch {
+  padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+}
+html body .slg .slg-pad {
+  --slg-glow-r: 0px;
+  --slg-glow: transparent;
+  background: rgba(22, 18, 40, 0.6);
+  color: var(--sle-fg);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), 0 0 var(--slg-glow-r) var(--slg-glow);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  text-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.12s ease-out;
+}
+html body .slg .slg-pad[data-st="s1"] { border-color: #22E4FF; --slg-glow: #22E4FF; --slg-glow-r: 12px; }
+html body .slg .slg-pad[data-st="s2"] { border-color: #FF2E9A; --slg-glow: #FF2E9A; --slg-glow-r: 14px; }
+html body .slg .slg-pad[data-st="s3"] { border-color: #FFD23F; --slg-glow: #FFD23F; --slg-glow-r: 16px; }
+html body .slg .slg-pad[data-st="grey"] { border-color: #6E6890; opacity: 0.75; }
+html body .slg .slg-pad[data-st="ready"] { border-color: #FFD23F; }
+html body .slg .slg-pad.on {
+  background: rgba(255, 210, 63, 0.32);
+  border-color: #FFD23F;
+  transform: scale(0.97);
+}
+
+/* menus, tutorial, pause, results: a deep radial with 2 soft spotlight wedges */
+html body .slg .slg-scr {
+  gap: 14px;
+  background: radial-gradient(circle at 50% 30%, #2A1856 0%, #0B0A1F 70%);
+}
+html body .slg .slg-scr::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    conic-gradient(from 150deg at 18% -8%, transparent 0deg 4deg, rgba(255, 255, 255, 0.06) 8deg 17deg, transparent 22deg),
+    conic-gradient(from 188deg at 82% -8%, transparent 0deg 4deg, rgba(255, 255, 255, 0.06) 8deg 17deg, transparent 22deg);
+}
+html body .slg .slg-scr h2 {
+  font-family: var(--sle-display);
+  font-weight: 800;
+  font-size: clamp(26px, 5.4vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--sle-fg);
+  text-shadow: 0 0 24px rgba(138, 92, 255, 0.45);
+}
+html body .slg .slg-scr p { color: #E6E1F7; font-family: var(--sle-body); font-weight: 500; }
+html body .slg .slg-scr .row { gap: 12px; }
+html body .slg .slg-tut div {
+  background: rgba(22, 18, 40, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: none;
+  font-family: var(--sle-body);
+  font-weight: 500;
+}
+/* tutorial emoji sit on night discs */
+html body .slg .slg-tut b {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: 28px;
+  line-height: 1;
+}
+html body .slg .slg-big {
+  font-family: var(--sle-display);
+  font-weight: 800;
+  font-size: clamp(44px, 10vw, 88px);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--sle-fg);
+  text-shadow: 0 0 28px rgba(255, 210, 63, 0.4);
+}
+/* the results sheet as glass over the 3D scene (def.resultsGlass) */
+html body .slg .slg-scr.glass {
+  background: var(--sle-panel-bg);
+  -webkit-backdrop-filter: var(--sle-blur);
+  backdrop-filter: var(--sle-blur);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: sleSheetIn 280ms var(--sle-ease-sheet) both;
+}
+
+/* medals: flat pills with a 1px edge */
+html body .slg .slg-badges { gap: 8px; }
+html body .slg .slg-badge {
+  padding: 5px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+  font-family: var(--sle-ui);
+  font-weight: 800;
+}
+html body .slg .slg-badge.bronze { background: linear-gradient(135deg, #E8A15B, #B86B2C); color: #3A1E05; }
+html body .slg .slg-badge.silver { background: linear-gradient(135deg, #E9EDF5, #9AA6BD); color: #14101F; }
+html body .slg .slg-badge.gold { background: linear-gradient(135deg, #FFE89A, #F0C02F); color: #14101F; box-shadow: 0 0 12px rgba(240, 192, 47, 0.4); }
+html body .slg .slg-badge.crown { background: linear-gradient(135deg, var(--sle-holo)); color: #14101F; box-shadow: 0 0 14px rgba(255, 122, 217, 0.4); }
+html body .slg .slg-badge.ribbon { background: linear-gradient(120deg, var(--sle-primary-a), var(--sle-primary-b)); color: #FFFFFF; border-color: transparent; }
+html body .slg .slg-badge.hint { background: transparent; color: var(--sle-fg-2); border-style: dashed; border-color: rgba(255, 255, 255, 0.4); }
+
+/* personal best: a gold-foil pill with a slow sheen */
+html body .slg .slg-pb {
+  display: inline-block;
+  padding: 8px 20px;
+  background: linear-gradient(110deg, #FFE89A 0%, #F0C02F 30%, #C9921A 50%, #F0C02F 70%, #FFE89A 100%) 0 0 / 200% 100%;
+  color: var(--sle-ink);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  box-shadow: 0 0 22px rgba(240, 192, 47, 0.45), 0 8px 18px rgba(0, 0, 0, 0.35);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  animation: slePbIn 320ms var(--sle-ease-sheet) both, sleGoldDrift 8s linear infinite;
+}
+html body .slg .slg-banner {
+  background: var(--sle-new-bg);
+  color: var(--sle-fg);
+  border: 1px solid rgba(255, 210, 63, 0.55);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.25), 0 8px 18px rgba(0, 0, 0, 0.35);
+  font-family: var(--sle-ui);
+  font-weight: 700;
+}
+html body .slg .slg-rot {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+  font-family: var(--sle-ui);
+  font-weight: 600;
+}
+
+/* countdown digits: Unbounded 800, white with a member-colour glow, a ring per beat */
+html body .slg .slg-count {
+  font-family: var(--sle-display);
+  font-weight: 800;
+  font-size: clamp(84px, 18vw, 160px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--sle-fg);
+  text-shadow: 0 0 24px var(--sle-member), 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+html body .slg .slg-count::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--sle-member) 0%, transparent 68%);
+  opacity: 0.35;
+}
+/* fallback ring: loops on the beat (never faster than 1.97 Hz) until the shell adds .slg-ring */
+html body .slg .slg-count::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.15em;
+  height: 1.15em;
+  border: 0.03em solid var(--sle-member);
+  border-radius: 50%;
+  box-shadow: 0 0 0.1em var(--sle-member);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.35);
+  animation: sleRing 1s ease-out infinite;
+  animation-duration: max(0.51s, var(--slg-beat, 1s));
+}
+html body .slg .slg-count.slg-rings::after,
+html body .slg .slg-count:has(.slg-ring)::after,
+html body .slg .slg-mid:has(> .slg-ring) .slg-count::after { content: none; }
+/* one ring per beat: the shell re-inserts .slg-ring, which plays once — at most 1.97 Hz,
+   so a faster count-in (Debut Run, 128 BPM) rings every other beat */
+html body .slg .slg-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  width: calc(1.15 * clamp(84px, 18vw, 160px));
+  height: calc(1.15 * clamp(84px, 18vw, 160px));
+  border: 3px solid var(--sle-member);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--sle-member);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.35);
+  animation: sleRing 0.9s ease-out forwards;
+  animation-duration: max(0.5s, calc(var(--slg-beat, 1s) * 0.9));
+}
+
+/* ---------------- LOW tier and fallbacks: solid #15112A, no blur ---------------- */
+html.sl-low body {
+  --sle-panel-bg: var(--sle-panel-solid);
+  --sle-show-bg: var(--sle-show-solid);
+  --sle-toast-bg: var(--sle-panel-solid);
+  --sle-bar-bg: #1A1530;
+  --sle-blur: none;
+  --sle-blur-bar: none;
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  html body {
+    --sle-panel-bg: var(--sle-panel-solid);
+    --sle-show-bg: var(--sle-show-solid);
+    --sle-toast-bg: var(--sle-panel-solid);
+    --sle-bar-bg: #1A1530;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html body {
+    --sle-panel-bg: var(--sle-panel-solid);
+    --sle-show-bg: var(--sle-show-solid);
+    --sle-toast-bg: var(--sle-panel-solid);
+    --sle-bar-bg: #1A1530;
+    --sle-blur: none;
+    --sle-blur-bar: none;
+  }
+}
+
+/* ---------------- phones ---------------- */
+@media (max-width: 640px) {
+  html body .slw { padding: 8px 6px 14px; border-radius: 18px; }
+  html body .slw-hud { padding: 6px; gap: 6px; border-radius: 14px; }
+  html body .slw-btn { padding: 8px 12px; font-size: 14px; }
+  html body .slw-btn.big { padding: 9px 14px; font-size: 15px; }
+  html body .slw-learn { padding: 8px 12px; font-size: 14px; }
+  html body .slw-pts { padding: 4px 12px; font-size: 16px; }
+  html body .slw-legend { border-radius: 14px; padding: 8px 12px; }
+  html body .slw-camctl { right: 8px; bottom: 8px; }
+}
+@media (max-width: 600px) {
+  /* sheets become bottom sheets that slide up */
+  html body .slw-ov { align-items: flex-end; padding: 0; }
+  html body .slw-sheet {
+    max-height: 90vh;
+    max-height: 90dvh;
+    padding: 16px 14px max(18px, env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+  }
+  html body .slw-sheet h2 { font-size: 21px; }
+  html body .slw-cats {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 2px 10px;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+  html body .slw-cats .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+}
+@media (max-width: 380px) {
+  html body .slw-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); gap: 10px; }
+}
+/* short stages: the camera stack lies down so it never covers the island */
+@media (max-height: 540px) {
+  html body .slw-camctl { flex-direction: row; }
+  html body .slw-camctl button[data-cam="in"],
+  html body .slw-camctl button[data-cam="reset"] { margin-top: 0; margin-left: 6px; }
+}
+
+/* ---------------- reduced motion: 120 ms opacity fades only ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  html body .slw-ov,
+  html body .slw-sheet,
+  html body .slw-toast,
+  html body .slw-cele,
+  html body .slw-cele::before,
+  html body .slw-cele > *,
+  html body .slw-cele.pop .ic,
+  html body .slg .slg-scr.glass,
+  html body .slg .slg-pb,
+  html body .slw-pc > img { animation: sleFade 120ms ease-out both; }
+  html body .slw-cell.bad,
+  html body .slw-loading::before,
+  html body .slw-tag3d > .slw-tag.play,
+  html body .slw-tag3d > .slw-new,
+  html body .slw-grid > .slw-card.shine-2,
+  html body .slw-marquee,
+  html body .slw-marquee.go,
+  html body .slw.showtime .slw-beam,
+  html body .slg .slg-count::after { animation: none; }
+  html body .slw-grid > .slw-card.shine-3::before,
+  html body .slw-grid > .slw-card.shine-3::after { animation: none; opacity: 0.9; }
+  html body .slw-pts.sparkle::after { animation: sleSparkleFade 0.4s ease-out; }
+  /* the countdown ring: one still ring per beat, fading */
+  html body .slg .slg-ring { animation: sleSparkleFade 0.5s ease-out forwards; transform: translate(-50%, -50%); }
+  /* confetti physics becomes a 0.4 s sparkle fade in place */
+  html body .slw-cannons::before { animation: sleSparkleFade 0.4s ease-out forwards; transform: translate(22%, -30%) scale(0.9); }
+  html body .slw-cannons::after { animation: sleSparkleFade 0.4s ease-out forwards; transform: scaleX(-1) translate(22%, -30%) scale(0.9); }
+  /* 2D building acts jump to their end state (the beams: lit while .showtime is on,
+     dark again once the encore lifts it, like the 3D act's beams: 0) */
+  html body .slw-hatch.go,
+  html body .slw-pearls.go,
+  html body .slw-strip.go,
+  html body .slw-eq.go,
+  html body .slw-floor.go > *,
+  html body .slw-bean.go { animation: none; }
+  html body .slw-onair.go { animation: none; opacity: 1; }
+  /* a floating tap glyph (.slw-fx) is a sparkle that fades in place: no rise, no scale */
+  html body .slw-fx { animation: sleSparkleFade 0.4s ease-out forwards; transform: translate(-50%, -100%); }
+  /* the golden hour ↔ Showtime glow swap is a short fade */
+  html body .slw::before,
+  html body .slw::after,
+  html body .slw-beam { transition-duration: 120ms; }
+  /* no movement on hover or press; colour and shadow still answer */
+  html body .slw-btn,
+  html body .slw-learn,
+  html body .slw-buy,
+  html body .slw-goalbtn,
+  html body .slw-toast button,
+  html body .slw-goal,
+  html body .slw-trayitem,
+  html body .slw-x,
+  html body .slw-camctl button,
+  html body .slw-grid > .slw-card,
+  html body .slg .slg-b,
+  html body .slg .slg-var,
+  html body .slg .slg-pad,
+  html body .slw-btn[class],
+  html body .slw-learn[class],
+  html body .slw-buy[class],
+  html body .slw-goalbtn[class],
+  html body .slw-toast button[class],
+  html body .slw .slw-btn[class] { transition-property: opacity, background-color, border-color, box-shadow, color, filter; transition-duration: 120ms; }
+  html body .slw-btn:hover,
+  html body .slw-btn:active,
+  html body .slw-learn:hover,
+  html body .slw-learn:active,
+  html body .slw-buy:hover,
+  html body .slw-buy:active,
+  html body .slw-goalbtn:hover,
+  html body .slw-goalbtn:active,
+  html body .slw-toast button:hover,
+  html body .slw-toast button:active,
+  html body button.slw-goal:hover,
+  html body button.slw-goal:active,
+  html body .slw-trayitem:hover,
+  html body .slw-trayitem:active,
+  html body .slw-x:active,
+  html body .slw-camctl button:active,
+  html body .slg .slg-b:hover,
+  html body .slg .slg-b:active,
+  html body .slg .slg-var:active,
+  html body .slg .slg-pad.on { transform: none; }
+  html body .slw-3dcanvas,
+  html body .slw-anchors > * { transition-duration: 120ms; }
+}
+
+/* ---------------- keyframes ---------------- */
+@keyframes sleFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sleSheetIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sleToastIn {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes sleCardIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sleRiseIn {
+  from { opacity: 0; transform: translateY(6px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes sleFoil { to { --sle-foil: 360deg; } }
+/* one ✦ glint per 4 s cycle, resting most of it */
+@keyframes sleGlint {
+  0%, 30%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  12% { opacity: 1; transform: scale(1) rotate(45deg); }
+}
+@keyframes sleShimmer {
+  0% { opacity: 1; background-position: 120% 0; }
+  100% { opacity: 1; background-position: -60% 0; }
+}
+@keyframes sleSparkleFade { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sleBeat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes sleBob { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-5px) rotate(12deg); } }
+@keyframes sleBadCell { from { background-color: rgba(255, 90, 106, 0.42); } to { background-color: rgba(255, 90, 106, 0.24); } }
+@keyframes sleRing {
+  0% { opacity: 0.9; transform: translate(-50%, -50%) scale(0.35); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+@keyframes slePbIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sleGoldDrift { to { background-position: -200% 0; } }
+@keyframes sleCannonL {
+  0% { opacity: 0; transform: translate(-10%, 12%) scale(0.25) rotate(-12deg); }
+  12% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(30%, -48%) scale(1.15) rotate(14deg); }
+}
+@keyframes sleCannonR {
+  0% { opacity: 0; transform: scaleX(-1) translate(-10%, 12%) scale(0.25) rotate(-12deg); }
+  12% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: scaleX(-1) translate(30%, -48%) scale(1.15) rotate(14deg); }
+}
+/* 2D building acts */
+@keyframes sleHatch { 0%, 100% { transform: none; } 25%, 75% { transform: translateY(-24%); } }
+@keyframes slePearls { 0%, 100% { transform: none; } 50% { transform: translateY(-14%) rotate(-6deg); } }
+@keyframes sleStrip {
+  from { opacity: 0; transform: translateY(-30%); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sleMarquee { from { transform: translateX(60%); } to { transform: translateX(-60%); } }
+@keyframes sleWipe { 0%, 100% { opacity: 1; } 40% { opacity: 0.2; } }
+@keyframes sleOnAir {
+  0%, 100% { opacity: 0.5; }
+  8%, 90% { opacity: 1; }
+}
+@keyframes sleEq {
+  0% { transform: scaleY(0.35); }
+  25% { transform: scaleY(0.85); }
+  50% { transform: scaleY(0.55); }
+  75% { transform: scaleY(1); }
+  100% { transform: scaleY(0.35); }
+}
+@keyframes sleFloor { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }
+@keyframes sleBean {
+  0%, 100% { transform: none; }
+  35% { transform: scale(1.04, 0.94); }
+  70% { transform: scale(0.98, 1.02); }
+}
+@keyframes sleBeam { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
