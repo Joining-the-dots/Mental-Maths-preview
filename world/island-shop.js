@@ -103,6 +103,38 @@
          fewer than the runner) are out at once (D97). Once care has started (C.careOf(w))
          the list is the home pets only, in home order, with careRunner's pet as the
          active one, and hotel = how many are at the Pet Hotel (else 0).
+     landShop(C, u, {isle, trial, wallet, filter, here, petShop, people})
+         → {isle, picker, section, filter, hidden, next}: the Island Shop as ONE land and a few
+         shelves (wave 3, WAVE3-PLAN §5, chunk W3-2). here = the land the child stands on; isle =
+         the land to show (else here, else 'home'). picker = [{isle, owned, here, on}], Home first,
+         then ISLE_ORDER's sky lands (on = the land shown). section = {isle, name, owned, status,
+         price, landId, landmarkId, landmarkUid, lead, counts, shelves: [{key, labelKey, ids,
+         doors?}], doors}: a sky land is sections({isle})[0] with doors [] (land card first while
+         it is locked, then the landmark). Home has no land card or landmark (status 'open', price
+         0, the ids null, lead []) and six shelves from homeItems() by category, each labelled
+         shop.home.<key>: games (the attractions, then the courses and tracks (kind variant),
+         then the extras: balls, stadiums and karts; each group cheapest first), decor (garden,
+         lights, flags, city), fun (fun, paths), pets (the doors 'pets' and 'petShop', then the
+         V4.54 gear; with petShop false there is no Pet Shop door and the Home pets are on the
+         shelf before the gear), lands (every land) and more (the doors 'house' and 'clothes', no
+         cards). A shelf with nothing on it and no door is left out. The styles are behind the
+         'house' door, the characters and wear behind 'clothes' (only when the core has them and
+         people is not false), the Home pets behind 'petShop'. A door is {key, titleKey, lineKey,
+         lineParams, btnKey, ids, things, left, can} (left = not owned; can = how many of its ids
+         can be bought now, by the 'I can buy' rule below; the My pets door has no ids, so 0);
+         section.doors = every door, in shelf order. Inside a shelf the order is cheapest first
+         in the call's wallet and never changes when something is bought (what is owned stays
+         put). counts = {things, mascots, gear, all} of the shelves' cards (a sky land's are its
+         sections() counts). filter: 'afford' ('I can buy': only what can be bought now, the
+         rule of afford()) or 'all'; always 'all' in test mode, where nothing is short. With
+         'afford' the lead and every shelf keep only what can be bought now (never the
+         landmark), a door stays only when something behind it can be bought now (can > 0: so
+         the styles, the Home pets and the wardrobe the old 'I can buy' list showed still have
+         their way in), a shelf left with no card and no door goes, and counts stay the land's
+         own. hidden = how many cards the filter took away (0 with 'all'; doors are not cards).
+         next = {id, need}: the cheapest card on the page (the lead and the shelves, before the
+         filter) the child is short of, need in the call's wallet; null in test mode or when
+         nothing is short.
 
    Wallets (F-KU4, for the overnight fixes F-KU3). Every call's opts may name a wallet, opts.wallet
    'coins' | 'stars', passed to the core as it is (without it the core's ECONOMY.wallet decides):
@@ -207,6 +239,10 @@
   function userOf(C, u) {
     var w = worldOf(C, u), copyW = {};
     Object.keys(w).forEach(function (k) { copyW[k] = w[k]; });
+    /* the one place ensureWorld writes inside a field (arcade.days, when an old save has arcade {} or days
+       null): arcade is copied a level deeper, so that write lands on the copy and never in the save */
+    var arc = w.arcade;
+    if (arc && typeof arc === 'object') { copyW.arcade = {}; Object.keys(arc).forEach(function (k) { copyW.arcade[k] = arc[k]; }); }
     return { points: u && !u.owned && typeof u.points === 'number' ? u.points : 0, world: copyW };
   }
   /* cheapest first in the island's money (F-KU5: the wallet o names, else the core's, so 🪙 since the two
@@ -614,9 +650,128 @@
     return { list: list, resting: Math.max(0, list.length - out), hotel: hotel };
   }
 
+  /* ---------------- the one-land shop (wave 3, W3-2; WAVE3-PLAN §5) ----------------
+     The Island Shop is the land the child is looking at and a few shelves. Home's things are
+     the V4.54 shop (homeItems) sorted onto six shelves; what has its own page (the home's
+     styles, the Pet Shop's pets, the wardrobe) sits behind a door card instead. */
+  var GAME_KINDS = { attraction: 1, variant: 1, cosmetic: 1 };
+  var FUN_CATS = { fun: 1, paths: 1 };
+  /* a door: [title, line, button] copy keys (the Wardrobe line is shop.isleCount {n}: the pieces left to get) */
+  var DOORS = {
+    pets: ['care.corner.title', 'shop.door.petsLine', 'care.corner.title'],
+    petShop: ['care.shop.title', 'shop.door.petShopLine', 'care.welcome.shop'],
+    house: ['shop.door.house', 'shop.door.houseLine', 'shop.door.houseBtn'],
+    clothes: ['wardrobe.tab', 'shop.isleCount', 'wardrobe.title']
+  };
+  /* where a Home thing goes: a shelf key, or the door it sits behind ('house'; a pet: 'pet') */
+  function homeSlot(it) {
+    if (it.kind === 'land') return 'lands';
+    if (it.kind === 'style') return 'house';
+    if (it.kind === 'pet') return 'pet';
+    if (it.kind === 'acc') return 'pets';
+    if (it.cat === 'games' || has(GAME_KINDS, it.kind)) return 'games';
+    if (has(FUN_CATS, it.cat)) return 'fun';
+    /* garden, lights, flags and city (plan (b)). The landShop test names every Home category, so a new
+       one fails it there rather than landing on this shelf unseen; here it still lands somewhere */
+    return 'decor';
+  }
+  /* itemState once per id for a whole call (the doors, the filter and next all ask) */
+  function statesFor(x) {
+    var seen = {};
+    return function (id) { if (!has(seen, id)) seen[id] = x.C.itemState(x.U, id, x.o); return seen[id]; };
+  }
+  /* 'I can buy' (the rule of afford()): affordable now, and never a pet the cap shuts out */
+  function buyable(x) {
+    var shut = capped(x);
+    return function (id) { return x.state(id).state === 'affordable' && !(shut && isPet(x.C, id)); };
+  }
+  function doorOf(x, key, ids) {
+    var D = DOORS[key], left = ids.filter(function (id) { return !x.C.owns(x.w, id); }).length;
+    return { key: key, titleKey: D[0], lineKey: D[1], lineParams: key === 'clothes' ? { n: left } : null, btnKey: D[2],
+      ids: ids, things: ids.length, left: left, can: ids.filter(x.can).length };
+  }
+  function homeSection(x, opts) {
+    var C = x.C, o = x.o, bin = { games: [], decor: [], fun: [], pets: [], lands: [], house: [], pet: [] };
+    homeItems(C).forEach(function (it) { bin[homeSlot(it)].push(it.id); });
+    /* the Home Pet Shop's pets: the V4.54 ones and the kids update's isle 'home' ones (never the free puppy) */
+    var pets = byPrice(C, C.shopItems().filter(function (it) { return it.kind === 'pet' && petIsle(it) === 'home'; }).map(function (it) { return it.id; }), o);
+    /* the Games shelf: the attractions, then the courses and tracks (variant), then the extras (balls, stadiums, karts) */
+    var kindOf = function (id) { var k = C.item(id).kind; return k === 'attraction' || k === 'variant' ? k : 'extra'; };
+    var games = [].concat.apply([], ['attraction', 'variant', 'extra'].map(function (k) {
+      return byPrice(C, bin.games.filter(function (id) { return kindOf(id) === k; }), o);
+    }));
+    var petShopOn = opts.petShop !== false, wear = opts.people === false ? [] : soldItems(C).map(function (it) { return it.id; });
+    var shelf = function (key, ids, doors) {
+      var s = { key: key, labelKey: 'shop.home.' + key, ids: ids };
+      if (doors) s.doors = doors;
+      return s;
+    };
+    var shelves = [
+      shelf('games', games),
+      shelf('decor', byPrice(C, bin.decor, o)),
+      shelf('fun', byPrice(C, bin.fun, o)),
+      shelf('pets', (petShopOn ? [] : pets).concat(byPrice(C, bin.pets, o)), [doorOf(x, 'pets', [])].concat(petShopOn ? [doorOf(x, 'petShop', pets)] : [])),
+      shelf('lands', byPrice(C, bin.lands, o)),
+      shelf('more', [], [doorOf(x, 'house', byPrice(C, bin.house, o))].concat(wear.length ? [doorOf(x, 'clothes', wear)] : []))
+    ].filter(function (s) { return s.ids.length > 0 || (s.doors && s.doors.length > 0); });
+    var counts = { things: 0, mascots: 0, gear: 0, all: 0 }, doors = [];
+    shelves.forEach(function (s) {
+      s.ids.forEach(function (id) { counts[isPet(C, id) ? 'mascots' : isAcc(C, id) ? 'gear' : 'things'] += 1; counts.all += 1; });
+      if (s.doors) doors = doors.concat(s.doors);
+    });
+    return {
+      isle: 'home', name: C.ISLES.home.name, owned: true, status: 'open', price: 0,
+      landId: null, landmarkId: null, landmarkUid: null, lead: [], counts: counts, shelves: shelves, doors: doors
+    };
+  }
+  function landShop(C, u, opts) {
+    opts = opts || {};
+    var x = ctxOf(C, u, opts), o = x.o;
+    x.state = statesFor(x);
+    x.can = buyable(x);
+    var here = def(C, opts.here) ? opts.here : null;
+    var isle = def(C, opts.isle) ? opts.isle : here || 'home';
+    var filter = !o.trial && opts.filter === 'afford' ? 'afford' : 'all';
+    var picker = C.ISLE_ORDER.map(function (k) { return { isle: k, owned: k === 'home' || C.isleUnlocked(x.w, k), here: k === here, on: k === isle }; });
+    var section;
+    if (isle === 'home') section = homeSection(x, opts);
+    else {
+      var so = { isle: isle, trial: o.trial };
+      if (has(o, 'wallet')) so.wallet = o.wallet;
+      section = sections(C, u, so)[0];
+      section.doors = [];
+    }
+    var cards = section.lead.filter(function (id) { return C.item(id).kind !== 'landmark'; });
+    section.shelves.forEach(function (s) { cards = cards.concat(s.ids); });
+    /* what is next to save for: the cheapest card here the child is short of (the first one on a tie) */
+    var next = null;
+    if (!o.trial) cards.forEach(function (id) {
+      var s = x.state(id);
+      if (s.state === 'short' && typeof s.need === 'number' && isFinite(s.need) && (!next || s.need < next.need)) next = { id: id, need: s.need };
+    });
+    var hidden = 0;
+    if (filter === 'afford') {
+      /* 'I can buy': the cards that can be bought now (never the landmark), and a door only with such a thing behind it */
+      var can = {};
+      cards.forEach(function (id) { can[id] = x.can(id); });
+      var keep = function (id) { if (can[id] === true) return true; if (has(can, id)) hidden += 1; return false; };
+      var open = function (d) { return d.can > 0; };
+      section.lead = section.lead.filter(keep);
+      section.shelves = section.shelves.map(function (s) {
+        var c = {};
+        Object.keys(s).forEach(function (k) { c[k] = s[k]; });
+        c.ids = s.ids.filter(keep);
+        if (s.doors) { c.doors = s.doors.filter(open); if (!c.doors.length) delete c.doors; }
+        return c;
+      }).filter(function (s) { return s.ids.length > 0 || !!s.doors; });
+      section.doors = section.doors.filter(open);
+    }
+    return { isle: isle, picker: picker, section: section, filter: filter, hidden: hidden, next: next };
+  }
+
   var api = {
     sections: sections, allTab: allTab, afford: afford, crewAisle: crewAisle, wearTray: wearTray, crewSheet: crewSheet,
-    petState: petState, petShop: petShop, shopPet: shopPet, SLOTS: SLOTS
+    petState: petState, petShop: petShop, shopPet: shopPet, landShop: landShop, SLOTS: SLOTS
   };
   /* the Wardrobe tab and the character cards only beside the people core (inert without it) */
   if (PEOPLE) { api.wardrobeTab = wardrobeTab; api.wardrobeCard = wardrobeCard; api.WARDROBE = WARDROBE; }

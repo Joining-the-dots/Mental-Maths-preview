@@ -626,7 +626,9 @@
           details = details.filter(function (t) { return t != null && String(t).trim(); }).map(String);
           injectCss3();
         }
-        var STARS_P = '<p style="font-size:13px;opacity:.75;margin:0 0 8px;">🎮 Game scores don’t earn or spend ⭐ — learning earns ⭐.</p>';
+        /* the money line: an island that pays in 🪙 coins says so (world-copy games.noCoins, F-KU5 review); a core that pays in ⭐ keeps V4.54's */
+        var CW = window.SLWorldCore, coinsP = !!(CW && typeof CW.walletOf === 'function' && CW.walletOf() === 'coins');
+        var STARS_P = '<p style="font-size:13px;opacity:.75;margin:0 0 8px;">' + (coinsP ? '🎮 Games are just for fun. They never earn or spend coins or points.' : '🎮 Game scores don’t earn or spend ⭐ — learning earns ⭐.') + '</p>';
         var ROW = '<div class="row"><button class="slg-b go" type="button" id="slgAgain">' + (own && rnd.againLabel ? esc(rnd.againLabel) : '↻ Play again') + '</button>' +
           (!live && variantChoices() > 1 ? '<button class="slg-b" type="button" id="slgMenu">🗺️ Change ' + esc(def.menuVariantsLabel || 'course') + '</button>' : '') +
           '<button class="slg-b alt" type="button" id="slgHome">🏝️ Back to my island</button></div>' + (waits ? '<p class="slg-lock" id="slgAgainNote"></p>' : '');

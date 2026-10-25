@@ -32375,7 +32375,7 @@ window.SL_WORLD_TRIAL = true;
     return new Promise(function (res, rej) {
       var s = document.createElement('script');
       s.src = src; s.async = false;
-      s.onload = res; s.onerror = function () { rej(new Error('Could not load ' + src)); };
+      s.onload = res; s.onerror = function () { try { s.remove(); } catch (e) {} rej(new Error('Could not load ' + src)); };   /* a failed tag never stays in the page */
       document.head.appendChild(s);
     });
   }
@@ -32410,8 +32410,8 @@ window.SL_WORLD_TRIAL = true;
          rules follow it. The pets' 2D art loads beside the other 2D art and the Pet Corner with the
          world UI, so a care card can show at once. The people's shapes, 2D art and sheets come later
          through slLoadPeople, the photo files through slLoadPhoto and the Pet Shop on first use. */
-      loading = loadScript('world/world-core.js' + v)
-        .then(function () { return loadScript('world/people-core.js' + v); })
+      loading = islandCore(function () { return loadScript('world/world-core.js' + v); })
+        .then(function () { coinsIn(); return loadScript('world/people-core.js' + v); })
         .then(function () { return loadScript('world/pet-care.js' + v); })
         .then(function () { return loadScript('world/world-copy.js' + v); })
         .then(function () { return loadScript('world/world-isles-ui.js' + v); })
@@ -32432,53 +32432,64 @@ window.SL_WORLD_TRIAL = true;
   };
   /* [KU-COINS] Learning fills both wallets (F-KU5; docs/island3d/v3/kids-update/wallets.md). The base awardPoints
      calls slEarnCoins(u, n) with the n ⭐ it has just given, before it saves: the same n 🪙 island coins go to that
-     profile through SLWorldCore.earnCoins, the core's earn hook (it shapes w.coins; nothing here writes it). The
-     core comes with the island, so until it is in, the coins wait in memory under the profile's name while
-     world-core.js loads on its own (the island's own load when that has started); then they go in and the save
-     is written. Refunds and one-off migrations add to u.points themselves and never come here. Nothing here can
-     stop learning: a failure leaves the ⭐ as they are and the coins waiting for the next try. */
-  var owedCoins = {}, coinLoad = null;
+     profile through SLWorldCore.earnCoins, the core's earn hook (it shapes w.coins; nothing here writes it).
+     Nothing owed is ever kept only in memory (F-KU5 review): the first award a profile gets here sets u.coinBase
+     (top level, once: its pointsEarned less its coins earned, in the same save as the ⭐), and from then on the
+     core keeps w.coins.earned at least pointsEarned − coinBase (SLWorldCore.syncCoins). So coins an award could
+     not pay at once are already in the save, as the ⭐: the core comes with the island, and until it is in,
+     world-core.js loads on its own (or the island's load does it); whichever brings the core pays every
+     profile's coins (coinsIn) and writes the save. A page that closes first, a load that fails or stalls, an
+     older cached core: the coins arrive with the next core, in this page or the next. Refunds and one-off
+     migrations add to u.points themselves and never come here. Nothing here can stop learning. */
+  var coinLoad = null, coinTries = 0, coinUsed = null, COIN_TRIES = 3;
   function coinCore() { var C = window.SLWorldCore; return C && typeof C.earnCoins === 'function' ? C : null; }
   function coinNow() { return Date.now(); }
-  function payOwedCoins() {
+  /* where this profile's coin wallet starts: set once, before the award's save (n is already in pointsEarned) */
+  function coinAnchor(u, n) {
+    if (typeof u.coinBase === 'number' && isFinite(u.coinBase)) return;
+    var c = u.world && u.world.coins, had = c && typeof c.earned === 'number' && c.earned > 0 ? Math.floor(c.earned) : 0;
+    u.coinBase = (typeof u.pointsEarned === 'number' && isFinite(u.pointsEarned) ? u.pointsEarned : n) - n - had;
+  }
+  /* a core with the coin wallet is in: every profile's coins catch up with its ⭐, in one save. The savings-goal
+     toast compares with the balance from before (it had no coin balance to remember while there was no core) */
+  function coinsIn() {
     var C = coinCore(), paid = false;
-    if (!C) return false;
-    Object.keys(owedCoins).forEach(function (name) {
-      var n = owedCoins[name], u = state.users && state.users[name];
-      delete owedCoins[name];
-      try { if (u && C.earnCoins(u, n, { now: coinNow() }).ok) paid = true; } catch (e) {}
+    if (!C || typeof C.syncCoins !== 'function') return false;
+    try {
+      var me = state.users && state.users[state.activeUser];
+      if (lastShown && lastShown.coins === null && lastShown.user === state.activeUser && me) lastShown.coins = C.coinBalance(me);
+    } catch (e) {}
+    Object.keys((state && state.users) || {}).forEach(function (name) {
+      try { var r = C.syncCoins(state.users[name], { now: coinNow() }); if (r && r.added) paid = true; } catch (e) {}
     });
     if (paid) { try { saveState(); } catch (e) {} try { if (typeof updatePointsDisplay === 'function') updatePointsDisplay(); } catch (e) {} }
-    return true;
+    return paid;
   }
+  /* the coins' own load of world-core.js, when nothing has brought a core and the island is not loading one. A load
+     that failed is forgotten, and the next award tries again (COIN_TRIES a page session: the island's own load is
+     always tried again when it opens); a file that loaded but brought no core (it threw while it ran) is final for
+     this page session */
   function loadCoinCore() {
-    if (coinLoad) return coinLoad;
+    if (coinLoad || loading || window.SLWorldCore || coinTries >= COIN_TRIES) return;
+    coinTries++;
     var p;
-    try { p = loading || loadScript('world/world-core.js' + worldQuery()); } catch (e) { p = Promise.reject(e); }
-    /* not in (the file failed): the next award tries again; a core that came without the coin wallet (an older cached
-       build) is never loaded a second time, so the island's own core is never replaced under it */
-    coinLoad = p.then(payOwedCoins, payOwedCoins).then(function (ok) { if (!ok && !window.SLWorldCore) coinLoad = null; });
-    return coinLoad;
+    try { p = loadScript('world/world-core.js' + worldQuery()); } catch (e) { p = Promise.reject(e); }
+    var mine = coinLoad = p.then(function () { coinsIn(); }, function () { if (coinLoad === mine) coinLoad = null; });
   }
-  function profileName(u) {
-    try {
-      if (state.users[state.activeUser] === u) return state.activeUser;
-      var names = Object.keys(state.users);
-      for (var i = 0; i < names.length; i++) if (state.users[names[i]] === u) return names[i];
-    } catch (e) {}
-    return null;
+  /* the island's world-core.js: one core a page session. The coins' load when it brought (or is bringing) a core
+     the island has not started on yet, so the island and the coins share it and no second copy replaces it;
+     otherwise (no such load, it failed, or a failed island load is tried again) the island's own */
+  function islandCore(load) {
+    var p = coinLoad && coinLoad !== coinUsed ? coinLoad : null;
+    if (p) coinUsed = p;
+    return p ? p.then(function () { if (!window.SLWorldCore) return load(); }) : load();
   }
   window.slEarnCoins = function (u, n) {
     if (!u || typeof u !== 'object' || !(typeof n === 'number' && n > 0)) return null;
+    try { coinAnchor(u, n); } catch (e) {}
     var C = coinCore();
-    if (C) {
-      if (Object.keys(owedCoins).length) payOwedCoins();
-      return C.earnCoins(u, n, { now: coinNow() });
-    }
-    if (window.SLWorldCore) return { ok: false, code: 'old_core' };   /* a core without the coin wallet: nothing to earn with, never a second copy */
-    var name = profileName(u);
-    if (!name) return null;
-    owedCoins[name] = (owedCoins[name] || 0) + n;
+    if (C) return C.earnCoins(u, n, { now: coinNow() });   /* the core also pays what was owed (syncCoins) */
+    if (window.SLWorldCore) return { ok: false, code: 'old_core' };   /* an older cached core without the coin wallet: the coins wait in the save for one with it; never a second copy */
     loadCoinCore();
     return { ok: false, code: 'waiting' };
   };
@@ -32524,11 +32535,17 @@ window.SL_WORLD_TRIAL = true;
      never for a pet the pet cap shuts out (goalProgress full: there is nothing to buy until a place is free) */
   function goalCheck(u, pts) {
     var w = u && u.world, C = window.SLWorldCore;
-    var gid = w && (w.goal || w.goal3);   /* a V4.54 goal or a sky-island goal (v3) */
+    var gid = w && (w.goal || w.goal3 || w.goalK);   /* a V4.54 goal, a sky-island goal (v3), or a character or clothes (goalK) */
     if (!gid || !C || typeof C.walletOf !== 'function') return null;
     var it = C.item(gid);
     if (it && it.kind === 'pet' && C.CARE && C.CARE.ownCap !== 'home' && typeof C.petRoom === 'function' && !C.petRoom(w).canAdopt) return null;
-    if (C.walletOf() === 'coins') return { gid: gid, price: C.priceOf(gid), bal: C.coinBalance(u), was: lastShown.coins };
+    if (C.walletOf() === 'coins') {
+      /* a character or clothes before the character list has loaded (it comes with the island): the price the shop
+         saved with the goal. Their 🪙 price is never above their ⭐ one, so an older build's ⭐ price can only be late */
+      var price = C.priceOf(gid);
+      if (price == null && gid === w.goalK && typeof w.goalPrice === 'number') price = w.goalPrice;
+      return { gid: gid, price: price, bal: C.coinBalance(u), was: lastShown.coins };
+    }
     return { gid: gid, price: w.goalPrice, bal: pts, was: lastShown.pts };
   }
   function coinsNow(u) { var C = window.SLWorldCore; return C && typeof C.coinBalance === 'function' && u ? C.coinBalance(u) : null; }

@@ -36,7 +36,11 @@
                   the child cannot get any now (in the wallet the shop uses): one per pet per
                   island day, only for an empty tummy at home or for a Rescue visit. One a day
                   is what a pet eats in a day, so it can never be saved up; it is never in
-                  the pantry or the ledger and is never a favourite.
+                  the pantry or the ledger and is never a favourite. freeDay is the island
+                  day the meal belongs to (care3.day, the last day the step counted), never
+                  the host's date: a meal after midnight before the step belongs to the day
+                  before, and a clock that goes back and forth never gives a second one
+                  (F-KU5 review). A Rescue visit is never on or before the last one's day.
 
    The storage is the v3-only block w.care3 (plan-ku dataModel.saveSchema), which old
    clients never read. world-core owns its constants (C.CARE), its repair (N13), its
@@ -303,6 +307,13 @@
       var at = cc.cfg.setAt == null ? 0 : cc.cfg.setAt;
       return plain(cc.told) && cc.told.farewell === at ? null : at;
     }
+    /* the island day a free basic meal belongs to (BASIC MEAL above), and a Rescue visit already made on or after
+       this day (the date going back and forth never gives another one) */
+    function freeDayOf(w) { var cc = careOf(w); return cc && isDay(cc.day) ? cc.day : null; }
+    function visitedBy(rec, day) {
+      var last = plain(rec.rescue) && isDay(rec.rescue.last) ? dayNum(rec.rescue.last) : null;
+      return last !== null && dayNum(day) <= last;
+    }
     /* can this pet eat this food now? mode 'meal' (at home) or 'visit' (at the Rescue) */
     function foodCheck(w, cc, petId, foodId, day, rec, mode) {
       var c = core(), f = c.isFood(foodId) ? c.item(foodId) : null;
@@ -311,7 +322,7 @@
       if (!eats(d, g)) return fail('diet', { fav: d.fav });
       if (mode === 'visit') {
         if (treat) return fail('meal_needed');
-        if (rec.rescue && rec.rescue.last === day) return fail('visited');
+        if (visitedBy(rec, day)) return fail('visited');
       } else if (!treat && clamp(rec.food, 0, K().foodMax, 0) >= K().foodMax) return fail('full');
       if (!(c.pantryCount(w, foodId) >= 1)) return fail('none');
       return { ok: true, treat: treat, fav: !treat && g === d.fav, mode: mode };
@@ -323,10 +334,10 @@
       var c = core(), CARE = K(), d = dietOf(petId);
       if (wh === 'rescue') {
         if (!plain(rec.rescue)) return fail('not_rescue');
-        if (rec.rescue.last === day) return fail('visited');
+        if (visitedBy(rec, day)) return fail('visited');
       } else if (wh !== 'home') return fail(wh === 'hotel' ? 'at_hotel' : 'not_home');
       else if (clamp(rec.food, 0, CARE.foodMax, 0) > 0) return fail('not_hungry');
-      if (rec.freeDay === day) return fail('free_used');
+      if (rec.freeDay === freeDayOf(w)) return fail('free_used');
       var meals = c.foodItems().filter(function (f) { return f.group !== 'treat' && eats(d, f.group); });
       if (meals.some(function (f) { return c.pantryCount(w, f.id) >= 1; })) return fail('has_food');
       if (typeof c.purchaseCheck === 'function') {
@@ -523,7 +534,7 @@
       var basic = foodId === BASIC;
       var chk = basic ? basicCheck(u, w, petId, day, rec, wh, opts) : foodCheck(w, cc, petId, foodId, day, rec, 'meal');
       if (!chk.ok) return chk;
-      if (basic) rec.freeDay = day; else pantryEat(cc, foodId);
+      if (basic) rec.freeDay = cc.day; else pantryEat(cc, foodId);   /* the island day it belongs to (BASIC MEAL) */
       var food = clamp(rec.food, 0, CARE.foodMax, 0), missed = clamp(rec.missed, 0, CARE.rescueAt, 0);
       var happy = clamp(rec.happy, 0, CARE.happyMax, CARE.happyStart), recovered = false, fav = false, counted = true;
       if (chk.treat) {
@@ -569,7 +580,7 @@
       var basic = foodId === BASIC;
       var chk = basic ? basicCheck(u, w, petId, day, rec, 'rescue', opts) : foodCheck(w, cc, petId, foodId, day, rec, 'visit');
       if (!chk.ok) return chk;
-      if (basic) rec.freeDay = day; else pantryEat(cc, foodId);
+      if (basic) rec.freeDay = cc.day; else pantryEat(cc, foodId);   /* the island day it belongs to (BASIC MEAL) */
       var r = rec.rescue, visits = clamp(r.visits, 0, CARE.rescueVisits, 0) + 1;
       r.visits = visits; r.last = day; r.waited = 0;
       if (rec.patDay !== day) { rec.patDay = day; rec.happy = Math.min(1, clamp(rec.happy, 0, CARE.happyMax, 0) + 1); }

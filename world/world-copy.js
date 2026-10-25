@@ -588,7 +588,9 @@
     /* ---------------- two wallets (F-KU5; James, 24 Oct 2026; docs/island3d/v3/kids-update/wallets.md) ----------------
        Learning earns ⭐ for 🎁 My rewards and the same number of 🪙 coins for My Island, which pays only in 🪙. The
        host picks the coin form of a line that names the money while SLWorldCore.walletOf() is 'coins'; the ⭐ form
-       stays for a core that pays in stars. care.basic.* are F-KU4's free basic meal (wallets.md, word for word). */
+       stays for a core that pays in stars. care.basic.* are F-KU4's free basic meal (wallets.md, word for word).
+       The island calls the ⭐ 'points', as 🎁 My rewards and the app's top bar do (F-KU5 review): in the learning
+       screens 'stars' are mastery stars, and on the island the pets' memory stars. */
     'char.cast.needCoins': 'You need {n} more 🪙',
     'care.noCoins': 'Earn {n} 🪙 in any learning game to buy {food}.',
     'care.basic.button': 'Free basic meal',          /* the Pet Corner draws the 🥣 in front, as the paw on My pets */
@@ -598,24 +600,24 @@
     'care.basic.shop': 'Out of coins? A hungry pet can have a free basic meal in My pets.',
     'isle.unlockForCoins': 'Unlock for 🪙 {price}',
     'lock.signCoins': '{island} · 🪙 {price}',
-    'games.noCoins': 'Games are just for fun. They never earn or spend coins or stars.',
-    'intro.2.coinsBody': 'Every maths, spelling or flags session earns 🪙 coins for your island, and the same number of stars for My rewards.',
-    'intro.3.coinsBody': 'Spend 🪙 coins on sky islands, pets, a football pitch, a race track and more. Your stars are never spent here. They stay for My rewards.',
+    'games.noCoins': 'Games are just for fun. They never earn or spend coins or points.',
+    'intro.2.coinsBody': 'Every maths, spelling or flags session earns 🪙 coins for your island, and the same number of points for My rewards.',
+    'intro.3.coinsBody': 'Spend 🪙 coins on sky islands, pets, a football pitch, a race track and more. Your points are never spent here. They stay for My rewards.',
     'intro.3.trialCoins': 'Everything on the island is free right now: sky islands, pets, a football pitch, a race track and more. Nothing is spent, so your 🪙 coins wait for later. Try it all and tell Dad what you think.',
     /* the one-time card for a child who had an island before the coins came (queued like every island-open card) */
     'coins.news.title': 'Island coins are here',
-    'coins.news.earn': 'My Island has its own money now: 🪙 coins. Learning earns them, the same number as your stars.',
-    'coins.news.stars': 'Your stars stay for My rewards. The island never uses them.',
+    'coins.news.earn': 'My Island has its own money now: 🪙 coins. When learning gives you points, you get the same number of coins too.',
+    'coins.news.stars': 'Your points stay for My rewards. The island never uses them.',
     'coins.news.keep': 'Everything you already have on your island is still yours.',
     'coins.news.start': 'Your coins start today. Every bit of learning adds more.',
-    'coins.news.trial': 'While we test, the island is free, so your coins wait for later.',
+    'coins.news.trial': 'Your coins start today. While we test, the island is free, so they wait for later.',
     'coins.news.ok': 'Got it',
     /* the Island Shop's lines about the money, the big-buy question and the end of free test mode */
-    'coins.shop.line': 'Island things cost 🪙 coins. Your stars stay for My rewards.',
-    'coins.shop.trialLine': 'Nothing is spent here while we test: not your coins, not your stars.',
-    'coins.confirm.note': 'Island things use 🪙 coins. Your stars for My rewards are never spent here.',
+    'coins.shop.line': 'Island things cost 🪙 coins. Your points stay for My rewards.',
+    'coins.shop.trialLine': 'Nothing is spent here while we test: not your coins, not your points.',
+    'coins.confirm.note': 'Island things use 🪙 coins. Your points for My rewards are never spent here.',
     'coins.trialOver.body': 'From now on, island things cost 🪙 coins, which you earn by learning.',
-    'coins.trialOver.keep': 'Your stars stay for My rewards. Everything you already picked is still on your island.',
+    'coins.trialOver.keep': 'Your points stay for My rewards. Everything you already picked is still on your island.',
     'coins.goal.trial': 'Test mode: everything on the island is free. Nothing is spent.',
     'coins.balance': 'Your island coins'
   };

@@ -2377,6 +2377,12 @@
     });
     return parts.join('<br>');
   }
+  /* the item sheet's shortfall (escaped HTML): 'just' once at least half is saved; nothing saved yet is said kindly,
+     never 'just 2,150 more' from 0 (F-KU5 review) */
+  function shortLine(bal, need) {
+    if (!(bal > 0)) return 'Nothing saved yet. Every bit of learning helps.';
+    return 'You have ' + money(bal) + ' — ' + (need <= bal ? 'just ' : '') + fmt(need) + ' more to go!';
+  }
   function openItem(id) {
     var it = C.item(id); if (!it) return;
     if (it.kind === 'food') { openPetShop({ filter: 'food' }); return; }   /* food is the Pet Shop's (meals, never 'each one you buy…') */
@@ -2398,7 +2404,7 @@
       '<div class="slw-unlocks">' + unlockText(it) + '</div>' +
       (lm ? '' : trial() ? '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;"><s style="color:#9a94b5;">' + money(priceOf(it)) + '</s> <span class="slw-free">FREE while we test</span></div>'
         : '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;">' + money(priceOf(it)) + (C.isRepeatable(it) ? ' each' : '') + '</div>') +
-      '<div class="slw-need">' + (pc ? esc(pc.line ? tx(pc.line.key, pc.line.params || undefined) : tx(pc.chip.key, pc.chip.params || undefined)) : lm ? '' : s.state === 'full' ? esc(tx('care.ownFull', { n: s.count })) : s.state === 'short' ? 'You have ' + money(balOf(u)) + ' — just ' + fmt(s.need) + ' more to go!' : s.state === 'owned' ? 'You own this ✓' : '') + '</div>' +
+      '<div class="slw-need">' + (pc ? esc(pc.line ? tx(pc.line.key, pc.line.params || undefined) : tx(pc.chip.key, pc.chip.params || undefined)) : lm ? '' : s.state === 'full' ? esc(tx('care.ownFull', { n: s.count })) : s.state === 'short' ? shortLine(balOf(u), s.need) : s.state === 'owned' ? 'You own this ✓' : '') + '</div>' +
       '<div class="slw-err" id="slwItemErr" role="alert"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
         (pc ? '<button class="slw-buy" type="button" id="slwCornerNow">' + esc(tx(pc.actKey)) + '</button>'
@@ -2778,9 +2784,9 @@
   function openInfo() {
     var st = arcadeState();
     var ov = overlay('<h2>❓ How My Island works</h2>' +
-      (coinsOn() ? '<p class="slw-howmoney" style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn coins for your island, and the same number of stars for My rewards.<br>' +
+      (coinsOn() ? '<p class="slw-howmoney" style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn coins for your island, and the same number of points for My rewards.<br>' +
         (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b>. Nothing is spent.' : '🪙 <b>Spend</b> coins in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) +
-        '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn anything.<br>' + esc(promiseLine()) + '<br>⭐ The island never spends your stars. They stay for My rewards.</p>'
+        '<br>🎮 <b>Play</b> your island games: playing never costs or earns coins or points.<br>' + esc(promiseLine()) + '<br>⭐ The island never spends your points. They stay for My rewards.</p>'
       : '<p style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn ⭐ points.<br>' + (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b> — your ⭐ stay put.' : '🛍️ <b>Spend</b> them in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) + '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn points.<br>' +
       esc(promiseLine()) + (trial() ? '' : '<br>⭐ Spending points never lowers your total-earned score.') + '</p>') + timeHtml(st) +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="slw-btn" type="button" id="slwReplay">▶ Show the welcome again</button>' +
@@ -2836,15 +2842,22 @@
     var w = W(); if (!w) return;
     if (!w.introSeen) { introWhenDrawn(); return; }
     if (!maybeMakeoverV3(w)) maybeMakeover(w);         /* the sky note first; the v2 city note waits for the next open */
-    if (!trial() && !w.trialOverSeen && (w.ledger || []).some(function (e) { return e && e.trial; })) {
+    if (trialOverDue(w)) {
       var ov = overlay('<div class="slw-intro"><div class="card" style="margin:0 auto;"><div class="hero">' + (coinsOn() ? '🪙 🏝️' : '⭐ 🏝️') + '</div><h2>Testing’s over — thank you!</h2>' +
         (coinsOn() ? '<p style="font-weight:700;color:#4a3f75;">' + esc(tx('coins.trialOver.body')) + '</p><p style="font-weight:700;color:#4a3f75;">' + esc(tx('coins.trialOver.keep')) + '</p>'
           : '<p style="font-weight:700;color:#4a3f75;">From now on, island things cost ⭐ — the same ⭐ you save for real prizes in 🎁 My rewards. Everything you already picked is still on your island.</p>') +
         '<div style="display:flex;justify-content:center;"><button class="slw-btn big on" type="button" id="slwTrialOk">Got it</button></div></div></div>',
-        { small: true, onClose: function () { commit(function (u) { var fw = C.ensureWorld(u); if (fw.trialOverSeen) return { ok: false }; fw.trialOverSeen = true; return { ok: true }; }); } });
+        { small: true, onClose: function () { commit(function (u) {
+          var fw = C.ensureWorld(u); if (fw.trialOverSeen) return { ok: false };
+          fw.trialOverSeen = true;
+          if (coinsOn() && fw.tutSeen) fw.tutSeen.coins = true;   /* it has just told them about the coins: no 'Island coins are here' after it (F-KU5 review) */
+          return { ok: true };
+        }); } });
       $('#slwTrialOk', ov).addEventListener('click', function () { ov._close(); });
     }
   }
+  /* 'Testing’s over' is still to show on this island (test mode off, free things tagged, the card not seen) */
+  function trialOverDue(w) { return !trial() && !!w && !w.trialOverSeen && (w.ledger || []).some(function (e) { return e && e.trial; }); }
   /* an island from before v3, once (D23): it moved up into the sky, with a way to see the other islands
      (3D only: the Sky map). The note waits for a stage still booting and for another toast to finish */
   var skyNoted = {};
@@ -3192,7 +3205,7 @@
     } else if (c.can) {
       act = '<button type="button" class="slw-buy" data-buy="' + id + '" aria-label="' + esc(c.name + ', ' + (c.free ? tx('wardrobe.free') : price)) + '">' + (c.free ? esc(tx('isle.unlockFree')) : price) + '</button>';
     }
-    var LK = window.SLIslandLook, shine = LK && LK.shineLevel ? ' shine-' + LK.shineLevel(c.price) : '';
+    var LK = window.SLIslandLook, shine = LK && LK.shineLevel ? ' shine-' + LK.shineLevel(it.price) : '';   /* the catalogue ⭐ price, as every other card (the shine bands are in ⭐) */
     return '<div class="slw-card ppl' + (lead ? ' lead' : '') + shine + '" data-ppl="' + id + '"><button type="button" class="ic" data-open="' + id + '" aria-label="' + esc(c.name) + '">' + peopleIconHtml(id) + '</button>' +
       '<div class="nm">' + esc(c.name) + '</div><div class="ds">' + esc(dsc(it)) + '</div>' + peopleLines(it, c).map(function (l) { return '<div class="ln">' + l + '</div>'; }).join('') + chip +
       (c.free ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">' + price + '</s> <span class="slw-free">' + esc(tx('wardrobe.free')) + '</span></div>' : '<div class="pr">' + price + '</div>') +
@@ -3310,7 +3323,7 @@
       '<div style="display:flex;justify-content:center;"><button class="slw-btn big on" type="button" id="slwCoinsOk">' + esc(tx('coins.news.ok')) + '</button></div></div></div>';
   }
   enqueueOpen({ id: 'coins.news', prio: 6,
-    when: function (w) { return coinsOn() && !!w && !!w.introSeen && !(w.tutSeen && w.tutSeen.coins); },
+    when: function (w) { return coinsOn() && !!w && !!w.introSeen && !(w.tutSeen && w.tutSeen.coins) && !trialOverDue(w); },   /* 'Testing’s over' says it in one card */
     show: function () {
       return new Promise(function (resolve) {
         var ov = overlay(coinsNewsHtml(), { small: true, onClose: function () {

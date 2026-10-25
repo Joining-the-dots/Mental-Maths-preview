@@ -98,6 +98,8 @@
     clsRemoved: 'The class grown-up took this one off the board. Set a new one!',
     gap: ' behind the next place',
     foot: '🎮 Game scores don’t earn or spend ⭐. Boards are for fun. Scores come from each player’s own device. This week’s board starts again every Monday.',
+    /* an island that pays in 🪙 coins (F-KU5 review): '🎮 ' + the island's own line for it (world-copy games.noCoins), then this */
+    footRest: ' Scores come from each player’s own device. This week’s board starts again every Monday.',
     takeOff: 'Take me off the boards', putBack: 'Put me back', offNow: 'You’re off the boards. Your bests are still yours.',
     tryLater: 'That didn’t work just now. Try again when you’re online.',
     refresh: '↻ Refresh', you: ' (you)', lead: '👑 You lead this week', beat: '🎯 To beat this week: ',
@@ -151,6 +153,13 @@
       familyCfg: given('familyCfg', W ? W.slFamilyCfg : null),
       core: given('core', W ? W.SLWorldCore : null)
     };
+  }
+  /* the board's money line: while the island pays in 🪙 coins (its core's wallet), the island's own words for the two
+     wallets (world-copy games.noCoins); otherwise, or without the copy table, V4.54's line */
+  function footLine(e) {
+    var C = e && e.core, CP = W && W.SLWorldCopy, s = '';
+    try { if (C && typeof C.walletOf === 'function' && C.walletOf() === 'coins' && CP && typeof CP.t === 'function') s = CP.t('games.noCoins', null, ''); } catch (x) { s = ''; }
+    return s ? '🎮 ' + s + T.footRest : T.foot;
   }
   function cores() {
     if (!S || !B) { S = (W && W.SLSocialCore) || null; B = (W && W.SLBoardsCore) || null; }
@@ -880,7 +889,7 @@
     /* only while the removal is current: this week's board in the week it was learnt, best ever until a new value is set */
     line('slb-note', !isWins && net && u && B.removedNote(B.notebook(u), g.k, s.key, s.period, week) && !st.rows.some(function (r) { return r.me; }) ? (inCls ? T.clsRemoved : T.removed) : '');
     line('slb-note', s.note === why ? '' : s.note);
-    line('slb-foot', isWins ? T.winsFoot : T.foot);
+    line('slb-foot', isWins ? T.winsFoot : footLine(e));
     var links = mk('div', 'slb-chips');
     if (net) links.appendChild(button('slb-link', T.refresh, function () { s.askedAt = e.now(); if (mem.lists[g.k]) mem.lists[g.k].at = 0; if (mem.wins[g.k]) mem.wins[g.k].at = 0; pull(s); }, e.now() - s.askedAt < AGAIN_MS));
     if (mine) links.appendChild(button('slb-link', off ? T.putBack : T.takeOff, function () { setOff(s, !off); }));

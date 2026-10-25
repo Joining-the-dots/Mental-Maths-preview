@@ -1322,7 +1322,8 @@
   }
   /* the host's earn hook: learning just awarded n ⭐, so the island wallet gets n coins too.
      n is rounded; < 1 → bad_amount, > COIN.earnMax → too_much (nothing changes). Earning goes on
-     in free test mode (only spending is free there). opts: {now: ms}. */
+     in free test mode (only spending is free there). Then the coins catch up with the ⭐ (syncCoins:
+     added counts both). opts: {now: ms}. */
   function earnCoins(u, n, opts) {
     if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
     var add = typeof n === 'number' && isFinite(n) ? Math.round(n) : NaN;
@@ -1332,7 +1333,36 @@
     c.earned += add;
     c.at = at;
     markV3(w); touch(w, ms);
+    var due = coinsDue(u);
+    if (due) { c.earned += due; add += due; }
     return { ok: true, added: add, coins: coinBalance(w) };
+  }
+  /* The coins follow the ⭐ (F-KU5 review). u.pointsEarned only ever goes up, only learning raises it, and
+     every merge keeps the larger, so it is a saved record of every ⭐ that learning gave. u.coinBase (top level,
+     set once by the host when a profile earns its first coins: its pointsEarned less its coins earned at that
+     moment) says where the coin wallet started. From then on w.coins.earned is never below pointsEarned −
+     coinBase: coins an award could not pay at once (the core not loaded yet, a load that failed, an older cached
+     core), ⭐ learnt on a device that does not earn coins yet, and coins an older merge dropped (it kept the other
+     copy's whole world but the larger pointsEarned and the account's top-level keys) all arrive here, each once,
+     because both wallets count from the same number. Only ever adds; spent is never touched; a profile without
+     coinBase (every save before the coins, a lab or test profile) is left exactly as it is. */
+  function coinsDue(u) {
+    if (!u || typeof u !== 'object') return 0;
+    var base = u.coinBase, got = u.pointsEarned;
+    if (typeof base !== 'number' || !isFinite(base) || typeof got !== 'number' || !isFinite(got)) return 0;
+    var c = coinsOf(plainObj(u.world) ? u.world : null), due = Math.floor(got - base) - (c ? posInt(c.earned) : 0);
+    return due >= 1 ? due : 0;
+  }
+  /* pay what coinsDue says (opts: {now: ms}); {ok, added, coins}, added 0 when nothing was due */
+  function syncCoins(u, opts) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    var due = coinsDue(u);
+    if (!due) return { ok: true, added: 0, coins: coinBalance(u) };
+    var w = ensureWorld(u), ms = opts && opts.now, at = nowIso(ms), c = coinsEntry(w, at);
+    c.earned += due;
+    c.at = at;
+    markV3(w); touch(w, ms);
+    return { ok: true, added: due, coins: coinBalance(w) };
   }
 
   /* ---------------- selection (styles / cosmetics / variants) ---------------- */
@@ -1616,7 +1646,8 @@
     var tx = opts.tx;
     if (typeof tx !== 'string' || !/^[A-Za-z0-9_-]{6,64}$/.test(tx)) return { ok: false, code: 'bad_tx', reason: 'Please try again.' };
     var w = ensureWorld(u);
-    if (!isInt(u.points)) u.points = isInt(Math.round(u.points)) ? Math.round(u.points) : 0;
+    /* the ⭐ wallet's balance is whole, as before; a call that pays in coins never touches u.points (F-KU5 review) */
+    if (walletOf(opts) !== 'coins' && !isInt(u.points)) u.points = isInt(Math.round(u.points)) ? Math.round(u.points) : 0;
     var prior = findTx(w, tx);
     if (prior) {
       if (prior.item !== id && prior.item !== READOPT + id) return { ok: false, code: 'tx_conflict', reason: 'Please try again.' };
@@ -1628,14 +1659,15 @@
     var it = chk.item, ms = opts.now, food = it.kind === 'food', readopt = !!chk.readopt, coins = chk.wallet === 'coins';
     var charge = chk.trial ? 0 : chk.price, stars = coins ? 0 : charge, at0 = nowIso(ms);
     /* commit — one synchronous mutation of the same profile object; a coin purchase never touches u.points or w.spent */
-    u.points -= stars;
+    if (!coins) u.points -= stars;
     /* food fills the pantry and a re-adoption keeps the one owned: neither is ever counted in owned */
     if (!food && !readopt) w.owned[id] = ownedCount(w, id) + 1;
     w.spent += stars;
     if (coins && charge > 0) { var cw = coinsEntry(w, at0); cw.spent += charge; cw.at = at0; }
     (it.includes || []).forEach(function (inc) { if (!owns(w, inc)) w.owned[inc] = 1; });
     /* a re-adoption is a ledger item of its own (KU39): repeatable, so no merge collapses it */
-    var entry = { tx: tx, item: readopt ? READOPT + id : id, price: stars, at: at0, bal: u.points };
+    var entry = { tx: tx, item: readopt ? READOPT + id : id, price: stars, at: at0,
+      bal: coins ? (typeof u.points === 'number' && isFinite(u.points) ? u.points : 0) : u.points };
     if (coins) { entry.coins = charge; entry.cbal = coinBalance(w); }
     if (chk.trial) { entry.trial = true; entry.list = it.price; if (coins) entry.clist = coinPrice(it); }   /* tagged: decide at the end of testing */
     w.ledger.push(entry);
@@ -2212,6 +2244,8 @@
     if (normalizeCare3(w)) changed = true;
     /* N13b the coin wallet: its shape, and spent never below what the ledger paid in coins */
     if (normalizeCoins(w)) changed = true;
+    /* N13c the coins catch up with the ⭐ learning gave since the wallet started (syncCoins; only with u.coinBase) */
+    if (syncCoins(u).added) changed = true;
     /* N14 the plug-in normalize hooks, in registration order (a character's w.chars repair) */
     var hooked = false;
     PLUGINS.forEach(function (p) { if (callHook(p, 'normalize', w, [w])) hooked = true; });
@@ -2567,6 +2601,8 @@
     careRunner: careRunner, pantryCount: pantryCount, petRoom: petRoom,
     /* kids update F-KU4: the island wallet (🪙 coins), its prices and the earn hook */
     COIN: COIN, walletOf: walletOf, coinPrice: coinPrice, priceOf: priceOf, coinPrices: coinPrices,
-    coinBalance: coinBalance, walletBalance: walletBalance, earnCoins: earnCoins
+    coinBalance: coinBalance, walletBalance: walletBalance, earnCoins: earnCoins,
+    /* F-KU5 review: the coins follow the ⭐ from u.coinBase (what is owed, and paying it) */
+    coinsDue: coinsDue, syncCoins: syncCoins
   };
 }));

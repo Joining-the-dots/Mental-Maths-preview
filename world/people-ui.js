@@ -99,6 +99,7 @@
   var EMOTES = [['heart', '💗'], ['vsign', '✌️'], ['micpoint', '🎤'], ['wave', '👋']];
   var CLIP_SEC = { heart: 1.2, vsign: 1.2, micpoint: 1.2, wave: 1, stand: 0 };
   var SOUND = { pick: 'pop', wear: 'chip', debut: 'star', buy: 'tada' };
+  var PICK_ICON = '👥';   /* 'Pick a character': never ⭐, which on the island means only the points for My rewards (F-KU5 review) */
   var FIG = { w: 120, h: 132, foot: 124, small: [40, 60, 56] };   /* the preview box in sprite pixels (px 4); a grid figure's (px 2) */
   var LONG = 3, SIL = '#474E7E';      /* a hairstyle this long or longer is 'long'; a body shape's silhouette (Ink 2) */
 
@@ -585,7 +586,7 @@
         var s = sheet(ctx, { title: tx('char.meet.title'), small: true, cls: 'slp-meet', onDismiss: function () { pick('later'); } });
         s.body.innerHTML = meetLead(photoOn) + '<div class="slp-col">' +
           btn('make', tx('char.meet.make'), { icon: '🎨', cls: 'slw-btn big on' }) + (photoOn ? btn('photo', tx('char.meet.photo'), { icon: '📷', cls: 'slw-btn big' }) : '') +
-          btn('pick', tx('char.meet.pick'), { icon: '⭐', cls: 'slw-btn big' }) + btn('later', tx('char.meet.later'), { cls: 'slw-btn slp-later' }) + '</div>';
+          btn('pick', tx('char.meet.pick'), { icon: PICK_ICON, cls: 'slw-btn big' }) + btn('later', tx('char.meet.later'), { cls: 'slw-btn slp-later' }) + '</div>';
         var chosen = false;
         function pick(choice) {
           if (chosen) return;
@@ -843,7 +844,7 @@
           return '<div class="slp-switch" role="group" aria-label="' + esc(tx('char.changeChar')) + '">' + P().charList(w2, u2).map(function (c) {
             return '<button type="button" class="slp-who' + (c.active ? ' on' : '') + '" data-a="switchTo" data-v="' + c.id + '" aria-pressed="' + c.active + '">' +
               (A() ? A().portrait(c, { size: 56, color: memberOf(ctx) }) : '') + '<span>' + esc(c.name) + '</span></button>';
-          }).join('') + '</div><p class="slp-pick">' + btn('cast', tx('char.meet.pick'), { icon: '⭐' }) + '</p>';
+          }).join('') + '</div><p class="slp-pick">' + btn('cast', tx('char.meet.pick'), { icon: PICK_ICON }) + '</p>';
         }
         if (view === 'more') {
           var me = entryOf(w2, u2, 'char_me');
