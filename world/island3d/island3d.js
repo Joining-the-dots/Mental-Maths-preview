@@ -361,6 +361,91 @@
     var dx = Math.max(x0 - x, 0, x - x1), dy = Math.max(y0 - y, 0, y - y1);
     return Math.sqrt(dx * dx + dy * dy);
   }
+  /* R2 (QA2A-6, round 2): where the island signs go so that none covers another, a ▶ PLAY tag or the camera buttons,
+     each inside the stage by o.inset px. signs: [{x, y, w, h}] (x the centre, y the bottom: a tag rises from its point),
+     in order; fixed: [{x0, y0, x1, y1}] boxes that never move. → [{x, y}] in the signs' order.
+     Each sign takes the clear spot nearest its own (a step sideways counts 1.5×): its spot, or one beside, above or
+     below any box already there, or against the stage's edges, in every pairing of those columns and rows. When a
+     crowded stage (a phone: the camera row above, the PLAY tags below) leaves a sign no clear spot, the signs placed
+     before it are placed again in other orders (that sign first, then the others) and the best layout wins: no
+     overlap at all, else the least overlap; then the least moving. The same when a clear spot is far from a sign's
+     own (more than o.far px, a sign's height): another order may keep every sign nearer its island */
+  function boxAt(x, y, w, h) { return { x0: x - w / 2, y0: y - h, x1: x + w / 2, y1: y }; }
+  function overlapArea(a, b) {
+    var w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+    return w > 0 && h > 0 ? w * h : 0;
+  }
+  function placeSignsIn(signs, fixed, W, H, o, order) {
+    var inset = o.inset, gap = o.gap, pad = Math.max(0, gap - 1), boxes = fixed.slice(), out = [], over = 0, cost = 0, far = 0;
+    for (var k = 0; k < order.length; k++) {
+      var s = signs[order[k]], w = s.w, h = s.h;
+      var xMin = inset + w / 2, xMax = W - inset - w / 2, yMin = inset + h, yMax = H - inset;
+      if (xMax < xMin) xMin = xMax = W / 2;
+      if (yMax < yMin) yMin = yMax = Math.min(H, h);
+      var bx = Math.min(Math.max(s.x, xMin), xMax), by = Math.min(Math.max(s.y, yMin), yMax);
+      var X = [bx, xMin, xMax], Y = [by, yMin, yMax], i, j, q;
+      for (q = 0; q < boxes.length; q++) {
+        var f = boxes[q];
+        X.push(f.x0 - gap - w / 2, f.x1 + gap + w / 2, f.x0 + w / 2, f.x1 - w / 2);
+        Y.push(f.y0 - gap, f.y1 + gap + h, f.y0 + h, f.y1);
+      }
+      var best = null, bestCost = Infinity;
+      for (i = 0; i < X.length; i++) {
+        var x = X[i];
+        if (x < xMin - 0.01 || x > xMax + 0.01) continue;
+        for (j = 0; j < Y.length; j++) {
+          var y = Y[j];
+          if (y < yMin - 0.01 || y > yMax + 0.01) continue;
+          var c = Math.abs(y - by) + 1.5 * Math.abs(x - bx);
+          if (c >= bestCost) continue;
+          /* clear: at least gap - 1 px from every box (the half-pixel rounding never closes it) */
+          var b = boxAt(x, y, w + 2 * pad, h + 2 * pad), clear = true;
+          b.y0 += pad; b.y1 += pad;
+          for (q = 0; q < boxes.length && clear; q++) if (overlapArea(b, boxes[q]) > 0) clear = false;
+          if (clear) { best = { x: x, y: y }; bestCost = c; }
+        }
+      }
+      var spill = 0;
+      if (!best) {                                     /* no clear spot: the least overlap, then the nearest */
+        var bestOver = Infinity;
+        for (i = 0; i < X.length; i++) {
+          if (X[i] < xMin - 0.01 || X[i] > xMax + 0.01) continue;
+          for (j = 0; j < Y.length; j++) {
+            if (Y[j] < yMin - 0.01 || Y[j] > yMax + 0.01) continue;
+            var bb = boxAt(X[i], Y[j], w, h), ov = 0;
+            for (q = 0; q < boxes.length; q++) ov += overlapArea(bb, boxes[q]);
+            var cc = Math.abs(Y[j] - by) + 1.5 * Math.abs(X[i] - bx);
+            if (ov < bestOver || (ov === bestOver && cc < bestCost)) { best = { x: X[i], y: Y[j] }; bestOver = ov; bestCost = cc; }
+          }
+        }
+        spill = bestOver;
+      }
+      over += spill; cost += bestCost; far = Math.max(far, bestCost);
+      boxes.push(boxAt(best.x, best.y, w, h));
+      out[order[k]] = best;
+    }
+    return { at: out, over: over, cost: cost, far: far };
+  }
+  function placeSigns(signs, fixed, W, H, o) {
+    o = o || {};
+    var opts = { inset: typeof o.inset === 'number' ? o.inset : 8, gap: typeof o.gap === 'number' ? o.gap : 4 };
+    var FAR = typeof o.far === 'number' ? o.far : 48;
+    var n = signs.length, base = [], i;
+    if (!n) return [];
+    for (i = 0; i < n; i++) base.push(i);
+    var best = placeSignsIn(signs, fixed, W, H, opts, base);
+    if (best.over > 0 || best.far > FAR) {
+      /* other orders: each sign first (the rest as before), then the whole list backwards */
+      var orders = [];
+      for (i = 1; i < n; i++) orders.push([i].concat(base.filter(function (k) { return k !== i; })));
+      orders.push(base.slice().reverse());
+      for (i = 0; i < orders.length; i++) {
+        var r = placeSignsIn(signs, fixed, W, H, opts, orders[i]);
+        if (r.over < best.over || (r.over === best.over && r.cost < best.cost)) best = r;
+      }
+    }
+    return best.at;
+  }
   /* ---------------- v3 (pure) ---------------- */
   var ISLES3 = ['home', 'pier', 'jungle', 'treetop', 'castle', 'ice'];
   var SLICE_MS = 6;              /* real-time budget per frame for template builds and bakes (D70) */
@@ -1374,7 +1459,7 @@
     function onResize(w, h) {
       cssW = w; cssH = h;
       if (rig) { rig.resize(w, h); rig.update(0); rig.apply(camera); }
-      anchorsDirty = true; cullDirty = true;
+      anchorsDirty = true; cullDirty = true; tagSizesDirty = true;   /* the camera buttons may have moved (R2) */
     }
     function wake() { if (lease && !dead) { try { lease.invalidate(); } catch (e) {} } }
 
@@ -2473,12 +2558,26 @@
       }
       return out;
     }
+    /* R2 (QA2D-3): a template build is one unit that can run for hundreds of ms on a slow device (kit.buildTemplate →
+       the vox mesher), and a tap that lands behind it waits the whole unit. So no unit STARTS while the child's input is
+       waiting (navigator.scheduling.isInputPending, where there is one) or within JOB_QUIET_MS of their last press:
+       the tap is answered first, and the queue goes on in the next quiet frame. The visited island's first display (its
+       bake on a cold mount) is not a job and is not held */
+    var JOB_QUIET_MS = 700, lastPressAt = -1e9;
+    function onPress() { lastPressAt = perfNow(); }
+    try { if (root.document && root.document.addEventListener) { root.document.addEventListener('pointerdown', onPress, true); root.document.addEventListener('keydown', onPress, true); } } catch (e) {}
+    function inputSoon() {
+      if (perfNow() - lastPressAt < JOB_QUIET_MS) return true;
+      try { var sc = root.navigator && root.navigator.scheduling; return !!(sc && typeof sc.isInputPending === 'function' && sc.isInputPending()); } catch (e) { return false; }
+    }
     function runJobs() {
       var t0 = perfNow(), units = 0, max = 0, what = '', v = visitNow();
+      if (inputSoon()) { wake(); return; }                /* next frame: the child's tap goes first (R2) */
       /* the visited island's display first, then every other island, the live island's prefetch last */
       var rank = function (J) { return J.kind === 'prefetch' ? 2 : J.isle === v ? 0 : 1; };
       if (V3.jobs.length > 1) V3.jobs.sort(function (a, b) { return rank(a) - rank(b); });
       while (V3.jobs.length) {
+        if (units && inputSoon()) break;                  /* never another unit while input waits */
         var J = V3.jobs[0], S = isleOf(J.isle), u0 = perfNow(), w = J.isle + ':' + J.kind;
         if (J.kind !== 'prefetch' && S.want !== J.kind) { V3.jobs.shift(); continue; }
         if (!J.need) { J.need = needOf(S, J.kind); J.i = 0; }
@@ -3133,14 +3232,62 @@
         if (g.els.length === 1 && g.els[0].classList && g.els[0].classList.contains('slw-tag3d')) wrap = g.els[0];
         else { wrap = el('div', 'slw-tag3d'); g.els.forEach(function (e) { wrap.appendChild(e); }); }
         wrap.style.visibility = 'hidden';
+        var s = g.src, kind = tagKind(wrap, s);
+        /* R2 (QA2A-6): ▶ PLAY draws over every sign and ✋, a sign over the other tags (island-pixel.css .slw-z-*) */
+        if (kind === 'play' && wrap.classList) wrap.classList.add('slw-z-play');
+        else if (kind === 'sign' && wrap.classList) wrap.classList.add('slw-z-sign');
         anchorsEl.appendChild(wrap);
-        var s = g.src;
-        anchorList.push({ key: k, wrap: wrap, dy: g.dy, dyPx: g.dyPx, x: -1e9, y: -1e9, vis: false, show: true, at: null,
+        anchorList.push({ key: k, wrap: wrap, dy: g.dy, dyPx: g.dyPx, x: -1e9, y: -1e9, vis: false, show: true, at: null, kind: kind, sz: null,
           src: v3 ? { el: wrap, uid: s.uid, pet: s.pet, me: s.me, region: s.region, isle: s.isle, key: s.key } : null });
       });
       V3.anchorSig = '';
-      anchorsDirty = true;
+      anchorsDirty = true; tagSizesDirty = true;
       projectAnchors();
+    }
+    /* R2 (QA2A-6, QA2C-16): what a tag is, for its layer and the sign rules: 'play' (a game's ▶ PLAY), 'sign' (an island's
+       or a locked land's sign), else 'tag' */
+    function tagKind(wrap, s) {
+      if (s && (s.isle || s.region)) return 'sign';
+      try { if (wrap.querySelector && wrap.querySelector('.slw-tag.play')) return 'play'; } catch (e) {}
+      return 'tag';
+    }
+    /* R2: the signs keep out of each other's way. After the tags are projected: each sign stays inside the stage with an
+       SIGN_INSET margin, out of the camera buttons' corner, and clear of every ▶ PLAY tag and of the other signs (the
+       nearest clear spot, the signs placed again in another order when a crowded phone stage leaves one none: the pure
+       placeSigns; a PLAY tag never moves). The tags' sizes are measured once per set of tags (and on a resize), before
+       any of them is moved, never in the middle of the frame's writes */
+    var SIGN_INSET = 8, SIGN_GAP = 4, tagSizesDirty = true, camBox = null;
+    function measureTags() {
+      if (!tagSizesDirty) return;
+      tagSizesDirty = false;
+      for (var i = 0; i < anchorList.length; i++) { var a = anchorList[i]; if (a.kind !== 'tag') a.sz = tagSize(a.wrap); }
+      camBox = null;
+      if (camctlEl && camctlEl.offsetWidth > 0 && camctlEl.offsetHeight > 0) {
+        var x0 = camctlEl.offsetLeft, y0 = camctlEl.offsetTop;
+        camBox = { x0: x0 - SIGN_GAP, y0: y0 - SIGN_GAP, x1: x0 + camctlEl.offsetWidth + SIGN_GAP, y1: y0 + camctlEl.offsetHeight + SIGN_GAP };
+      }
+    }
+    function boxOf(x, y, sz) { return { x0: x - sz.w / 2, y0: y - sz.h, x1: x + sz.w / 2, y1: y }; }
+    function declutter() {
+      if (!(cssW > 0 && cssH > 0)) return;
+      var fixed = [], signs = [], i;
+      for (i = 0; i < anchorList.length; i++) {
+        var a = anchorList[i];
+        if (!a.vis || !a.sz) continue;
+        if (a.kind === 'play') fixed.push(boxOf(a.x, a.y, a.sz));
+        else if (a.kind === 'sign') signs.push(a);
+      }
+      if (camBox) fixed.push(camBox);
+      if (!signs.length) return;
+      var at = placeSigns(signs.map(function (s) { return { x: s.x, y: s.y, w: s.sz.w, h: s.sz.h }; }), fixed, cssW, cssH,
+        { inset: SIGN_INSET, gap: SIGN_GAP });
+      for (i = 0; i < signs.length; i++) {
+        var s = signs[i], p = at[i];
+        if (!p) continue;
+        /* half-pixel steps (the 4px gap between signs takes up the rounding) */
+        var x = Math.round(p.x * 2) / 2, y = Math.round(p.y * 2) / 2;
+        if (x !== s.x || y !== s.y) { s.x = x; s.y = y; s.wrap.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0)'; }
+      }
     }
     /* v3 (D55): which labels show — the visited island's tags, Home's region signs on Home, island
        signs at 'gate' / 'dock' / 'map' (never in edit / place, never for the island you are on, a
@@ -3204,6 +3351,7 @@
       anchorsDirty = false; anchorClock = 0;
       if (!camera || !(cssW > 0)) return;
       if (v3) anchorVis3();
+      if (v3) measureTags();                            /* reads first (R2), then the frame's writes */
       for (var i = 0; i < anchorList.length; i++) {
         var a = anchorList[i], wp = null;
         if (!v3) wp = worldOfKey(a.key, _v2);
@@ -3211,6 +3359,7 @@
         if (wp && a.dy) wp.y += a.dy;
         placeTag(a, wp);
       }
+      if (v3) declutter();
       if (bubble) {
         if (clockT > bubble.until) hideBubble();
         else { var bp = worldOfKey(bubble.key, _v2); if (bp) bp.y += 0.25 + bubble.lift; placeTag(bubble, bp, true); }
@@ -4137,6 +4286,7 @@
       dead = true;
       timers.slice().forEach(function (id) { clearTimeout(id); });
       timers.length = 0;
+      try { if (root.document && root.document.removeEventListener) { root.document.removeEventListener('pointerdown', onPress, true); root.document.removeEventListener('keydown', onPress, true); } } catch (e) {}
       var di = DEBUG.listeners.indexOf(onDebugGrid);
       if (di >= 0) DEBUG.listeners.splice(di, 1);
       if (unsubQ) { try { unsubQ(); } catch (e) {} unsubQ = null; }
@@ -4213,6 +4363,15 @@
     stage.showtime = guard('showtime', showtime, noP);
     stage.danceNow = guard('danceNow', function () { danceNow(); });
     stage.setAnchors = guard('setAnchors', function (list) { setAnchors(list); });
+    /* R2 (QA2D-3): the boot is still going: no first frame yet, or the visited island's own display jobs are still
+       queued (the host's HUD shows a calm not-ready state meanwhile). Cheap: no scene walk */
+    stage.booting = guard('booting', function () {
+      if (!readyFired) return true;
+      if (!v3) return false;
+      var vis = visitNow();
+      for (var i = 0; i < V3.jobs.length; i++) if (V3.jobs[i].isle === vis && V3.jobs[i].kind !== 'prefetch') return true;
+      return false;
+    }, false);
     stage.focusItem = guard('focusItem', function (key) { focusItem(key); });
     stage.resetView = guard('resetView', function () { if (rig) { rig.reset(reduced); afterCamera(); } });
     stage.frameItem = guard('frameItem', function (uid) { frameItem(uid); showBubble('u:' + uid, nameOf(uid)); });
@@ -4248,6 +4407,7 @@
     ['act', 'setLit', 'unlockLand', 'debut', 'storeFx', 'showtime', 'visitIsle', 'unlockIsle', 'skyMap', 'overview'].forEach(function (k) { stage[k] = noP; });
     stage.skip = function () { return false; };
     stage.focusMe = function () { return false; };
+    stage.booting = function () { return false; };
     stage.feed = noP; stage.skipFeed = function () { return false; }; stage.setPetStars = function () { return 0; };
     ['attach', 'sync'].forEach(function (k) { stage[k] = self; });
     ['emote', 'danceNow', 'setAnchors', 'focusItem', 'resetView', 'frameItem', 'placement', 'setCovered', 'suspend', 'resume', 'setReduced', 'setUser'].forEach(function (k) { stage[k] = nop; });
@@ -4909,7 +5069,7 @@
     normMode: normMode, batchKey: batchKey, diffPlaced: diffPlaced, litChanges: litChanges, rayBox: rayBox,
     choosePick: choosePick, dragTarget: dragTarget, itemLabel: itemLabel, petLabel: petLabel,
     nextDance: nextDance, modelAct: modelAct, toScreen: toScreen, FX_PRESETS: FX_PRESETS,
-    rectDist: rectDist, TAG_PAD: TAG_PAD, NEAR_PX: NEAR_PX, NEAR_FRAC: NEAR_FRAC,
+    rectDist: rectDist, TAG_PAD: TAG_PAD, NEAR_PX: NEAR_PX, NEAR_FRAC: NEAR_FRAC, placeSigns: placeSigns,
     /* Encore City: per-copy style, placement variety, auto-tiling, layer ownership, the QA grid */
     ENCORE_CAM: ENCORE_CAM, ENCORE_SEC: ENCORE_SEC, NO_JITTER: NO_JITTER,
     seedVariant: seedVariant, houseStyle: houseStyle, copyStyle: copyStyle, ghostUid: ghostUid, jitterFor: jitterFor, idNeighbours: idNeighbours,

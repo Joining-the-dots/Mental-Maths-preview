@@ -5,8 +5,9 @@
      4 Island-Wand hype pips (filled ✦ = lit, outline ✦ = not: shape,
      never colour alone) · ENCORE! tag · rival chip + Cheer-boost chip ·
      banners (Unbounded 800, white → Star Gold) with Outfit sublines · the
-     rival's foil photocard intro · the prompt line · the 'Tap to shoot!'
-     bubble · the REPLAY chip · an sr-only aria-live line.
+     rival's foil photocard intro · the prompt line · the nudge bubble ('Tap KICK
+     to pick the side!' / '… the height!', after the prompt's step) · the REPLAY
+     chip · an sr-only aria-live line.
    ENCORE CITY skin (v2): night-glass chips (rgba(22,18,40,.72), a 1px
    rgba(255,255,255,.12) edge; solid #15112A on html.sl-low or without
    backdrop-filter), flat 12px corners, Outfit 700/800 tabular numbers,
@@ -55,7 +56,8 @@ export const CSS = [
   '.p3d-prompt{position:absolute;left:12px;bottom:14px;max-width:calc(100% - 210px);' + GLASS + 'border:1.5px solid #22E4FF;border-radius:12px;padding:4px 16px;',
   '  font-weight:700;font-size:clamp(15px,3vmin,20px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;}',
   '.p3d-prompt.y{border-color:#FF2E9A;}',
-  '.p3d-bub{position:absolute;left:56%;bottom:26%;background:#161228;color:#FFFFFF;border:2px solid #FFD23F;border-radius:12px;padding:4px 14px;',
+  /* max-width: the longer step words wrap clear of the right edge on an upright phone */
+  '.p3d-bub{position:absolute;left:56%;bottom:26%;max-width:calc(44% - 12px);background:#161228;color:#FFFFFF;border:2px solid #FFD23F;border-radius:12px;padding:4px 14px;',
   '  font-weight:800;font-size:clamp(18px,3.6vmin,24px);box-shadow:0 0 14px rgba(255,210,63,.35),0 8px 18px rgba(0,0,0,.4);display:none;}',
   '.p3d-bub::after{content:"";position:absolute;left:14px;bottom:-14px;border:7px solid transparent;border-top-color:#FFD23F;}',
   '.p3d-bub.bob{animation:p3dBob 1.2s ease-in-out infinite;}',
@@ -125,7 +127,11 @@ export function makeHud(mid, o) {
   const sr = q('.p3d-sr');
   const banT = [-1, -1], banLife = [0, 0];
   let hypeShown = -1, encShown = null, promptShown = null, promptAxis = null, bubShown = null, replayShown = null, cardShown = null, cardSkip = null, boostShown = null, visible = true;
-  bub.textContent = o.copy && o.copy.nudge ? o.copy.nudge : 'Tap to shoot!';
+  /* the nudge bubble follows the prompt's step (QA2C-13): side while aiming X, height while aiming Y */
+  const bubX = o.copy && o.copy.nudge ? o.copy.nudge : 'Tap KICK to pick the side!';
+  const bubY = o.copy && o.copy.nudgeY ? o.copy.nudgeY : 'Tap KICK to pick the height!';
+  let bubAxis = null;
+  bub.textContent = bubX;
   replay.textContent = o.copy && o.copy.replay ? o.copy.replay : 'REPLAY';
   boostChip.textContent = o.copy && o.copy.boostChip ? o.copy.boostChip : 'Cheer boost!';
   cardEm.textContent = o.copy && o.copy.tapStart ? o.copy.tapStart : 'Tap to start';
@@ -187,7 +193,11 @@ export function makeHud(mid, o) {
       prompt.style.display = text ? 'block' : 'none';
       if (text) { prompt.textContent = text; prompt.classList.toggle('y', axis === 'y'); }
     },
-    bubble(on) { if (on !== bubShown) { bubShown = on; bub.style.display = on ? 'block' : 'none'; bub.classList.toggle('bob', on && !red); } },
+    bubble(on) {
+      const ax = promptAxis === 'y' ? 'y' : 'x';
+      if (on && ax !== bubAxis) { bubAxis = ax; bub.textContent = ax === 'y' ? bubY : bubX; }
+      if (on !== bubShown) { bubShown = on; bub.style.display = on ? 'block' : 'none'; bub.classList.toggle('bob', on && !red); }
+    },
     replay(on) { if (on !== replayShown) { replayShown = on; replay.style.display = on ? 'block' : 'none'; } },
     /* the rival photocard during kick 1's READY; `skip` shows 'Tap to start' */
     intro(on, skip) {

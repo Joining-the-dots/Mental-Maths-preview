@@ -785,19 +785,22 @@
       if (QA && !voxDeepDone) { voxDeepDone = true; voxCoverageSliced(); }
       return true;
     }
-    /* QA: the deep coverage check a few ids per idle slice (≤ 4 ms each), so building every display
-       model never costs a frame during mount (D70) */
+    /* QA: the deep coverage check, so building every display model never costs a frame during mount (D70). R2
+       (QA2D-3): one model is a single unit that can take tens of ms (the old '4 ms' slice ran a whole model, and then
+       the next, past its budget), so it is ONE id per idle moment that has VOX_IDLE_MS left (or that waited its full
+       timeout), and the check starts VOX_DEEP_DELAY after the boot, never inside it */
+    var VOX_DEEP_DELAY = 15000, VOX_IDLE_MS = 12;
     function voxCoverageSliced() {
       var C = root.SLWorldCore, L = root.SLIslandLook, ids = catalogIds(C, L), i = 0, miss = [];
-      function later(fn) { if (typeof root.requestIdleCallback === 'function') root.requestIdleCallback(fn, { timeout: 3000 }); else setTimeout(fn, 50); }
-      function slice() {
-        var t0 = perfNow();
-        while (i < ids.length && (perfNow() - t0 < 4)) { if (deepMissing(ids[i], C, L)) miss.push(ids[i]); i++; }
+      function later(fn) { if (typeof root.requestIdleCallback === 'function') root.requestIdleCallback(fn, { timeout: 10000 }); else setTimeout(fn, 250); }
+      function slice(dl) {
+        var room = !dl || typeof dl.timeRemaining !== 'function' || dl.didTimeout || dl.timeRemaining() >= VOX_IDLE_MS;
+        if (room && i < ids.length) { if (deepMissing(ids[i], C, L)) miss.push(ids[i]); i++; }
         if (i < ids.length) { later(slice); return; }
         VOX.missing = miss;
         log('vox coverage (built and checked): ' + (miss.length ? miss.length + ' missing: ' + miss.join(', ') : 'every catalogue id draws'));
       }
-      later(slice);
+      setTimeout(function () { later(slice); }, VOX_DEEP_DELAY);
     }
     function routeTarget(r) {
       if (r.api) return typeof VOX[r.api] === 'function';

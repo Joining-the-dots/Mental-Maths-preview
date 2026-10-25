@@ -947,7 +947,8 @@
     return '';
   }
   var COPY = {
-    nudge: 'Tap to shoot!', replay: 'REPLAY', tapStart: 'Tap to start', encore: 'ENCORE MODE!', encoreSub: 'Every goal = 150!',
+    /* the nudge bubble says the tap this step needs (QA2C-13, QA2C-2; penalty.js NUDGE says the same) */
+    nudge: 'Tap KICK to pick the side!', nudgeY: 'Tap KICK to pick the height!', replay: 'REPLAY', tapStart: 'Tap to start', encore: 'ENCORE MODE!', encoreSub: 'Every goal = 150!',
     boost: 'The crowd’s got your back!', boostSub: 'Slower aim + glove zone', final: 'FINAL KICK!', finalSub: 'Make it count!',
     boostChip: '📣 Cheer boost!'
   };

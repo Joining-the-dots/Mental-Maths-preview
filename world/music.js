@@ -836,6 +836,13 @@
     function ensureCtx() {
       if (E.ctx) return E.ctx;
       if (E.noAudio || !gestured() || !env.ctx) return null;
+      /* R2 (QA2D-3): a new AudioContext costs about 230 ms on a slow device. It is made at an idle moment (env.idle), never
+         inside the island's 3D boot where a child's tap would wait behind it: the first call books it and returns
+         nothing, and the music starts (apply) once it is there */
+      if (typeof env.idle === 'function' && !E.ctxIdle) {
+        if (!E.ctxWait) { E.ctxWait = true; env.idle(function () { E.ctxIdle = true; E.ctxWait = false; apply(); }); }
+        return null;
+      }
       var c = null;
       try { c = env.ctx(); } catch (e) { c = null; }
       if (!c || typeof c.createGain !== 'function') { E.noAudio = !c; return null; }
@@ -1527,6 +1534,13 @@
       setInterval: function (f, ms) { return w.setInterval(f, ms); },
       clearInterval: function (id) { w.clearInterval(id); },
       setTimeout: function (f, ms) { return w.setTimeout(f, ms); },
+      /* R2: an idle moment (after the 3D boot's long tasks), at most 2 s away; a browser without requestIdleCallback
+         (Safari) waits for two frames, so the first frame is always drawn first */
+      idle: function (f) {
+        if (typeof w.requestIdleCallback === 'function') { w.requestIdleCallback(function () { f(); }, { timeout: 2000 }); return; }
+        var raf = w.requestAnimationFrame;
+        if (typeof raf === 'function') raf(function () { raf(function () { w.setTimeout(f, 0); }); }); else w.setTimeout(f, 300);
+      },
       activated: function () { var ua = w.navigator && w.navigator.userActivation; return ua ? !!ua.hasBeenActive : null; },
       hidden: function () { return !!(w.document && w.document.hidden); },
       mutedDefault: function () {

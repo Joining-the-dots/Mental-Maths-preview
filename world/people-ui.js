@@ -29,7 +29,7 @@
      reduced       reduced motion (default: the media query): still turntables, end poses
      color         the member colour (the classic hoodie and the Spark Stick)
      photoEnv      overrides for the consent read: {firebase, cloudState, familyCfg, SC, activeUser,
-                   files, timeoutMs}; document / setTimeout / clearTimeout: test seams
+                   files, timeoutMs}; document / setTimeout / clearTimeout / clock (→ ms, the scrim's arming): test seams
 
    API
      meetCard(ctx) → Promise<choice>   the island-open queue's 'char.meet' card (KU13): Make me ·
@@ -460,6 +460,19 @@
   function loadPhoto() { try { if (typeof root.slLoadPhoto === 'function') return Promise.resolve(root.slLoadPhoto()); } catch (e) { return Promise.reject(e); } return Promise.resolve(); }
   function nameOf(ctx, id) { var u = userOf(ctx); return id === 'char_me' ? (u && u.name) || '' : itemName(id); }
 
+  /* R2 (QA2D-2): the scrim closes a sheet only for a tap that began on the scrim after the sheet was up. A click whose
+     pointerdown came before the sheet was made (the tap that opened it, or one under way when the island-open queue put
+     it up) or within ARM ms of it does nothing: a tap never closes a card that has only just opened (the host's
+     overlay() arms the same way). A once-only card (o.once: 'Who’s going on your island?') never closes from the scrim:
+     only its own buttons, ✕ or Esc answer it. ctx.clock() → ms is a test seam (default Date.now) */
+  var ARM = 400;
+  function clock(ctx) { var c = ctx && ctx.clock; return typeof c === 'function' ? c() : Date.now(); }
+  function downTypes() { return typeof root.PointerEvent === 'function' ? ['pointerdown'] : ['mousedown', 'touchstart']; }
+  function armScrim(ctx, ov, once) {
+    var made = clock(ctx), down = null;
+    downTypes().forEach(function (t) { ov.addEventListener(t, function (e) { down = { at: clock(ctx), scrim: e.target === ov }; }, true); });
+    return function (e) { var d = down; down = null; return !once && !!d && d.scrim && e.target === ov && d.at - made >= ARM; };
+  }
   /* one dialog: .slw-ov / .slw-sheet (the island's sheets; the host's closeAllOverlays closes it too) */
   var stack = [], seq = 0;
   function sheet(ctx, o) {
@@ -485,7 +498,8 @@
     s.dismiss = function () { if (o.onDismiss) o.onDismiss(); else s.close(); };   /* ✕, Esc, the scrim */
     function onKey(e) { if (e.key === 'Escape' && stack[stack.length - 1] === s) { if (e.preventDefault) e.preventDefault(); s.dismiss(); } }
     doc.addEventListener('keydown', onKey);
-    ov.addEventListener('click', function (e) { if (e.target === ov) s.dismiss(); });
+    var armed = armScrim(ctx, ov, !!o.once);
+    ov.addEventListener('click', function (e) { if (e.target === ov && armed(e)) s.dismiss(); });
     var x = ov.querySelector('.slp-x');
     if (x) x.addEventListener('click', function () { s.dismiss(); });
     ov._close = s.close;
@@ -592,7 +606,8 @@
   function meetCard(ctx) {
     return photoGate(ctx).then(function (photoOn) {
       return new Promise(function (res) {
-        var s = sheet(ctx, { title: tx('char.meet.title'), small: true, cls: 'slp-meet', onDismiss: function () { pick('later'); } });
+        /* once-only (R2): ✕ and Esc answer 'Later' (and mark it seen); the scrim never does */
+        var s = sheet(ctx, { title: tx('char.meet.title'), small: true, cls: 'slp-meet', once: true, onDismiss: function () { pick('later'); } });
         s.body.innerHTML = meetLead(photoOn) + '<div class="slp-col">' +
           btn('make', tx('char.meet.make'), { icon: '🎨', cls: 'slw-btn big on' }) + (photoOn ? btn('photo', tx('char.meet.photo'), { icon: '📷', cls: 'slw-btn big' }) : '') +
           btn('pick', tx('char.meet.pick'), { icon: PICK_ICON, cls: 'slw-btn big' }) + btn('later', tx('char.meet.later'), { cls: 'slw-btn slp-later' }) + '</div>';
@@ -758,15 +773,89 @@
   /* ================================================================
      THE CAST CAROUSEL
      ================================================================ */
+  /* R2 (QA2D-6): on a phone the cast scrolls sideways (people-ui.css: each card snaps to its start, GUTTER px in from
+     each end, the next card peeking in by its border and padding only). Its ends say where there is more to see:
+     data-more="l", "r" or "lr" (none when it all fits, and none for the wide sheet's grid), as index.html's slNavEdges
+     marks the Maths strip; a tap on an end's gutter brings the next card in, at once (nothing moves by itself). A
+     focused card (Tab) comes fully into view: at its snap position in the list (smoothly; at once under reduced
+     motion), then into the sheet's view (the card, or the focused button when the card is taller than the sheet) */
+  var GUTTER = 44;
+  function castEdges(list) {
+    if (!list || !list.getAttribute) return '';
+    var max = (list.scrollWidth || 0) - (list.clientWidth || 0), x = list.scrollLeft || 0, m = '';
+    if (max > 1) m = (x > 1 ? 'l' : '') + (x < max - 1 ? 'r' : '');
+    if ((list.getAttribute('data-more') || '') !== m) { if (m) list.setAttribute('data-more', m); else list.removeAttribute('data-more'); }
+    return m;
+  }
+  function castLis(list) { return Array.prototype.filter.call(list.childNodes || [], function (c) { return c.nodeType === 1 && /(^|\s)slp-cast(\s|$)/.test(c.className); }); }
+  /* where the list rests with this card first: its start, a gutter in (offsetLeft is from the list: it is position: relative) */
+  function castSnap(list, li) { var max = Math.max(0, (list.scrollWidth || 0) - (list.clientWidth || 0)); return Math.max(0, Math.min(max, (li.offsetLeft || 0) - GUTTER)); }
+  function scrollList(list, x, red) {
+    if (Math.abs((list.scrollLeft || 0) - x) < 1) return;
+    if (!red && typeof list.scrollTo === 'function') { try { list.scrollTo({ left: x, behavior: 'smooth' }); return; } catch (e) { /* below */ } }
+    list.scrollLeft = x;
+  }
+  /* a tap on an end's gutter (the list itself: its ::before / ::after) → the next card that way, at once; → -1, 0 or 1 */
+  function castTap(list, e) {
+    var m = list.getAttribute('data-more') || '';
+    if (!m || e.target !== list || typeof list.getBoundingClientRect !== 'function' || typeof e.clientX !== 'number') return 0;
+    var b = list.getBoundingClientRect(), x = e.clientX - b.left;
+    var dir = x >= b.width - GUTTER && m.indexOf('r') >= 0 ? 1 : x <= GUTTER && m.indexOf('l') >= 0 ? -1 : 0;
+    if (!dir) return 0;
+    var cur = list.scrollLeft || 0, to = null;
+    castLis(list).forEach(function (li) { var p = castSnap(list, li); if (dir > 0 ? to == null && p > cur + 1 : p < cur - 1) to = p; });
+    if (to != null) { list.scrollLeft = to; castEdges(list); }
+    return dir;
+  }
+  /* a focused card fully into view: in the list, then in the sheet (s: the sheet's scroller) */
+  function castReveal(list, li, el, red, sc) {
+    if (!li) return;
+    if ((list.scrollWidth || 0) > (list.clientWidth || 0) + 1) scrollList(list, castSnap(list, li), red);
+    if (!sc || typeof sc.getBoundingClientRect !== 'function' || typeof li.getBoundingClientRect !== 'function') return;
+    var v = sc.getBoundingClientRect(), r = li.getBoundingClientRect(), dy = 0;
+    if (r.height > v.height && el && typeof el.getBoundingClientRect === 'function') r = el.getBoundingClientRect();   /* taller than the sheet: the button */
+    if (r.top < v.top) dy = r.top - v.top - 8; else if (r.bottom > v.bottom) dy = r.bottom - v.bottom + 8;
+    if (!dy) return;
+    if (!red && typeof sc.scrollBy === 'function') { try { sc.scrollBy({ top: dy, behavior: 'smooth' }); return; } catch (e) { /* below */ } }
+    sc.scrollTop = (sc.scrollTop || 0) + dy;
+  }
+  function liOf(el, list) { for (var n = el; n && n !== list; n = n.parentNode) if (n.nodeType === 1 && n.parentNode === list) return n; return null; }
+  function wireCast(ctx, s) {
+    var list = s.body.querySelector('.slp-castlist');
+    if (!list) return;
+    castEdges(list);
+    list.addEventListener('scroll', function () { castEdges(list); }, { passive: true });
+    list.addEventListener('click', function (e) { castTap(list, e); });
+    /* after the browser's own focus scroll (a mandatory snap could land it on the card before), so later, not now */
+    list.addEventListener('focusin', function (e) {
+      var el = e.target, li = liOf(el, list);
+      if (li) later(ctx, function () { if (list.isConnected) castReveal(list, li, el, reducedOf(ctx), s.ov.querySelector('.slp-sheet')); }, 0);
+    });
+  }
   function openCast(ctx) {
     return new Promise(function (res) {
       var s = sheet(ctx, { title: tx('char.cast.title'), cls: 'slp-castsheet' }), playing = null, bought = false;
-      s.onClosed = function () { if (playing) playing.stop(); if (!bought) res(); };   /* after a purchase: when its cards are done */
+      var win = D(ctx).defaultView || null, onResize = function () { castEdges(s.body.querySelector('.slp-castlist')); };
+      try { if (win && win.addEventListener) win.addEventListener('resize', onResize); } catch (e) { /* no window */ }
+      s.onClosed = function () {
+        try { if (win && win.removeEventListener) win.removeEventListener('resize', onResize); } catch (e) { /* no window */ }
+        if (playing) playing.stop(); if (!bought) res();      /* after a purchase: when its cards are done */
+      };
       function draw() {
+        /* a redraw (Play as, Save up for it) keeps the list where it was and the focus on the same button */
+        var old = s.body.querySelector('.slp-castlist'), x = old ? old.scrollLeft || 0 : 0, sc = s.ov.querySelector('.slp-sheet'), y = sc ? sc.scrollTop || 0 : 0;
+        var act = D(ctx).activeElement, fa = act && old && old.contains && old.contains(act) ? act.getAttribute('data-a') : null, fv = fa ? act.getAttribute('data-v') : null;
         var u = userOf(ctx), st = { buy: typeof ctx.buy === 'function' };
         s.body.innerHTML = '<ul class="slp-castlist">' + castCards(u, { trial: trialOf(ctx) }).map(function (c) { return castHtml(ctx, c, st); }).join('') + '</ul>' + liveHtml();
         bind(s.body, on);
+        var list = s.body.querySelector('.slp-castlist');
+        if (old && list) { list.scrollLeft = x; if (sc) sc.scrollTop = y; }
+        wireCast(ctx, s);
         fillCards(ctx, s.body);
+        if (fv) {
+          var li = list && list.querySelector('li[data-id="' + fv + '"]'), b = li && (li.querySelector('[data-a="' + fa + '"]') || li.querySelector('[data-a]'));
+          try { if (b) b.focus(); } catch (e) { /* ignore */ }
+        }
       }
       var on = {
         play: function (b) {

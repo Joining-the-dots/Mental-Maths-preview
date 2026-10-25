@@ -34,7 +34,7 @@
                    'adopt' | 'home', news, id}; openMemories() P3.2's Memory Book; openGear() the Island
                    Shop's pet clothes (Home's Pets shelf); goLearn() back to the learning games. A missing
                    one hides its button.
-     document, setTimeout, clearTimeout  test seams
+     document, setTimeout, clearTimeout, clock (→ ms, the scrim's arming; default Date.now)  test seams
 
    API (every sheet resolves when it closes, and after any sheet it opened has closed, so the
    island-open queue never stacks a card on it)
@@ -48,7 +48,7 @@
      dayCard(ctx, {events}) → Promise<action | null>   queue 'care.day' (prio 40): the most important card
                    of tick's events (SLPetCare.cardOf; else today's status card), its main button going to
                    the right place; dayToast(ctx, events) → the peckish / hungry toast text or null
-     openCorner(ctx, {petId, tab, feed, visit, dress}) → Promise   My pets (the 🐾 button; wave 3 §8: ONE list,
+     openCorner(ctx, {petId, tab, feed, visit, dress, fk}) → Promise   My pets (the 🐾 button; wave 3 §8: ONE list,
                    no tabs): '{n} of 3 pets' ('{n} of 3 at home' with cap 'home'), the sitter, the promise,
                    then the groups At home (always) · At the Pet Hotel (only with guests) · Safe at the
                    Pet Rescue (only with a pet there; 'At the Pet Rescue' while the farewell switch is on),
@@ -57,7 +57,9 @@
                    that group; 'pantry' opens the Pet Shop's food instead; 'memories' (a star, or a host
                    without the Memory Book sheet) shows the memories as a group at the end. With a petId
                    and no tab it scrolls to that pet where it is (C.petWhere); feed opens its food tray (a
-                   visit's at the Rescue), dress its wear tray
+                   visit's at the Rescue), dress its wear tray; fk (R2) focuses that footer button. A trip
+                   from here to the Pet Shop or the Memory Book comes back here when that sheet closes (R2:
+                   on a pet adopted meanwhile, else the pet whose tray went shopping, its tray open again)
      openFeed(ctx, petId) · openHotel(ctx) · openRescue(ctx) · openPicker = picker · welcome = newsCard
      feedingStrip(ctx, petId, foodId, {res, kind, ov}) → Promise   the sheet slides down to a strip with
                    the tummy row while the stage plays the moment; a false stage → the 2D moment on the
@@ -264,7 +266,10 @@
     /* the new animals and the shop button come together, only while the child may adopt (P3.1: else care.ownFull) */
     if (fresh && vm.canAdopt) vm.lines.push({ key: 'care.welcome.new', vars: { n: fresh } });
     vm.shop = vm.canAdopt;
-    vm.ownFull = vm.canAdopt ? null : { key: 'care.ownFull', vars: { n: room.count } };
+    /* R2 (QA2B-3): the count is said once. A line that already says where the others live (the Pet Hotel: capKeep
+       above the cap, 'home's cap line) is the cap's whole news, so care.ownFull is not said again after it */
+    var hotel = vm.lines.some(function (l) { return l.key === 'care.welcome.capKeep' || l.key === 'care.welcome.cap'; });
+    vm.ownFull = vm.canAdopt || hotel ? null : { key: 'care.ownFull', vars: { n: room.count } };
     return vm;
   }
   /* the island-day card: the most important event (SLPetCare.cardOf), its words, and where its main button goes */
@@ -359,13 +364,43 @@
      THE PAGE (everything below needs a document)
      ================================================================ */
   var seq = 0;
+  /* R2 (QA2D-2): the scrim closes a sheet only for a tap that began on the scrim after the sheet was up. A click whose
+     pointerdown came before the sheet was made (the tap that opened it, or one under way when the island-open queue put
+     it up) or within ARM ms of it does nothing, as the host's overlay() arms its own. A once-only card (o.once: 'News
+     from the Pet Shop', the farewell rule card) never closes from the scrim: its own buttons, ✕ or Esc answer it and
+     mark it seen. On the host's overlay a guard on the document (capture: first in line on every engine) stops the
+     scrim clicks the sheet must not take before the overlay's own listener sees them. ctx.clock() → ms is a test seam
+     (default Date.now; ctx.now is the island's clock) */
+  var ARM = 400;
+  function clock(E) { var c = E.ctx.clock; return typeof c === 'function' ? c() : Date.now(); }
+  function downTypes() { return typeof root.PointerEvent === 'function' ? ['pointerdown'] : ['mousedown', 'touchstart']; }
+  function armScrim(E, ov, once) {
+    var made = clock(E), down = null;
+    downTypes().forEach(function (t) { ov.addEventListener(t, function (e) { down = { at: clock(E), scrim: e.target === ov }; }, true); });
+    return function (e) { var d = down; down = null; return !once && !!d && d.scrim && e.target === ov && d.at - made >= ARM; };
+  }
+  function guardScrim(E, ov, armed) {
+    var doc = E.doc(), off = false;
+    function onClick(e) {
+      if (off) return;
+      if (!ov.isConnected) { stop(); return; }
+      if (e.target !== ov || ov.classList.contains('slw-pcc-strip') || armed(e)) return;
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (e.stopPropagation) e.stopPropagation();
+      if (e.preventDefault) e.preventDefault();
+    }
+    function stop() { if (!off) { off = true; doc.removeEventListener('click', onClick, true); } }
+    doc.addEventListener('click', onClick, true);
+    return stop;
+  }
   /* one sheet: the host's overlay when there is one, else the same markup here (KU28: the island's sheets) */
   function sheet(E, inner, o) {
     o = o || {};
     var ctx = E.ctx, cls = 'slw-pcc-ov' + (o.cls ? ' ' + o.cls : '');
     if (typeof ctx.overlay === 'function') {
-      var hov = ctx.overlay(inner, { cls: cls, small: !!o.small, onClose: o.onClose });
-      if (hov) return hov;
+      var unguard = null;
+      var hov = ctx.overlay(inner, { cls: cls, small: !!o.small, onClose: function () { if (unguard) unguard(); if (o.onClose) o.onClose(); } });
+      if (hov) { unguard = guardScrim(E, hov, armScrim(E, hov, !!o.once)); return hov; }
     }
     var doc = E.doc(), ov = doc.createElement('div'), opener = doc.activeElement, closed = false;
     ov.className = 'slw-ov ' + cls;
@@ -389,7 +424,8 @@
       try { if (opener && opener !== doc.body && opener.isConnected && opener.focus) opener.focus(); } catch (e) { /* ignore */ }
     }
     doc.addEventListener('keydown', onKey);
-    ov.addEventListener('click', function (e) { if (e.target === ov && !ov.classList.contains('slw-pcc-strip')) close(); });
+    var armed = armScrim(E, ov, !!o.once);
+    ov.addEventListener('click', function (e) { if (e.target === ov && !ov.classList.contains('slw-pcc-strip') && armed(e)) close(); });
     ov.querySelector('.slw-x').addEventListener('click', close);
     E.later(function () { var b = ov.querySelector('[data-a]') || ov.querySelector('.slw-x'); try { if (b && b.isConnected) b.focus(); } catch (e) { /* ignore */ } }, 30);
     ov._close = close;
@@ -414,7 +450,7 @@
       var btns = (o.buttons || []).map(function (b, i) { return btn('go', b.label, { v: b.a, cls: i === 0 ? 'big on' : 'big' }); }).join('');
       ov = sheet(E, '<div class="slw-pcc-card1">' + (o.art ? '<div class="slw-pcc-art" aria-hidden="true">' + o.art + '</div>' : '') +
         '<h2>' + esc(o.title) + '</h2>' + (o.lines || []).map(function (l) { return line(esc(l)); }).join('') +
-        (btns ? '<div class="slw-pcc-btns">' + btns + '</div>' : '') + '</div>', { small: true, cls: o.cls, onClose: function () { resolve(picked); } });
+        (btns ? '<div class="slw-pcc-btns">' + btns + '</div>' : '') + '</div>', { small: true, cls: o.cls, once: !!o.once, onClose: function () { resolve(picked); } });
       photo(E, ov);
       bind(ov, { go: function (id, a) { picked = a; ov._close(); } });
     });
@@ -423,12 +459,14 @@
   /* ---------------- 'News from the Pet Shop' (U1, KU13) ---------------- */
   function newsCard(ctx) {
     if (!ready(ctx)) return Promise.resolve({ started: false, go: null });
-    var E = env(ctx), vm = newsVM(ctx), buttons = [{ a: 'corner', label: E.t('care.welcome.corner') }];
+    /* R2 (QA2B-3): with more than 3 pets 'Who lives at home?' comes first (by design), so its button says so */
+    var E = env(ctx), vm = newsVM(ctx), buttons = [{ a: 'corner', label: E.t(vm.pick ? 'care.pick.title' : 'care.welcome.corner') }];
     if (vm.shop && typeof ctx.openShop === 'function') buttons.push({ a: 'shop', label: E.t('care.welcome.shop') });
     var lines = vm.lines.map(function (l) { return E.t(l.key, l.vars); });
     if (vm.ownFull) lines.push(E.t(vm.ownFull.key, vm.ownFull.vars));
     var art = '<span class="slw-pcc-bowl">' + care2d('bowl', { group: 'biscuits', pile: 4 }) + '</span><span class="slw-pcc-bag">' + foodIcon('food_biscuits') + '</span>';
-    return card(E, { title: E.t('care.welcome.title'), lines: lines, buttons: buttons, art: art, cls: 'slw-pcc-news' }).then(function (go) {
+    /* once-only (R2): its buttons, ✕ or Esc start care; a tap on the scrim never does */
+    return card(E, { title: E.t('care.welcome.title'), lines: lines, buttons: buttons, art: art, cls: 'slw-pcc-news', once: true }).then(function (go) {
       /* care starts whichever way the card closes: the picker first when more than 3 pets */
       var started = E.P.needsPick(E.w()) ? picker(ctx) : startCare(E, null);
       return started.then(function (res) {
@@ -510,7 +548,8 @@
     var away = E.status().pets.filter(function (p) { return p.where === 'rescue'; })[0], buttons = [];
     if (away) buttons.push({ a: 'visit', label: E.t('care.rescue.visit', { name: away.name }) });
     if (E.has('care.ok')) buttons.push({ a: 'ok', label: E.t('care.ok') });
-    return card(E, { title: E.t('care.rule.title'), lines: [E.t('care.rule.body', { n: E.C.CARE.starAfter })], buttons: buttons, art: care2d('header', 'rescue'), cls: 'slw-pcc-rulecard' })
+    /* once-only (R2): marked seen by its buttons, ✕ or Esc; a tap on the scrim never closes it */
+    return card(E, { title: E.t('care.rule.title'), lines: [E.t('care.rule.body', { n: E.C.CARE.starAfter })], buttons: buttons, art: care2d('header', 'rescue'), cls: 'slw-pcc-rulecard', once: true })
       .then(function (a) {
         var ms = E.now();
         return commit(E, function (u) { return E.P.markRuleSeen(u, setAt, ms); }).then(function (r) {
@@ -645,16 +684,24 @@
               : res.treat && !res.counted ? E.t('care.treatMax', { name: name }) : res.fav ? E.t('care.fav', { name: name }) : E.t('care.fed', { name: name });
             var home = visit && res.home;
             if (home) sound(E, SOUND.home);
-            S.msg[id] = end; say(end); toast(E, end);
-            if (!ov.isConnected) return;
+            /* R2 (QA2A-11): one message — the line on the pet's card while My pets is up; the island's toast only once it
+               has closed (it used to say 'Biscuit’s favourite!' twice at once) */
+            S.msg[id] = end; say(end);
+            if (!ov.isConnected) { toast(E, end); return; }
             /* home from the Rescue: its card is now in At home, and focus goes with it */
             paint((visit && !home ? 'visit:' : 'feed:') + id + ':');
             if (home) show(panel.querySelector('[data-pet="' + id + '"]'), null);
           });
         });
       }
-      /* leave for another sheet: the Corner closes, and resolves once that sheet has closed too */
-      function leave(open) { S.after = Promise.resolve().then(open); ov._close(); }
+      /* leave for another sheet: the Corner closes, and resolves once that sheet has closed too. R2 (QA2A-9): with back,
+         a trip to the Pet Shop or the Memory Book comes back to My pets when that sheet closes (comeBack) */
+      function leave(open, back) {
+        if (back) { back.crew = living(E); back.who = (E.u() || {}).name; back.at = Date.now(); }
+        S.after = Promise.resolve().then(open);
+        if (back) S.after = S.after.then(function () { return comeBack(E, back); }, function () { return comeBack(E, back); });
+        ov._close();
+      }
       var on = {
         feed: function (id) { toggle('feed', id); },
         visit: function (id) { toggle('visit', id); },
@@ -670,7 +717,8 @@
           var inp = panel.querySelector('[data-name="' + id + '"]'), val = inp ? inp.value : '', v = E.C.validatePetName(val);
           if (!v.ok) { S.msg[id] = v.reason; paint('name:' + id + ':'); return; }
           act(function (u) { return E.C.renamePet(u, id, val); }, function (res) {
-            if (res && res.ok) { S.tray = null; S.msg[id] = E.t('crew.named', { name: res.name }); say(S.msg[id]); toast(E, S.msg[id]); } else S.msg[id] = (res && res.reason) || '';
+            /* one message (R2): the card's line, the toast only if My pets has closed meanwhile */
+            if (res && res.ok) { S.tray = null; S.msg[id] = E.t('crew.named', { name: res.name }); say(S.msg[id]); if (!ov.isConnected) toast(E, S.msg[id]); } else S.msg[id] = (res && res.reason) || '';
           });
         },
         runner: function (id) { act(function (u) { return E.C.setActivePet(u, id); }); },
@@ -679,13 +727,17 @@
         swap: function (id) { toggle('swap', id); },
         swapWith: function (id, v) { act(function (u) { return E.P.swap(u, v, id, E.now()); }, function (res) { if (res && res.ok) S.tray = null; S.msg[id] = res && res.ok ? '' : refusal(E, res); }); },
         pick: function () { picker(E.ctx).then(function () { if (ov.isConnected) paint('pick::'); }); },
-        /* the tray's 'Visit the Pet Shop' and the footer's 'Pet food': the food; a memory's 'Adopt a {species} again' */
-        shop: function (id, v) { leave(function () { return E.ctx.openShop(v ? { filter: 'adopt', id: v } : { filter: 'food' }); }); },
+        /* the tray's 'Visit the Pet Shop' (its pet: back on it with its tray open) and the footer's 'Pet food': the food;
+           a memory's 'Adopt a {species} again' */
+        shop: function (id, v) {
+          var back = v ? { fk: 'foot:memories' } : id ? { petId: id } : { fk: 'foot:food' };
+          leave(function () { return E.ctx.openShop(v ? { filter: 'adopt', id: v } : { filter: 'food' }); }, back);
+        },
         /* 'Adopt a pet': the pets the child can adopt now, else the Home Pet Shop (its short cards say how to earn more) */
-        adopt: function () { var f = adoptable(E) ? 'adopt' : 'home'; leave(function () { return E.ctx.openShop({ filter: f }); }); },
+        adopt: function () { var f = adoptable(E) ? 'adopt' : 'home'; leave(function () { return E.ctx.openShop({ filter: f }); }, { fk: 'foot:adopt' }); },
         /* 'Memory Book': its own sheet (P3.2); a host without it shows the memories here, as the last group */
         memories: function () {
-          if (typeof E.ctx.openMemories === 'function') { leave(function () { return E.ctx.openMemories(); }); return; }
+          if (typeof E.ctx.openMemories === 'function') { leave(function () { return E.ctx.openMemories(); }, { fk: 'foot:memories' }); return; }
           S.mem = !S.mem; paint('foot:memories');
           if (S.mem) show(panel.querySelector('[data-g="memories"]'), null);
         }
@@ -708,10 +760,38 @@
             b.querySelector('[data-a="acc"][aria-pressed="true"]') || b.querySelector('[data-a="acc"]') || b.querySelector('[data-a]'));
           return;
         }
+        /* back from the Pet Shop or the Memory Book (R2): the footer button that went there */
+        var fb = o.fk ? panel.querySelector('[data-fk="' + o.fk + '"]') : null;
+        if (fb) { show(fb, fb); return; }
         /* At home is the top of the list: nothing to scroll */
         if (g && first.group !== 'home') show(g, g.querySelector('[data-a]'));
       }, 60);
     });
+  }
+  /* R2 (QA2A-9): back to My pets when the Pet Shop (or the Memory Book) it opened has closed: on a pet adopted meanwhile,
+     else on the pet whose food tray went shopping, its tray open again (feed: a visit's tray at the Rescue, startOf), else
+     the list with focus on the footer button that went. 'New' is a pet that is with the child now and was not when the
+     trip began: one adopted, or a star adopted again from its memory (the same id, back from the stars). Not when
+     anything else is up by then (My pets opened from the shop, the Island Shop standing in offline, a card, a
+     celebration), when the island is not on screen (a learn trip: the host closed every sheet and went to Learn), when a
+     learn trip began since, or for another child */
+  function comeBack(E, back) {
+    var doc = E.doc(), u = E.u();
+    if (!u || u.name !== back.who || !ready(E.ctx)) return null;
+    if (doc.querySelector('.slw-ov, .slw-cele')) return null;
+    var v = doc.getElementById ? doc.getElementById('worldView') : null;
+    if (v && v.classList && v.classList.contains('hidden')) return null;
+    var trip = root.slLearnTrip;
+    if (trip && typeof trip.at === 'number' && trip.at >= back.at) return null;
+    var fresh = living(E).filter(function (id) { return back.crew.indexOf(id) < 0; })[0];
+    if (fresh) return openCorner(E.ctx, { petId: fresh });
+    if (back.petId) return openCorner(E.ctx, { petId: back.petId, feed: true });
+    return openCorner(E.ctx, { fk: back.fk });
+  }
+  /* the pets with the child (home, the Pet Hotel, the Pet Rescue): every crew pet but the stars */
+  function living(E) {
+    var w = E.w();
+    return E.C.crewList(w).filter(function (p) { return E.C.petWhere(w, p.id) !== 'star'; }).map(function (p) { return p.id; });
   }
   /* the list group an element is in (a walk up: older engines have no closest()) */
   function groupEl(el) { for (var n = el; n && n.getAttribute; n = n.parentNode) if (n.getAttribute('data-g')) return n; return null; }
@@ -757,14 +837,16 @@
          once an island day (the core's rule), kindly offered first; a visit at the Rescue takes it too */
       var basic = basicOk(E, id) ? line(esc(E.t('care.basic.line', { name: p.name })), 'slw-pcc-note slw-pcc-basicline') + '<div class="slw-pcc-btns slw-pcc-basic">' +
         btn('basic', '🥣 ' + E.t(kind === 'visit' ? 'care.basic.visit' : 'care.basic.button'), { id: id, cls: 'slw-buy slw-pcc-do', fk: 'basic:' + id }) + '</div>' : '';
+      /* R2 (QA2A-11): a pet that can eat now is told what to do, as a full one is told why not */
+      var pick = !full && tiles.some(function (f) { return f.ok; }) && E.has('care.pickFood') ? line(esc(E.t('care.pickFood', { name: p.name })), 'slw-pcc-note slw-pcc-pickline') : '';
       return '<div class="slw-pcc-tray">' + (full ? line(esc(E.t('care.full', { name: p.name })), 'slw-pcc-note') : '') +
-        (cheap ? line(esc(E.t('care.none', { food: inSentence(cheap.name) })), 'slw-pcc-note') : '') + basic +
+        (cheap ? line(esc(E.t('care.none', { food: inSentence(cheap.name) })), 'slw-pcc-note') : '') + basic + pick +
         '<div class="slw-pcc-foods" role="group" aria-label="' + esc(E.t('care.pantry')) + '">' + tiles.map(function (f) {
           var why = f.code === 'full' ? '' : whyText(E, f.why);
           return '<button type="button" class="slw-pcc-food' + (f.ok ? '' : ' off') + (f.fav ? ' fav' : '') + '" data-a="food" data-id="' + esc(id) + '" data-v="' + f.id + '" data-fk="food:' + esc(id) + ':' + f.id + '"' +
             (f.ok ? '' : ' aria-disabled="true"') + '><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon(f.id) + '</span><span class="slw-pcc-fnm">' + esc(f.name) +
             (f.fav ? ' <span class="slw-pcc-heart" aria-hidden="true">♥</span>' : '') + '</span><span class="slw-pcc-n">× ' + f.n + '</span>' + (why ? '<span class="slw-pcc-why">' + esc(why) + '</span>' : '') + '</button>';
-        }).join('') + '</div>' + (E.ctx.openShop ? '<div class="slw-pcc-btns">' + btn('shop', E.t('care.welcome.shop')) + '</div>' : '') + '</div>';
+        }).join('') + '</div>' + (E.ctx.openShop ? '<div class="slw-pcc-btns">' + btn('shop', E.t('care.welcome.shop'), { id: id }) + '</div>' : '') + '</div>';
     }
     if (kind === 'dress') {
       var SH = SHOP(), rows = SH ? SH.wearTray(E.C, E.w(), id).filter(function (r) { return r.items.length; }) : [];

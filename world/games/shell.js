@@ -36,8 +36,9 @@
       '.slg{position:fixed;inset:0;z-index:9700;background:#130c2e;display:flex;flex-direction:column;color:#fff;font-family:"Baloo 2",system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:none;}',
       '.slg-top{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(0,0,0,.25);flex:0 0 auto;}',
       '.slg-top .ttl{font-weight:800;font-size:18px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-      /* on a narrow (portrait) phone the HUD pill gives way first (ellipsis), so
-         🔊 ⏸ 🏝️ Exit can never be pushed past the right edge */
+      /* the title gives way first (its flex basis is 0), then the HUD pill (ellipsis), so
+         🔊 ⏸ 🏝️ Exit can never be pushed past the right edge. QA round 2: before the pill is
+         cut, a game is asked for its compact pill (hudOpt.narrow, pillFits below) */
       '.slg-top .hud{font-weight:800;font-size:16px;background:rgba(255,255,255,.12);border-radius:999px;padding:4px 12px;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;}',
       '.slg-top .slg-b{flex:0 0 auto;white-space:nowrap;}',
       '.slg-b{border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:#fff;border-radius:12px;min-width:44px;min-height:44px;padding:4px 10px;font:inherit;font-weight:800;font-size:16px;cursor:pointer;touch-action:manipulation;}',
@@ -98,6 +99,34 @@
       'html body .slg .slg-tut b{height:40px;min-width:40px;font-size:22px;margin-bottom:4px;}',
       'html body .slg .slg-scr .slg-b.go{padding:6px 22px;font-size:18px;}',
       'html body .slg .slg-pb{font-size:16px;padding:4px 14px;}',
+      '}'
+    ].join('\n');
+    document.head.appendChild(c);
+    injectCssR2();
+  }
+  /* QA round 2: its own small sheet, so #slgCss stays the V4.54 one (tests/shell-social.test.js) */
+  function injectCssR2() {
+    if (document.getElementById('slgCssR2')) return;
+    var c = document.createElement('style'); c.id = 'slgCssR2';
+    c.textContent = [
+      /* QA2C-12: the title gives way first (ellipsis). Whenever the full HUD pill (the kart clock,
+         the kick) would not fit — ≤ 420 px, and an upright iPhone Plus / Pro Max (428–440 px) or
+         any width where it is too long — a game's pill is its compact form (hud({narrow}), see
+         pillFits), and at ≤ 420 px the buttons are tighter. Only if even that is too long does
+         the pill shrink (ellipsis): 🔊 ⏸ 🏝️ Exit are never pushed past the right edge */
+      'html body .slg .slg-top .hud{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;}',
+      /* QA2C-14: ⏸ only while there is something to pause */
+      '.slg.slg-nopause #slgPause{display:none;}',
+      /* QA2C-17: a sheet's spotlight layer (the island skin's .slg-scr::before) is one screen
+         tall and scrolls with a long list, so it ended in a hard line: it fades out instead */
+      'html body .slg .slg-mid .slg-scr::before{-webkit-mask-image:linear-gradient(#000 35%,transparent 92%);mask-image:linear-gradient(#000 35%,transparent 92%);}',
+      /* narrow phones: a tighter top bar (QA2C-12) and compact course / rival chips, two to a row
+         (QA2C-11: ▶ Play stays well clear of the bottom) */
+      '@media (max-width: 420px){',
+      'html body .slg .slg-top{gap:6px;padding-left:max(8px, env(safe-area-inset-left));padding-right:max(8px, env(safe-area-inset-right));}',
+      'html body .slg .slg-top .slg-b{padding:6px 9px;}',
+      'html body .slg .slg-top .hud{padding:4px 10px;}',
+      'html body .slg .slg-scr .row > .slg-var[data-mvar],html body .slg .slg-scr .row > .slg-var[data-var]{flex:1 1 calc(50% - 6px);max-width:calc(50% - 6px);padding:4px 8px;font-size:14px;line-height:1.15;}',
       '}'
     ].join('\n');
     document.head.appendChild(c);
@@ -238,6 +267,20 @@
                                    on a live round, a round with its own again, or out of time
        round.hud3d()               the top-bar pill while a 3D view (which has its own HUD) is
                                    drawn; '' empties it (the island skin hides an empty pill)
+     QA round 2 (all optional; a game that ignores them is unchanged):
+       round.hud(o) / hud3d(o)     o.narrow: the stage is 420 px wide or less, or the full pill
+                                   did not fit beside 🔊 ⏸ 🏝️ Exit at this width (measured once per
+                                   new shape of the text, then kept until the width changes) — a
+                                   game gives its compact form ('1/2 · ⏱ 0:12.3'); the pill is cut
+                                   (ellipsis) only if even that is too long
+       def.pbText(rec, v, cfg, o)  o = {results: true, result} on the results sheet: leave out
+                                   what the sheet already says (the next medal's gap, the medal
+                                   of this very round)
+       menuVariants' lockBelow     that lock line goes under the Play row, with the extras
+       api.hudPill                 true while the top bar's text pill shows round.hud() (a 2D
+                                   canvas then draws no second copy of those numbers)
+       ⏸                           shown only for a count, a round or the pause sheet; out of game
+                                   time the results show no next step and Change … is off
        the shell itself            a modal dialog: aria-modal, the page behind it inert, Tab
                                    kept inside, focus handed back on exit; def.preload has
                                    PRELOAD_MS (10 s), then 'Couldn’t start' · Try again · Back
@@ -392,7 +435,7 @@
       document.body.appendChild(root);
       var behind = shutBehind(root);
       var mid = root.querySelector('#slgMid'), canvas = root.querySelector('#slgCanvas'), ctx = canvas.getContext('2d');
-      var hudEl = root.querySelector('#slgHud'), soundBtn = root.querySelector('#slgSound'), pauseBtn = root.querySelector('#slgPause');
+      var hudEl = root.querySelector('#slgHud'), ttlEl = root.querySelector('.slg-top .ttl'), soundBtn = root.querySelector('#slgSound'), pauseBtn = root.querySelector('#slgPause');
       var liveEl = root.querySelector('#slgLive'), liveTimer = 0, livePending = '';
       /* screen-reader announcements (results, a new personal best): the region is
          emptied first so a repeated line is read again */
@@ -408,8 +451,14 @@
       soundBtn.addEventListener('click', function () { if (cfg.toggleMute) cfg.toggleMute(); paintSound(); }, sig);
 
       var view = { scale: 1, ox: 0, oy: 0, dpr: 1 };
+      /* QA2C-12: the pill asks a game for its compact form, hud(hudOpt), on a narrow phone and
+         whenever the full form did not fit at this width (pillFits); a new width starts again */
+      var hudOpt = { narrow: false }, pillW = -1, pillOk = {}, PILL_SPARE = 16;
+      /* a web font that arrives mid-game changes the pill's width: measure again */
+      try { if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', function () { pillOk = {}; }, sig); } catch (e) {}
       function resize() {
         var r = mid.getBoundingClientRect();
+        if (r.width !== pillW) { pillW = r.width; hudOpt.narrow = r.width > 0 && r.width <= 420; pillOk = {}; }
         var dpr = Math.min(2, window.devicePixelRatio || 1);
         canvas.width = Math.max(1, Math.round(r.width * dpr));
         canvas.height = Math.max(1, Math.round(r.height * dpr));
@@ -454,10 +503,17 @@
       var screen = null, banner = null;
       var held = {};
 
+      /* QA2C-14: ⏸ only while there is something to pause (a count, a round, the pause sheet).
+         Every phase change draws a sheet (setScreen) or starts the loop (startLoop); both ask */
+      function syncPause() {
+        var on = phase === 'playing' || phase === 'countdown' || phase === 'paused';
+        if (root.classList.contains('slg-nopause') === on) root.classList.toggle('slg-nopause', !on);
+      }
       /* noFocus: the caller focuses later (results wake their buttons after a guard) */
       function setScreen(html, noFocus) {
         if (screen) screen.remove();
         screen = null;
+        syncPause();
         if (html == null) return;
         var s = screen = el('div', 'slg-scr');
         s.appendChild(el('div', 'slg-in', html));
@@ -479,23 +535,30 @@
         banner = el('div', 'slg-banner'); banner.textContent = txt; banner.setAttribute('role', 'status');
         mid.appendChild(banner);
       }
-      function pbLine(v) {
+      /* o (optional): {results: true, result} on the results sheet — a game's pbText then leaves
+         out what the sheet already says (QA2C-1: the kart's 'Next: 🥇 Gold … to go' is the next
+         step there; QA2C-8: the Debut Run's medal when it is this round's badge) */
+      function pbLine(v, o) {
         var key = def.key + ':' + String(v || 'std');
         var rec = cfg.pb && cfg.pb[key];
         if (!rec) return 'No personal best yet — set one!';
-        if (def.pbText) { try { var t = def.pbText(rec, v, cfg); if (t) return t; } catch (e) {} }
+        if (def.pbText) { try { var t = o ? def.pbText(rec, v, cfg, o) : def.pbText(rec, v, cfg); if (t) return t; } catch (e) {} }
         return '🏆 Your best: ' + (rec.ms != null ? (rec.ms / 1000).toFixed(2) + ' s' : 'score ' + String(rec.score).replace(/\B(?=(\d{3})+(?!\d))/g, ','));
       }
+      function lockP(v) { return '<p class="slg-lock">🔒 ' + esc(v.name) + ': ' + esc(v.lockText) + '</p>'; }
       function menu() {
         phase = 'menu'; stopLoop(); setBanner(null); renderTouch(false);
+        setHudText('');                                   /* QA2C-7: no stale 'FINAL KICK' / 'Lap 1/2' pill */
         mus('menuMode', true);
-        var vhtml = '';
+        var vhtml = '', locksBelow = '';
         if (def.menuVariants) {
           var mv = def.menuVariants(cfg) || [];
           vhtml = '<p class="lb" style="font-weight:800;margin:0;">' + esc(def.menuVariantsTitle || 'Choose') + '</p><div class="row">' + mv.map(function (v) {
             return '<button class="slg-var' + (v.id === variant ? ' on' : '') + '" type="button" data-mvar="' + esc(v.id) + '"' + (v.locked ? ' disabled' : '') + ' title="' + esc(v.tip || '') + '">' +
               (v.icon ? esc(v.icon) + ' ' : '') + esc(v.name) + (v.medal ? ' ' + esc(v.medal) : '') + (v.locked ? ' 🔒' : '') + '</button>';
-          }).join('') + '</div>' + mv.filter(function (v) { return v.locked && v.lockText; }).map(function (v) { return '<p class="slg-lock">🔒 ' + esc(v.name) + ': ' + esc(v.lockText) + '</p>'; }).join('');
+          }).join('') + '</div>' + mv.filter(function (v) { return v.locked && v.lockText && !v.lockBelow; }).map(lockP).join('');
+          /* v.lockBelow: its lock line goes under the Play row with the opened extras (QA2C-11) */
+          locksBelow = mv.filter(function (v) { return v.locked && v.lockText && v.lockBelow; }).map(lockP).join('');
         } else {
           var vars = (cfg.ownedVariants || []);
           vhtml = vars.length > 1 ? '<div class="row">' + vars.map(function (v) { return '<button class="slg-var' + (v.id === variant ? ' on' : '') + '" type="button" data-var="' + esc(v.id) + '">' + esc(v.name) + '</button>'; }).join('') + '</div>' : '';
@@ -520,7 +583,7 @@
           });
         }
         var sc = menuSc = setScreen(ROT_HTML + '<div class="slg-emo">' + def.emoji + '</div><h2>' + esc(title) + '</h2>' + vhtml + ohtml + '<p>' + esc(pbLine(variant)) + '</p>' +
-          '<div class="row"><button class="slg-b go" type="button" id="slgPlay">▶ Play</button><button class="slg-b" type="button" id="slgHow">❓ How to play</button>' + bhtml + '</div>' + nhtml + lhtml);
+          '<div class="row"><button class="slg-b go" type="button" id="slgPlay">▶ Play</button><button class="slg-b" type="button" id="slgHow">❓ How to play</button>' + bhtml + '</div>' + nhtml + lhtml + locksBelow);
         if (bhtml) sc.querySelectorAll('[data-mbtn]').forEach(function (b) { b.addEventListener('click', function () { try { if (def.onMenuButton) def.onMenuButton(b.dataset.mbtn, ctl, cfg); } catch (e) {} }); });
         menuBoards(sc, false);
         sc.querySelectorAll('[data-var]').forEach(function (b) { b.addEventListener('click', function () { variant = b.dataset.var; cfg.variant = variant; if (cfg.onSelectVariant) cfg.onSelectVariant(variant); if (v3 && v3.setRound) v3.setRound(null, variant); menu(); }); });
@@ -610,6 +673,9 @@
         mus('menuMode', true);
         if (cfg.arcade) cfg.arcade.flush();
         var res = round.result(), rnd = round, rv = rVariant;
+        /* QA2C-10: out of game time for today the sheet invites no more play: no next step, no
+           next course / rival, and Change course / rival is off (🏝️ Back to my island stays) */
+        var st0 = cfg.arcade && cfg.arcade.status(), timeUp = !!(st0 && st0.exhausted);
         var badges = '', badgeList = [];
         if (round.summaryBadges) { try { badgeList = round.summaryBadges() || []; badges = badgeHtml(badgeList); } catch (e) { badges = ''; badgeList = []; } }
         var sTitle = round.summaryTitle ? round.summaryTitle() : 'Finished!', sBig = round.summaryBig(), sText = round.summaryText ? round.summaryText() : '';
@@ -621,7 +687,7 @@
            buttons, and the numbers wait behind 📊 Details */
         var focusL = typeof rnd.nextStep === 'function', nextLine = '', details = [], shown = badgeList;
         if (focusL) {
-          try { nextLine = String(rnd.nextStep() || '').trim(); } catch (e) { nextLine = ''; }
+          try { nextLine = timeUp ? '' : String(rnd.nextStep() || '').trim(); } catch (e) { nextLine = ''; }
           shown = badgeList.filter(function (b) { return b && b.kind !== 'hint'; });
           if (sText) details.push(sText);
           if (typeof rnd.summaryDetails === 'function') {
@@ -658,9 +724,11 @@
           var box = sc.querySelector('#slgDetails'); if (!box) return;
           var open = !!box.hidden; box.hidden = !open; db.setAttribute('aria-expanded', String(open));
         });
-        var st = cfg.arcade && cfg.arcade.status();
-        var again = sc.querySelector('#slgAgain'), timeUp = !!(st && st.exhausted);
-        if (timeUp) { again.textContent = '⏱️ Time’s up for today'; again.disabled = true; again.dataset.stay = '1'; again.classList.remove('go'); }
+        var again = sc.querySelector('#slgAgain');
+        if (timeUp) {
+          again.textContent = '⏱️ Time’s up for today'; again.disabled = true; again.dataset.stay = '1'; again.classList.remove('go');
+          if (mb) { mb.disabled = true; mb.dataset.stay = '1'; }
+        }
         /* B10: what this round opened up. The menu's open choices before the result is saved;
            once it is (cfg.pb has the new best) a first unlock gets 'Change …' and its own main
            button. Buttons added while the tap guard is up wait with the others; later ones
@@ -703,7 +771,7 @@
               if (typeof res.extra === 'number' && res.extra === Math.floor(res.extra)) rec.extra = res.extra;   /* the menu's best line keeps its medal */
               cfg.pb = cfg.pb || {}; cfg.pb[key] = rec;
             } else if (r && r.prev) {
-              slot.innerHTML = '<span style="font-weight:700;color:#d9d2f7;">' + esc(pbLine(rv)) + '</span>';
+              slot.innerHTML = '<span style="font-weight:700;color:#d9d2f7;">' + esc(pbLine(rv, { results: true, result: res })) + '</span>';
             }
             offerNext();
           }).catch(function () {});
@@ -823,6 +891,7 @@
 
       /* ---------- loop ---------- */
       function startLoop() {
+        syncPause();
         stopLoop(); stopIdle();
         last = performance.now(); lastWall = Date.now(); lastDrawAt = last; playPace.reset(); watch.reset();
         raf = requestAnimationFrame(frame);
@@ -938,8 +1007,10 @@
         /* the text HUD only when no HTML HUD replaced it, and the DOM only on a change; over a
            3D view (with its own HUD) a round's hud3d() is the shorter pill (B11) */
         if (round && hudEl && !hudObj) {
-          if (v3 && typeof round.hud3d === 'function') { var h3 = ''; try { h3 = round.hud3d(); } catch (e) { h3 = ''; } setHudText(h3); }
-          else if (round.hud) setHudText(round.hud());
+          pillText();
+          /* QA2C-12: the full pill did not fit (an upright iPhone Plus / Pro Max is 428–440 px):
+             the compact form from now on at this width, set before the frame is painted */
+          if (!hudOpt.narrow && hudText && !pillFits()) { hudOpt.narrow = true; pillText(); }
         }
         if (hudObj) { try { hudObj.update(round, phase); } catch (e) {} }
         if (round && round.padState) {
@@ -966,6 +1037,26 @@
       function setHudText(t) {
         t = t == null ? '' : String(t);
         if (t !== hudText) { hudText = t; hudEl.textContent = t; }
+      }
+      /* the round's pill for this frame: hud3d() over a 3D view (B11), else hud() */
+      function pillText() {
+        if (v3 && typeof round.hud3d === 'function') { var h3 = ''; try { h3 = round.hud3d(hudOpt); } catch (e) { h3 = ''; } setHudText(h3); }
+        else if (round.hud) setHudText(round.hud(hudOpt));
+      }
+      /* QA2C-12: does the full pill fit? Not if it is cut (ellipsis) or the title has less than
+         PILL_SPARE px left (one more digit would cut it). The top bar is read once per new shape of
+         the text (its digits read as 0: the clock ticking is the same shape), never every frame;
+         pillOk is emptied when the width changes (resize). A pill not laid out counts as fitting */
+      function pillFits() {
+        var shape = hudText.replace(/\d/g, '0');
+        if (pillOk[shape]) return true;
+        var cw = hudEl.clientWidth;
+        if (!(cw > 0)) return true;
+        var room = Infinity;
+        if (ttlEl && ttlEl.getClientRects && ttlEl.getClientRects().length) room = ttlEl.getBoundingClientRect().width;
+        if (hudEl.scrollWidth > cw + 1 || room < PILL_SPARE) return false;
+        pillOk[shape] = true;
+        return true;
       }
       function drawIdle() {
         begin();
@@ -1139,6 +1230,9 @@
       }
       if (def.hud && def.hud.mount) { try { hudObj = def.hud.mount(mid, cfg, api); } catch (e) { hudObj = null; } }
       if (hudObj) hudEl.style.display = 'none';
+      /* QA2C-15: the top bar's text pill shows round.hud() over a 2D canvas, so a game draws no
+         second HUD of the same numbers there (api.hudPill) */
+      api.hudPill = !hudObj;
 
       var ready3d = load3d().then(function (m) { v3mod = m; if (!m) cfg.view3d = false; });
       /* E7: def.preload (a throw, a rejection, or nothing for PRELOAD_MS) never leaves the child

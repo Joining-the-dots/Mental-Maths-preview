@@ -224,6 +224,10 @@ html body .slw, html body .slw-ov, html body .slw-cele, html body .slw-toast, ht
 html body .slw-toast {
   --sle-fg: #FFFFFF; --sle-fg-2: #FFFFFF;
 }
+/* R2 (QA2A-5): on a narrow screen a toast's buttons ('↩ Undo', 'Back to the shop') wrap onto a second row inside it,
+   never past its edge; the toast is never wider than the screen less 12px each side */
+html body .slw-toast { flex-wrap: wrap; justify-content: flex-end; box-sizing: border-box; max-width: min(560px, calc(100vw - 24px)); }
+html body .slw-toast > span { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
 
 /* ---------------- island root: the banded sky; Showtime fades a banded night in ---------------- */
 html body .slw {
@@ -421,10 +425,66 @@ html body button.slw-goal:active {
 }
 /* the Next step card (wave 3) in the goal's place: a small label, the picture, one sentence, its button, the meter
    while saving. Not itself a button (its button is), so it never presses in */
-html body .slw-goal.slw-next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; cursor: default; }
+html body .slw-goal.slw-next { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 10px; cursor: default; }
 html body .slw-next .gi { width: 40px; height: 40px; flex: 0 0 40px; }
 html body .slw-next .lb { color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 11.5px; line-height: 1.2; }
-html body .slw-next .gt { font-size: 14px; line-height: 1.3; }
+/* the sentence is never cut ('…' or a clamp): it wraps, and only a name too long for its line breaks inside */
+html body .slw-next .gt { font-size: 14px; line-height: 1.3; overflow-wrap: break-word; }
+/* R2 (QA2A-10): the button always sits on the right, at most about 40% of the card, its words on two lines if they
+   need them; the sentence takes the rest (never a button that drops to a row of its own and makes the card taller).
+   The button never shrinks below its longest word, so its words wrap only between words ('Visit / Marshmallow',
+   never 'Marshm / allow' or '▶ / Pla / y') */
+html body .slw-next .nx { flex: 1 1 auto; min-width: 0; }
+html body .slw-next .slw-nextbtn {
+  flex: 0 0 auto; max-width: 40%; min-width: min-content; white-space: normal; text-align: center;
+  overflow-wrap: normal; word-break: normal;
+}
+/* R2 (QA2B-1): an iPad and up: the card is 48px tall for a one- or two-line sentence ('Next step' and the sentence
+   side by side, the meter under them), so the HUD keeps two rows and the island its height; a longer sentence takes a
+   third line rather than being cut. The whole card answers a tap (rewards-world wireGoal), so its button may be a
+   36px block inside the 48px card */
+@media (min-width: 768px) {
+  html body .slw-goal.slw-next { min-height: 48px; padding: 3px 4px 3px 8px; gap: 10px; }
+  html body .slw-next .gi { width: 34px; height: 34px; flex-basis: 34px; }
+  html body .slw-next .nx { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  html body .slw-next .lb { flex: 0 0 auto; }
+  html body .slw-next .gt { flex: 1 1 0; min-width: 0; }
+  html body .slw-next .gb { flex: 1 0 100%; height: 10px; }
+  html body .slw-next .slw-nextbtn { min-height: 36px; padding: 3px 14px; --px-lift: 3px; }
+}
+/* R2 (QA2B-1): music, sound and ❓: one compact group of 44px icon squares beside the Next step card. Their names are
+   their aria-labels (Music, Sound, Help); a toggle that is on is pressed in (aria-pressed), and music off wears a slash */
+html body .slw-togs { display: flex; flex: 0 0 auto; gap: 6px; align-items: center; }
+html body .slw-togs > .slw-btn[class] {
+  position: relative; width: 44px; min-width: 44px; padding: 0; justify-content: center; font-size: 18px; line-height: 1;
+}
+html body .slw-togs .slw-togic { display: inline-flex; align-items: center; justify-content: center; }
+html body .slw-togs .slw-togic .slw-ico { width: 22px; height: 22px; }
+html body .slw-togs > .slw-btn[data-act="music"][aria-pressed="false"]::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 28px; height: 3px; border-radius: 2px;
+  background: currentColor; transform: translate(-50%, -50%) rotate(-45deg); pointer-events: none;
+}
+/* R2 (QA2D-3): while the 3D island boots (a second or two) the HUD is calm and not ready: dimmed, no motion, no words */
+html body .slw-hud[aria-busy="true"] > * { opacity: 0.55; }
+/* an iPad and up: row 1 is 📚 Learn · 🪙 · Next step · the squares, row 2 the places (one row from 900px) */
+@media (min-width: 641px) {
+  html body .slw-hud { row-gap: 6px; margin-bottom: 10px; }
+  html body .slw-hud > .slw-goal { flex: 1 1 240px; min-width: 0; }
+  html body .slw-hud > .slw-acts { flex: 1 1 100%; }
+}
+@media (min-width: 900px) and (max-width: 1099px) {
+  html body .slw-acts > .slw-btn[class] { padding-left: 12px; padding-right: 12px; }
+}
+/* an iPad held upright (641–899px): the Next step card has a row of its own (its sentence whole), the squares end row 1
+   after 📚 Learn and 🪙, and the places keep one row with the light toggle as its icon (its aria-label names it) */
+@media (min-width: 641px) and (max-width: 899px) {
+  html body .slw-togs { order: 1; margin-left: auto; }
+  html body .slw-hud > .slw-goal { order: 2; flex: 1 1 100%; }
+  html body .slw-hud > .slw-acts { order: 3; }
+  html body .slw-acts > .slw-btn[class] { padding-left: 11px; padding-right: 11px; }
+  html body .slw-acts > .slw-btn[class][data-act="showtime"] { font-size: 0; gap: 0; padding-left: 10px; padding-right: 10px; }
+  html body .slw-acts > .slw-btn[class][data-act="showtime"] .slw-ico { width: 24px; height: 24px; }
+}
 
 /* ---------------- the island bar: chips, the here row ---------------- */
 html body .slw-isles {
@@ -619,7 +679,12 @@ html body .slw-sign.isle.gate::after {
   background: var(--px-soil); border: 2px solid var(--px-line); border-top: 0; pointer-events: none;
 }
 html body .slw-sign .pr { display: block; font-variant-numeric: tabular-nums; }
-html body .slw-stagewrap.slw-narrow .slw-sign.isle .pr { display: none; }
+/* R2 (QA2A-6): a sign says the same at every size (its name and its price, or Free): a narrow stage no longer drops the
+   price line; island3d keeps the signs apart, inside the stage and clear of the camera buttons instead */
+html body .slw-stagewrap.slw-narrow .slw-sign.isle { font-size: 12px; padding: 4px 8px; }
+/* ▶ PLAY over every gate sign and ✋, then the signs, then the rest (island3d sets the layer on each 3D tag) */
+html body .slw-tag3d.slw-z-play { z-index: 3; }
+html body .slw-tag3d.slw-z-sign { z-index: 2; }
 /* pressed: the lip shrinks (2D signs keep their own placing transform) */
 html body .slw-sign:active { box-shadow: 0 1px 0 0 var(--px-sun-lip), var(--sle-ring); }
 html body .slw-pet .nm, html body .slw-tag3d > .nm {
@@ -809,8 +874,65 @@ html body .slw-sheet .slw-shopfilter {
   scrollbar-width: none; background: var(--px-panel); box-shadow: 0 2px 0 0 var(--px-white-lip);
 }
 html body .slw-shopfilter > * { flex: 0 0 auto; scroll-snap-align: start; }
+/* R2 (QA2A-19): 'I can buy' is an on/off switch, not a chip: a track with a knob that slides right (and turns violet)
+   when it is on, its words beside it, on a row of its own above Jump to. The Island Shop keeps its height whatever the
+   switch shows (a short list never shrinks the sheet into the middle of the screen) */
+html body .slw-shopswitch { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+html body .slw-switch {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 10px; background: transparent;
+  border: 0; color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 15px; cursor: pointer;
+}
+html body .slw-switch .tk {
+  position: relative; flex: none; width: 48px; height: 28px; box-sizing: border-box; background: var(--px-off);
+  border: var(--px-bw) solid var(--px-line); border-radius: 14px;
+}
+html body .slw-switch .tk > i {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--px-panel);
+  border: 2px solid var(--px-line); border-radius: 50%; box-sizing: border-box;
+}
+html body .slw-switch[aria-checked="true"] .tk { background: var(--sle-deep-a, #6c5ce7); }
+html body .slw-switch[aria-checked="true"] .tk > i { left: auto; right: 2px; }
+html body .slw-switch:focus-visible { outline: 3px solid var(--px-ink); outline-offset: 3px; border-radius: var(--px-r-btn); }
+html body .slw-sheet.slw-shopsheet { height: 92vh; }
+/* R2 (QA2D-4): a closed shelf's other cards wait behind 'See all {n}' */
+html body .slw-grid > .slw-card[hidden] { display: none; }
+html body .slw-seeall { display: flex; margin: -4px auto 18px; padding: 8px 18px; font-size: 15px; }
+html body .slw-seeall[hidden] { display: none; }
+/* R2 (QA2A-7): the shop's land chips, its Jump to row and the island's chips mark the end with more to see: a soft fade
+   and an arrow held at that edge while the row scrolls under it (data-more l / r / lr, set by rewards-world rowEdges, as
+   the Maths topics strip); a tap on the arrow slides the row along at once. The arrow is a glyph with empty alt text
+   (never read out: the chips are the buttons). The negative margins cancel the arrow's own width and the row's gap; the
+   insets cover the row's own padding */
+html body .slw-shopland[data-more]::before, html body .slw-shopland[data-more]::after,
+html body .slw-shopfilter[data-more]::before, html body .slw-shopfilter[data-more]::after,
+html body .slw-islechips[data-more]::before, html body .slw-islechips[data-more]::after {
+  display: none; flex: none; align-self: stretch; align-items: center; z-index: 2; width: 44px; min-height: 40px;
+  box-sizing: border-box; color: var(--px-ink); font-family: var(--sle-ui); font-weight: 800; font-size: 26px; line-height: 1;
+  cursor: pointer;
+}
+html body .slw-shopland[data-more="r"]::after, html body .slw-shopland[data-more="lr"]::after,
+html body .slw-shopfilter[data-more="r"]::after, html body .slw-shopfilter[data-more="lr"]::after,
+html body .slw-islechips[data-more="r"]::after, html body .slw-islechips[data-more="lr"]::after {
+  content: "\203A"; content: "\203A" / ""; display: flex; justify-content: flex-end; padding-right: 12px;
+  position: -webkit-sticky; position: sticky; right: -18px; margin-left: -52px;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), #ffffff 55%);
+}
+html body .slw-shopland[data-more="l"]::before, html body .slw-shopland[data-more="lr"]::before,
+html body .slw-shopfilter[data-more="l"]::before, html body .slw-shopfilter[data-more="lr"]::before,
+html body .slw-islechips[data-more="l"]::before, html body .slw-islechips[data-more="lr"]::before {
+  content: "\2039"; content: "\2039" / ""; display: flex; justify-content: flex-start; padding-left: 12px;
+  position: -webkit-sticky; position: sticky; left: -18px; margin-right: -52px;
+  background: linear-gradient(to left, rgba(255, 255, 255, 0), #ffffff 55%);
+}
+/* the island's chips sit on the sky with an 8px inset of their own */
+html body .slw-islechips[data-more="r"]::after, html body .slw-islechips[data-more="lr"]::after { right: -8px; }
+html body .slw-islechips[data-more="l"]::before, html body .slw-islechips[data-more="lr"]::before { left: -8px; }
 html body .slw-shopfilter .lb { margin-left: 6px; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13px; }
 html body .slw-shopfilter .slw-jump { --sle-a: var(--px-well); --sle-b: var(--px-well); padding: 6px 12px; font-size: 14px; }
+/* R2 (QA2A-7): the shelf in view (aria-current) has the 'on' look: violet, white words, pressed in */
+html body .slw-shopfilter .slw-jump.on, html body .slw-shopfilter .slw-jump[aria-current="true"] {
+  --sle-a: var(--sle-deep-a); --sle-b: var(--sle-deep-b); --sle-fg: var(--sle-deep-fg); --sle-lip: var(--sle-deep-lip);
+}
 /* 'I can buy' with nothing here: the line, what is next and 📚 Learn, centred in a well */
 html body .slw-shopempty {
   padding: 14px 12px; background: var(--px-well); border: 2px solid var(--px-white-lip); border-radius: var(--px-r-card);
@@ -834,11 +956,17 @@ html body .slw-learnbtn:active, html body .slw-nextbtn:active {
    button (a character card's '🎯 Save up for it') wraps, so that button moves below it, both full width */
 html body .slw-card .row > .slw-learnbtn { flex: 1 0 auto; }
 html body .slw-card .row.slw-learnrow { flex-wrap: wrap; }
+/* R2 (QA2B-5): a card's '🎯 Make it my goal' has the whole row under the card's button */
+html body .slw-card .row { flex-wrap: wrap; }
+html body .slw-card .row > .slw-cardgoal { flex: 1 0 100%; font-size: 14px; padding-left: 10px; padding-right: 10px; }
 html body .slw-card.ppl .row.slw-learnrow > .slw-goalbtn { flex: 1 1 auto; }
 html body .slw-learnbtn:focus-visible, html body .slw-nextbtn:focus-visible {
   outline: 3px solid var(--px-ink); outline-offset: 3px; --sle-ring: 0 0 0 8px var(--px-panel);
 }
 html body .slw-learntime { flex: 1 0 100%; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13.5px; }
+/* R2 (QA2B-11): the item sheet's '📚 Learn and come back' and its time line are one column */
+html body .slw-learnwrap { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: 0 1 auto; }
+html body .slw-learnwrap > .slw-learntime { flex: none; }
 html body .slw-shopback { margin: 0 0 12px; }
 html body .slw-err { color: var(--px-err); font-family: var(--sle-ui); font-weight: 700; }
 html body .slw-need { color: var(--px-gold-ink); font-family: var(--sle-ui); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1276,10 +1404,14 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-hud { padding: 6px; gap: 6px; border-radius: 12px; }
   html body .slw-learn,
   html body .slw-pts { flex: 0 0 auto; }
-  html body .slw-goal { flex: 1 1 140px; min-width: 0; }
-  html body .slw-goal.slw-next { flex: 1 1 100%; }
+  /* R2: the music, sound and ❓ squares end row 1 (after 📚 Learn and 🪙); the goal or the Next step card comes next */
+  html body .slw-togs { order: 1; margin-left: auto; }
+  html body .slw-goal { flex: 1 1 140px; min-width: 0; order: 2; }
+  /* R2 (QA2A-10): the Next step card is one height for every short rule (▶ Play, 📚 Learn, Feed Biscuit), its button on
+     the right; a longer sentence (a pet at the Pet Rescue) makes it taller, never cut */
+  html body .slw-goal.slw-next { flex: 1 1 100%; min-height: 84px; padding: 4px 6px 4px 8px; }
   html body .slw-acts {
-    flex: 1 0 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: row dense;
+    order: 3; flex: 1 0 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: row dense;
     gap: 8px 6px; min-width: 0; margin: 0; padding: 0 0 4px;
   }
   html body .slw-acts > .slw-btn[class] {
@@ -1289,8 +1421,9 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-acts > .slw-btn[class][data-act="shop"] { grid-column: span 2; order: 1; }
   html body .slw-acts > .slw-btn[class][data-act="pets"] { grid-column: span 2; order: 2; }
   html body .slw-acts > .slw-btn[class][data-act="char"] { grid-column: span 2; order: 3; }
-  html body .slw-acts > .slw-btn[class][data-act="games"] { order: 4; }
-  html body .slw-acts > .slw-btn[class][data-act="edit"] { order: 5; }
+  html body .slw-acts > .slw-btn[class][data-act="games"] { grid-column: span 2; order: 4; }
+  html body .slw-acts > .slw-btn[class][data-act="edit"] { grid-column: span 2; order: 5; }
+  html body .slw-acts > .slw-btn[class][data-act="showtime"] { grid-column: span 2; }
   /* the light toggle's word never fits a column: its moon or sun alone (its aria-label names it, as at 380px) */
   html body .slw-acts > .slw-btn[class][data-act="showtime"] { font-size: 0; }
   html body .slw-acts > .slw-btn[class][data-act="showtime"] .slw-ico { width: 24px; height: 24px; }
@@ -1362,20 +1495,17 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-shelfjump > * { flex: 0 0 auto; scroll-snap-align: start; }
 }
 @media (max-width: 380px) {
-  /* light, music, sound and ? become 44px icon squares (their aria-labels name them):
-     the first glyph shows, the words move past the clipped edge */
-  html body .slw-btn[data-act="showtime"], html body .slw-btn[data-act="music"],
-  html body .slw-btn[data-act="sound"], html body .slw-btn[data-act="info"] {
+  /* the light toggle becomes a 44px icon square outside the phone grid too (its aria-label names it): the first glyph
+     shows, the words move past the clipped edge. Music, sound and ❓ are icon squares at every size (R2) */
+  html body .slw-btn[data-act="showtime"] {
     width: 44px; min-width: 44px; padding: 0 0 0 9px; justify-content: flex-start; gap: 40px;
     word-spacing: 40px; white-space: nowrap; overflow: hidden;
   }
-  /* inside the phone HUD grid (the ≤ 640px rules centre each column's words, which pushed the speaker out past the
-     left edge: a blank square) the sound toggle has no drawn icon to stand in for its words: its speaker leads from
-     the left, the word moves past the clipped edge, like the squares above (QA#6) */
-  html body .slw-acts > .slw-btn[class][data-act="sound"] {
-    flex-direction: row; justify-content: flex-start; align-items: center; padding: 0 0 0 8px; font-size: 18px;
-  }
   html body .slw-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); gap: 10px; }
+  /* the smallest phones: the Next step card's picture, gaps and button padding give its sentence a little more room */
+  html body .slw-goal.slw-next { gap: 8px; padding-left: 6px; }
+  html body .slw-next .gi { width: 32px; height: 32px; flex-basis: 32px; }
+  html body .slw-next .slw-nextbtn { padding: 6px 8px; font-size: 13.5px; }
 }
 /* phones held sideways: chips and the here row share one line (no status words), and the
    stage leaves room for the island bar */

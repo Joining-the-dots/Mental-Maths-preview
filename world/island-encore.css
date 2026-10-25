@@ -1322,6 +1322,9 @@ html body .slw-toast {
   top: max(12px, env(safe-area-inset-top));
   bottom: auto;
   max-width: min(560px, calc(100vw - 24px));
+  flex-wrap: wrap;                      /* R2 (QA2A-5): its buttons wrap inside it on a phone */
+  justify-content: flex-end;
+  box-sizing: border-box;
   padding: 8px 8px 8px 16px;
   background: var(--sle-toast-bg);
   -webkit-backdrop-filter: var(--sle-blur);

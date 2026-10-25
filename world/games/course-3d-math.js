@@ -274,12 +274,23 @@
     var need = 2 * Math.atan(lane / (2 * dist * aspect)) / DEG;
     return clamp(Math.max(base, need), base, max);
   }
+  /* the half-width (u) a camera `dist` u away sees at the pet's depth, for a vertical fov (deg) */
+  function halfWidthAt(aspect, fov, dist) {
+    aspect = aspect > 0.05 ? aspect : 16 / 9;
+    return (dist || CAM.z) * Math.tan((fov || CAM.fov) * DEG / 2) * aspect;
+  }
+  /* the look-ahead that keeps the pet LOOK_EDGE (20%) in from the left edge on a narrow view: on an
+     upright phone the fixed CAM.dx (2.2 u) put the runner past the edge (QA2C-3) */
+  var LOOK_K = 0.6;
+  function lookAhead(dx, halfW) { return halfW > 0 && isFinite(halfW) ? Math.min(dx, halfW * LOOK_K) : dx; }
   /* the follow rig: position + look-at for pet x and smoothed height h (yaw/roll always 0).
-     lift (kids update, KU-CH18): the chase target rises PEOPLE.camLift for the taller person, nothing else */
-  function followCam(px, h, out, lift) {
+     lift (optional; the kids update's taller person, KU-CH18): the chase target rises by it, nothing
+     else. halfW (optional): the visible half-width at the pet's depth — caps the look-ahead */
+  function followCam(px, h, out, lift, halfW) {
     out = out || {};
-    out.x = px + CAM.dx; out.y = CAM.y + CAM.ky * h; out.z = CAM.z;
-    out.tx = px + CAM.dx; out.ty = CAM.lookY + CAM.ky * h + (lift > 0 ? lift : 0); out.tz = 0;
+    var dx = lookAhead(CAM.dx, halfW);
+    out.x = px + dx; out.y = CAM.y + CAM.ky * h; out.z = CAM.z;
+    out.tx = px + dx; out.ty = CAM.lookY + CAM.ky * h + (lift > 0 ? lift : 0); out.tz = 0;
     return out;
   }
   /* a decaying screen shake (never above amp): `since` seconds after the kick */
@@ -911,7 +922,7 @@
     /* mapping + look */
     worldX: worldX, worldY: worldY, petX: petX, feetH: feetH, obsCentreX: obsCentreX, kindSizes: kindSizes, look3d: look3d,
     /* light + camera */
-    showMix: showMix, lightAt: lightAt, fovFor: fovFor, followCam: followCam, shakeAt: shakeAt, kickAt: kickAt,
+    showMix: showMix, lightAt: lightAt, fovFor: fovFor, followCam: followCam, halfWidthAt: halfWidthAt, lookAhead: lookAhead, shakeAt: shakeAt, kickAt: kickAt,
     moveK: moveK, menuOrbit: menuOrbit, RESULTS: RESULTS, resultsFrame: resultsFrame,
     /* juice + pet + props */
     newJuice: newJuice, resetJuice: resetJuice, juiceEvent: juiceEvent, juiceStep: juiceStep, juiceCam: juiceCam,

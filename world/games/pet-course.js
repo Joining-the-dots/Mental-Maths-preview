@@ -1164,7 +1164,9 @@
         switch (e.type) {
           case 'takeoff':
             if (fx) fx.burst(px - 20, GROUND, { n: 4, colors: [th.soil], speed: 120, life: 0.4, gravity: 300, size: 5, spread: 1.2, angle: -2.6 });
-            if (e.grade === 3) { perfectT = s.t; if (fx) fx.text(px, feet - 130, 'PERFECT!', { color: HOLO[0], size: 26, life: 0.6, vy: -66 }); }
+            /* QA2C-19: the HTML HUD's pop says PERFECT! when it is up (one pop at a time); the canvas's
+               own stays inside the stage, its rise included, however high the camera has gone */
+            if (e.grade === 3) { perfectT = s.t; if (fx && !hudLive) fx.text(px, Math.max(feet - 130, 80 - camY), 'PERFECT!', { color: HOLO[0], size: 26, life: 0.6, vy: -66 }); }
             break;
           case 'dj': if (fx) fx.ring(px, feet, { color: s.fever ? NEON_CYAN : '#FFFFFF', r0: 10, r1: 46, life: 0.35, width: 5 }); break;
           case 'land': landSq = 0.08; if (fx && e.hard) fx.burst(px, GROUND, { n: 6, colors: [th.soil], speed: 140, life: 0.4, gravity: 300, size: 5, spread: 2.4, angle: -Math.PI / 2 }); break;
@@ -1711,10 +1713,23 @@
     if (ringsFor(cfg)) cards.push(['🎯', 'Timing rings are ON: a glow ring on the runway shows the best spot to jump. Turn them off in the menu any time.']);
     return cards;
   }
-  function pbText(rec) {
+  /* o.results (shell, QA2C-8): the results sheet's best line leaves out the medal when it is this
+     round's own badge, and '📅 Today’s stage' unless that best was set on today's stage */
+  function isWhole(n) { return typeof n === 'number' && n === Math.floor(n); }
+  function dayOfIso(at) {
+    var ms = Date.parse(at || ''); if (!isFinite(ms)) return null;
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms)); }
+    catch (e) { var d = new Date(ms); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  }
+  function pbText(rec, variant, cfg, o) {
     if (!rec || rec.score == null) return '';
-    var t = '🏆 Your best: score ' + fmt(rec.score);
-    if (typeof rec.extra === 'number' && rec.extra === Math.floor(rec.extra)) { var md = MEDALS[decodeExtra(rec.extra).medal] || MEDALS[0]; t += ' · ' + md.icon + ' ' + md.name; }
+    var res = !!(o && o.results), t = '🏆 Your best: score ' + fmt(rec.score);
+    if (isWhole(rec.extra)) {
+      var bm = decodeExtra(rec.extra).medal, md = MEDALS[bm] || MEDALS[0];
+      var mine = res && o.result && isWhole(o.result.extra) ? decodeExtra(o.result.extra).medal : null;
+      if (mine !== bm) t += ' · ' + md.icon + ' ' + md.name;
+    }
+    if (res && dayOfIso(rec.at) !== ((cfg && cfg.day) || localDay())) return t;
     return t + ' · 📅 Today’s stage';
   }
 

@@ -120,6 +120,8 @@ html body .slw-pcc-msg {
 }
 html body .slw-pcc-tray { margin-top: 10px; padding: 10px; background: var(--px-well, #EEF7FF); border: 2px solid var(--px-white-lip, #C9D3EC); border-radius: 10px; }
 html body .slw-pcc-tray .slw-pcc-note { margin-bottom: 8px; }
+/* R2 (QA2A-17): the free basic meal's button stands clear of the food row under it: 14 px less its 4 px lip = a 10 px gap */
+html body .slw-pcc-tray .slw-pcc-basic { margin: 4px 0 14px; }
 html body .slw-pcc-tray .slw-wearslots { margin: 0; }
 /* W5b.1's wear tray inside the Corner: its words at 15 px (KU36) */
 html body .slw-pcc-tray .slw-wearslots .lb { flex-basis: 56px; font-size: 15px; }

@@ -94,6 +94,8 @@
     'buy.style': 'New look, locked in. Tap your home to restyle any time.',
     'buy.acc': 'Your runner is wearing it. Swap it around in My pets.',
     'buy.cosmetic': 'Ready for your next game.',
+    /* R2 (QA2A-15): pet gear bought for a pet that is not the runner names that pet (the host fills {name}) */
+    'buy.accPet': '{name} is wearing it. Swap it around in My pets.',
     'goal.reached': 'Goal smashed — you saved for that. Set the next one.',
     'goal.set': 'Set a goal 🎯',
     /* the player picker */
@@ -302,6 +304,8 @@
     'shop.filter.none': 'Nothing here you can buy yet.',
     'shop.filter.next': '{item} is next: {n} more 🪙.',
     'shop.back': 'Back to the shop',
+    /* R2 (QA2D-4): a folded shelf's way to the rest of it */
+    'shop.seeAll': 'See all {n}',
     /* the intro slides (slide 1 used to promise the city across the bay) */
     'intro.1.title': 'Your island in the sky',
     'intro.1.body': 'A home, your first pet and the Debut Run. Five more islands float nearby, waiting to be opened.',
@@ -598,6 +602,11 @@
     'care.basic.done': '{name} enjoyed a basic meal. Their favourite food is in the Pet Shop.',
     'care.basic.visit': 'Visit with a free basic meal',
     'care.basic.shop': 'Out of coins? A hungry pet can have a free basic meal in My pets.',
+    /* R2 (QA round 2, 25 Oct 2026): the naming step says what to do and its box is named 'Name' (QA2A-11a); a food
+       tray with something to eat says what to do, as a full one says why not (QA2A-11b) */
+    'care.nameAsk': 'Give your new pet a name.',
+    'care.nameBox': 'Name',
+    'care.pickFood': 'Pick a food for {name}.',
     'isle.unlockForCoins': 'Unlock for 🪙 {price}',
     'lock.signCoins': '{island} · 🪙 {price}',
     'games.noCoins': 'Games are just for fun. They never earn or spend coins or points.',

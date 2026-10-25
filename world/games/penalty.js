@@ -99,6 +99,12 @@
     { id: 'rival_flip', name: 'Flip', icon: '🔄', tell: 'mirror', base: 0.70, jersey: '#FF8FC8', trim: '#DDE3F0',
       tip: 'Flip leans the WRONG way: shoot where he leans!', unlock: { after: 'rival_glowy', score: 700 } }
   ]);
+  /* QA2C-2: where a kick with no tap goes — low in the middle, inside the keeper's own reach */
+  var AUTO_SHOT = deepFreeze({ x: MID, y: 300 });
+  /* the nudge after T.NUDGE s with no tap: the KICK button and the tap this step needs (the 2D
+     bubble here, the 3D one from penalty-3d-core.js COPY, which says the same) */
+  var NUDGE = deepFreeze({ x: 'Tap KICK to pick the side!', y: 'Tap KICK to pick the height!' });
+  function nudgeText(phase) { return phase === 'aimY' ? NUDGE.y : NUDGE.x; }
   var MEDALS = deepFreeze([
     { id: 'bronze', name: 'Bronze', score: 400, icon: '🥉', kind: 'bronze' },
     { id: 'silver', name: 'Silver', score: 700, icon: '🥈', kind: 'silver' },
@@ -201,6 +207,7 @@
      (e.rushed) gets the one line that teaches the game: wait for the tell */
   function resultLabel(e) {
     e = e || {};
+    if (e.auto) return { title: 'SAVED!', sub: 'Tap KICK to aim!', say: 'Saved. Tap kick to aim.' };
     var res = e.res, kind = e.kind || (res === 'miss' ? missKind(e.x, e.y) : res), pts = e.pts != null ? e.pts : 0;
     if (res === 'goal') {
       if (e.decider) return { title: e.top ? 'TOP CORNER!' : 'GOAL!', sub: COPY.deciderGoal, say: COPY.deciderSay };
@@ -338,6 +345,8 @@
       dive: 'stay', tell: tellAt(rival.id, 'stay', 0, 0), keeperT: 0,
       /* kick */
       flight: 0, slow: 1, close: false, replay: false, pending: null, result: null, kind: null, resT: 0, resLen: T.RESULT,
+      /* QA2C-2: a kick aimed with no tap at all (both locks automatic) is a gentle centre shot */
+      autoX: false, autoKick: false, autoKicks: 0,
       /* meter */
       hype: 0, encore: false, streak: 0, bestStreak: 0, nonGoalRun: 0, boost: false, help: false,
       /* totals */
@@ -400,6 +409,7 @@
       s.lockX = s.lockY = null; s.flight = 0; s.keeperT = 0; s.slow = 1; s.close = false; s.replay = false;
       s.pending = null; s.result = null; s.kind = null; s.resT = 0; s.resLen = T.RESULT; s.nudged = false; s.kickSent = false;
       s.rushed = false; s.held = false; s.holdT = 0; s.readyMin = 0;
+      s.autoX = false; s.autoKick = false;
     }
     /* keepBeat: a decider that starts out of the decider wait keeps the ready clock running (the views
        ease the camera on it) and gets a full ready beat from now */
@@ -425,7 +435,7 @@
     /* the gate (duel mode): while round.hold is on, a kick starts only once the challenge opened it */
     function gated() { return round.hold === true && s.openK < s.kick; }
     function lockX(auto) {
-      s.lockX = Math.round(s.ax);
+      s.lockX = Math.round(s.ax); s.autoX = !!auto;
       snd('tick');
       /* ES-1: a side tapped before the tell can be read is read by the keeper. He dives to the locked
          side and his tell jumps to it at full strength, so the tell on show is always the real dive.
@@ -446,9 +456,18 @@
     function lockY(auto) {
       s.lockY = Math.round(s.ay);
       if (auto) emit('autoLock', { axis: 'y' });
+      /* QA2C-2: no tap for the side or the height — the round plays no kick for the child. The
+         ball rolls gently to the middle and the keeper, staying put, gathers it: 0 points, no
+         hype either way, no slow motion, and the keeper learns nothing from it */
+      if (auto && s.autoX) {
+        s.autoKick = true; s.lockX = AUTO_SHOT.x; s.lockY = AUTO_SHOT.y; s.dive = 'stay';
+        tellAt(rival.id, s.dive, s.aimT, s.clock, s.tell);
+      }
       emit('lockY', { y: s.lockY, auto: !!auto });
-      var side = s.lockX < MID - 88 ? 'left' : s.lockX > MID + 88 ? 'right' : 'mid';
-      s.history[side]++;
+      if (!s.autoKick) {
+        var side = s.lockX < MID - 88 ? 'left' : s.lockX > MID + 88 ? 'right' : 'mid';
+        s.history[side]++;
+      }
       s.phase = 'windup'; s.phaseT = 0; s.idleT = 0;
     }
     /* STRIKE: the result is decided here, once, and frozen in s.pending. A decider kick scores no
@@ -459,10 +478,10 @@
       var kind = res === 'miss' ? missKind(x, y) : res;
       var pts = dec ? 0 : shotPoints(res, top, s.hype);
       var topSlow = top && s.topSlows < 2 && !dec;
-      s.close = res === 'save' || kind === 'post' || kind === 'bar' || s.final || topSlow || dec;
+      s.close = !s.autoKick && (res === 'save' || kind === 'post' || kind === 'bar' || s.final || topSlow || dec);
       if (topSlow) s.topSlows++;
       s.replay = res === 'goal' && !dec && ((top && s.corners === 0) || s.final);
-      s.pending = { res: res, kind: kind, top: top, star: star, pts: pts };
+      s.pending = { res: res, kind: kind, top: top, star: star, pts: pts, auto: s.autoKick };
       s.phase = 'strike'; s.phaseT = 0;
       snd('kick');
       if (s.final || dec) { musicLowpass(18000, 0.5); music('drop'); }
@@ -497,7 +516,8 @@
       if (s.decider) { deciderResult(p); return; }
       if (p.res === 'save' && s.rushed) s.rushedSaves++;
       s.score += p.pts;
-      if (p.res === 'goal') {
+      if (p.auto) { s.autoKicks++; s.streak = 0; to = hb; }
+      else if (p.res === 'goal') {
         s.goals++; if (p.top) s.corners++; if (p.star) s.starStrikes++;
         s.streak++; if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         s.nonGoalRun = 0; to = Math.min(4, hb + 1);
@@ -505,15 +525,17 @@
         s.streak = 0; s.nonGoalRun++;
         if (p.kind === 'post' || p.kind === 'bar') { s.posts++; to = Math.max(0, hb - 1); } else to = 0;
       }
-      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, pts: p.pts, top: p.top, star: p.star, slow: s.close, replay: s.replay, hypeBefore: hb, rushed: s.rushed });
-      emit('result', { res: p.res, kind: p.kind, top: p.top, star: p.star, pts: p.pts, dive: s.dive, x: s.lockX, y: s.lockY, rushed: s.rushed });
+      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, pts: p.pts, top: p.top, star: p.star, slow: s.close, replay: s.replay, hypeBefore: hb, rushed: s.rushed, auto: !!p.auto });
+      emit('result', { res: p.res, kind: p.kind, top: p.top, star: p.star, pts: p.pts, dive: s.dive, x: s.lockX, y: s.lockY, rushed: s.rushed, auto: !!p.auto });
       if (p.res === 'goal') {
         snd('correct', 0.7); snd('combo', 1, to);
         if (p.top) { snd('applause'); snd('powerup'); } else if (p.star) { snd('applause'); snd('star'); }
-      } else if (p.res === 'save') snd('save');
+      } else if (p.auto) snd('pop', 0.5);
+      else if (p.res === 'save') snd('save');
       else if (p.kind === 'post' || p.kind === 'bar') { snd('boing'); snd('miss', 0.5); }
       else { snd('whoosh', 0.6); snd('miss', 0.5); }
       setHype(to);
+      if (p.auto) return;                                  /* the Cheer Boost waits for a real kick */
       var was = s.boost;
       s.boost = s.nonGoalRun >= 2;
       if (s.boost && !was) { s.boostsUsed++; emit('boost', {}); }
@@ -561,7 +583,10 @@
       for (var i = 0; i < RIVALS.length; i++) if (!rivalUnlocked(pb0, RIVALS[i].id) && rivalUnlocked(after, RIVALS[i].id)) return RIVALS[i];
       return null;
     }
+    /* QA2C-8: the title already names the medal, so this line never does; it names a rival only
+       when the round has just unlocked him (the shell's 🎧 Try Bop button goes with it, B10) */
     function targetLine() {
+      if (allAuto()) return 'Tap KICK once for the side, then again for the height.';
       var un = newlyUnlocked();
       if (un) return un.name + ' is unlocked: try him next!';
       /* the coach line (ES-1): after two or more quick kicks the keeper read and saved */
@@ -570,10 +595,11 @@
       var top = Math.max(best0, s.score), nm = null;
       for (var i = 0; i < MEDALS.length; i++) if (top < MEDALS[i].score) { nm = MEDALS[i]; break; }
       if (nm && nm.id !== 'perfect') return 'Only ' + fmt(nm.score - top) + ' more for ' + nm.name + '!';
-      if (nm) return 'Gold! Can you get a Perfect Show (1,200)?';
-      var nx = RIVALS[ri + 1];
-      return nx ? 'A Perfect Show! Now try ' + nx.name + '!' : 'A Perfect Show! You can read every trick!';
+      if (nm) return 'Only ' + fmt(nm.score - top) + ' more for a Perfect Show!';
+      return '';
     }
+    /* QA2C-2: every kick of the round went with no tap: nothing to save, no medal */
+    function allAuto() { return s.autoKicks >= SHOTS; }
     function kickLine() { return s.decider ? COPY.deciderChip + ' ' + s.decider : s.waitDecide ? COPY.allKicks : s.final ? 'FINAL KICK' : 'kick ' + Math.min(SHOTS, s.shot + 1) + ' of ' + SHOTS; }
 
     /* the intro can be tapped away (never past a closed gate or the decider wait) */
@@ -673,14 +699,17 @@
         if (canSkip() || (s.phase === 'result' && s.resT >= T.SKIP_AFTER)) return 'ready';
         return 'grey';
       },
-      hud: function () {
+      /* o.narrow (a phone held upright, QA2C-12): the short form, so 🔊 ⏸ Exit still fit — the
+         canvas's kick dots say which kick it is, and the stadium itself shows ENCORE MODE */
+      hud: function (o) {
         var taken = Math.min(SHOTS, s.shot + (s.phase === 'result' ? 1 : 0));
+        if (o && o.narrow) return '⚽ ' + s.goals + '/' + taken + ' · ✦ ' + s.hype + ' · ' + fmt(s.score);
         return '⚽ ' + s.goals + '/' + taken + ' · ' + (s.encore ? '✦ ENCORE!' : '✦ Hype ' + s.hype) + ' · ' + fmt(s.score) + ' · ' + kickLine();
       },
       /* B11: over the 3D stadium (its LED, wands and score already show goals, Hype and points) the
          shell's pill says only which kick this is */
       hud3d: function () { return kickLine(); },
-      result: function () { return { score: s.score, extra: s.goals }; },
+      result: function () { return allAuto() ? null : { score: s.score, extra: s.goals }; },
       stats: stats,
       onFinish: function () {
         if (s.finished) return;
@@ -691,6 +720,7 @@
       },
       /* one medal vocabulary in this game: Bronze, Silver, Gold, Perfect ('Superstar' is a Debut Run medal) */
       summaryTitle: function () {
+        if (allAuto()) return '⚽ Ready when you are!';
         var m = medalFor(s.score);
         return m === 'perfect' ? 'PERFECT SHOW! 🎤' : m === 'gold' ? '🥇 GOLD: Amazing shooting!' : m === 'silver' ? '🥈 SILVER: Brilliant shooting!' :
           m === 'bronze' ? '🥉 BRONZE: Great shooting!' : 'Good practice! Watch the tell!';
@@ -711,6 +741,7 @@
          the shell's 🎧 Try Bop), so neither is a badge as well */
       summaryBadges: function () {
         var out = [], m = medalInfo(medalFor(s.score));
+        if (allAuto()) return out;
         if (s.goals >= 5) out.push({ text: '🎤 ENCORE dance earned!', kind: 'ribbon' });
         if (!m) out.push({ text: 'Next: 🥉 Bronze at 400', kind: 'hint' });
         return out;
@@ -1234,12 +1265,16 @@
       } else if (ph === 'aimX' || ph === 'aimY') {
         outlinedText(ctx, ph === 'aimX' ? 'TAP to pick the side' : 'TAP to pick the height', cx, 516, '800 26px "Baloo 2", sans-serif', '#ffffff', 5);
         if (s.idleT >= T.NUDGE) {
-          /* "Tap to shoot!" speech bubble by the ball */
-          var bob = reduced ? 0 : Math.sin(s.clock * 5) * 3;
+          /* the nudge bubble by the ball says the tap this step needs (QA2C-13, QA2C-2); it bobs
+             at 0.8 Hz and stands still under reduced motion */
+          var bob = reduced ? 0 : Math.sin(s.clock * 5) * 3, say = nudgeText(ph);
+          ctx.font = '800 24px "Baloo 2", sans-serif';
+          var tw = typeof ctx.measureText === 'function' ? ((ctx.measureText(say) || {}).width || 0) : say.length * 12;
+          var bw = Math.min(400, Math.max(180, tw + 36)), bx = Math.min(LW - 12 - bw, 540);
           ctx.fillStyle = '#ffffff'; ctx.strokeStyle = INK; ctx.lineWidth = 3;
-          rr(ctx, 540, 402 + bob, 180, 46, 18); ctx.fill(); ctx.stroke();
+          rr(ctx, bx, 402 + bob, bw, 46, 18); ctx.fill(); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(556, 446 + bob); ctx.lineTo(528, 462 + bob); ctx.lineTo(578, 446 + bob); ctx.closePath(); ctx.fill();
-          outlinedText(ctx, 'Tap to shoot!', 630, 425 + bob, '800 24px "Baloo 2", sans-serif', COLORS.glove, 0.01);
+          outlinedText(ctx, say, bx + bw / 2, 425 + bob, '800 24px "Baloo 2", sans-serif', COLORS.glove, 0.01);
         }
       }
     }
@@ -1265,8 +1300,10 @@
       ctx.restore(); ctx.globalAlpha = 1;
     }
     function drawHud(ctx) {
-      /* 4 Island-Wand hype pips: a filled star when lit, an outline star when not (shape, not only colour) */
-      for (var i = 0; i < 4; i++) {
+      /* QA2C-15: under the shell's text pill (api.hudPill: it shows goals, Hype and the score) the
+         canvas draws no second hype row or rival chip; the kick dots and the Cheer boost stay */
+      var pill = !!(api && api.hudPill);
+      for (var i = 0; i < 4 && !pill; i++) {
         var q = pipXY(i), on = i < s.hype, pop = P.pipPop[i] < 0.25 && !reduced ? 1 + 0.3 * Math.sin(P.pipPop[i] / 0.25 * Math.PI) : 1;
         var drop = P.pipDrop[i] >= 0 && P.pipDrop[i] < 0.2 && !reduced ? 1 - P.pipDrop[i] / 0.2 : 0;
         ctx.save(); ctx.translate(q[0], q[1]); ctx.scale(pop, pop);
@@ -1275,7 +1312,7 @@
         else { ctx.fillStyle = 'rgba(19,12,46,0.35)'; ctx.fill(); ctx.strokeStyle = drop ? rgba(look.sig, drop) : 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5; ctx.stroke(); }
         ctx.restore();
       }
-      if (s.encore) outlinedText(ctx, 'ENCORE!', 216, 33, bigFont(24), COLORS.gold, 5);
+      if (s.encore && !pill) outlinedText(ctx, 'ENCORE!', 216, 33, bigFont(24), COLORS.gold, 5);
       /* 8 kick dots: a tick for a goal (gold ring for a top corner / Star Strike), a dash otherwise */
       for (var k = 0; k < SHOTS; k++) {
         var lg = s.log[k], x = MID - (SHOTS - 1) * 14 + k * 28, y = 30;
@@ -1294,9 +1331,11 @@
         }
       }
       /* rival chip + Cheer Boost chip, top right */
-      ctx.fillStyle = 'rgba(19,12,46,0.55)'; rr(ctx, 790, 14, 156, 36, 18); ctx.fill();
-      ctx.fillStyle = rival.jersey; ell(ctx, 810, 32, 9, 9); ctx.fill();
-      outlinedText(ctx, 'VS ' + rival.name.toUpperCase(), 874, 33, '800 20px "Baloo 2", sans-serif', '#ffffff', 0.01);
+      if (!pill) {
+        ctx.fillStyle = 'rgba(19,12,46,0.55)'; rr(ctx, 790, 14, 156, 36, 18); ctx.fill();
+        ctx.fillStyle = rival.jersey; ell(ctx, 810, 32, 9, 9); ctx.fill();
+        outlinedText(ctx, 'VS ' + rival.name.toUpperCase(), 874, 33, '800 20px "Baloo 2", sans-serif', '#ffffff', 0.01);
+      }
       if (s.boost) {
         ctx.fillStyle = rgba(COLORS.glove, 0.85); rr(ctx, 790, 56, 156, 32, 16); ctx.fill();
         outlinedText(ctx, '📣 Cheer boost!', 868, 72, '800 18px "Baloo 2", sans-serif', '#ffffff', 0.01);
@@ -1545,6 +1584,7 @@
     /* Encore Shootout */
     missKind: missKind, shotPoints: shotPoints, sweepSpeed: sweepSpeed, tellAt: tellAt, readTell: readTell,
     medalFor: medalFor, rivalUnlocked: rivalUnlocked, resultLabel: resultLabel, bestFor: bestFor, rivalById: rivalById,
+    NUDGE: NUDGE, nudgeText: nudgeText, AUTO_SHOT: AUTO_SHOT,
     AIM: AIM, TIMING: TIMING, RIVALS: RIVALS, MEDALS: MEDALS, MAP: MAP, HYPE_SHOW: HYPE_SHOW, WANDS_LIT: WANDS_LIT,
     CONES: CONES, COLORS: COLORS, LW: LW, LH: LH, def: def,
     /* kids update: the rules number, duel mode's numbers and the new lines */

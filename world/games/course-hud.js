@@ -134,6 +134,8 @@
       '  filter:drop-shadow(0 4px 0 rgba(14,11,26,.55)) drop-shadow(0 0 16px rgba(255,46,154,.5));opacity:0;}',
       '.slc-pop.on{animation:slcPop .9s cubic-bezier(.2,.9,.3,1) forwards;}',
       '.slc-pop.small{font-size:clamp(22px,4.6vw,42px);}',
+      /* over the 2D canvas (a bright daytime stage) the pop gets a solid ink edge (QA2C-19) */
+      '.slc-pop.flat{-webkit-text-stroke:2px rgba(20,16,31,.92);filter:drop-shadow(0 3px 0 rgba(14,11,26,.85)) drop-shadow(0 0 10px rgba(14,11,26,.5));}',
       '@keyframes slcPop{0%{opacity:0;transform:scale(.6);}18%{opacity:1;transform:scale(1.04);}30%{transform:scale(1);}80%{opacity:1;}100%{opacity:0;transform:translateY(-10px);}}',
       '.slc-tip{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(clamp(64px,13vmin,104px) + 66px);padding:8px 18px;border-radius:12px;',
       '  background:rgba(22,18,40,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:2px solid #22E4FF;box-shadow:0 0 14px rgba(34,228,255,.35),0 8px 20px rgba(0,0,0,.4);',
@@ -196,11 +198,25 @@
       if (popQ.length || (now() < popUntil && lv <= popLv)) return;
       popQ.push({ t: text, lv: lv });
     }
+    /* QA2C-19: over the 2D canvas the stage is letterboxed (a phone held upright shows a short
+       band in the middle), so a pop goes 32% down the STAGE, never above it on the dark bars; over
+       a 3D view (it fills the area) the stylesheet's 32% of the area stands */
+    var STAGE_W = 960, STAGE_H = 540;
+    function placePop() {
+      var w = mid.clientWidth || 0, h = mid.clientHeight || 0, top = '', flat = !mid.querySelector('.slg-gl');
+      if (popEl.classList.contains('flat') !== flat) popEl.classList.toggle('flat', flat);
+      if (w > 0 && h > 0 && flat) {
+        var sh = STAGE_H * Math.min(w / STAGE_W, h / STAGE_H), oy = (h - sh) / 2;
+        if (oy > 1) top = Math.round(oy + Math.max(24, sh * 0.32)) + 'px';
+      }
+      if (popEl.style.top !== top) popEl.style.top = top;
+    }
     function showPop() {
       if (!popQ.length) return;
       var p = popQ[0], busy = now() < popUntil - (p.lv >= 2 ? 450 : 0);
       if (busy && !(p.lv > popLv && popLv < 2)) return;
       popQ.shift();
+      placePop();
       popEl.textContent = p.t;
       popEl.classList.toggle('small', p.lv < 2 || p.t.length > 12);
       popEl.classList.remove('on'); void popEl.offsetWidth; popEl.classList.add('on');

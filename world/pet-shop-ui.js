@@ -43,12 +43,14 @@
                    (the greyed button as before).
      now() → ms (default Date.now) · sound(name) or sfx(name): an SLSound name ('pop' when a food
      lands in the pantry) · C (default SLWorldCore) · care (default SLPetCare, bound to C) · shop
-     (default SLIslandShop) · document (a test seam)
+     (default SLIslandShop) · document, clock (→ ms, the scrim's arming and a learn trip's 3 hours; default
+     Date.now): test seams
 
    API
      openPetShop(deps, {filter, id, news}) → Promise   resolves when the shop closes. filter: 'all'
                    (the default) | 'food' | 'home' | a land | 'adopt' ('I can adopt now'); id: that
-                   animal's card is scrolled to and focused (All when the filter would hide it);
+                   card is scrolled to, ringed and focused (All when the filter would hide it; R2: the
+                   tab a '📚 Learn' trip for that id left from, when it still shows it);
                    news (the news card's 'Visit the Pet Shop') needs nothing more: the new species
                    carry a 'New' badge (isle.chipNew) wherever the child has none of them
      adopt(deps, petId, {btn, err}) → Promise<bool>   one adoption: 'Make room' first when home
@@ -256,6 +258,9 @@
     else if (room && room.mode === 'home' && room.atCap) banner = { key: 'care.homeFull', text: tx('care.homeFull'), corner: false };
     else if (room && room.mode !== 'home' && !room.canAdopt) banner = { key: 'care.ownFull', text: tx('care.ownFull', { n: room.count }), corner: !!E.deps.openCorner };
     else if (room && room.mode !== 'home') banner = { key: 'care.welcome.capTotal', text: tx('care.welcome.capTotal'), corner: false };
+    /* R2 (QA2B-3): the cap is said once a screen. With the banner saying it (care.ownFull), an animal the child does not
+       have keeps only its Full chip ('3 of 3 pets' / 'Full: you have 4 pets'); the detail sheet, with no banner, keeps its line */
+    if (banner && banner.key === 'care.ownFull') groups.forEach(function (g) { g.cards.forEach(function (c) { if (c.kind === 'pet' && c.state === 'ownFull') c.line = null; }); });
     var empty = groups.length ? null : (banner && banner.key === 'care.ownFull' ? null : tx('char.cast.save'));
     return { filter: f, room: room, trial: trial, buy: typeof E.deps.buy === 'function', chips: chipsOf(E, f), banner: banner, groups: groups, empty: empty };
   }
@@ -360,6 +365,7 @@
     '.slps-name{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;}',
     '.slps-name .slps-namepic svg,.slps-name .slps-namepic img{width:190px;height:auto;}',
     '.slps-name input{width:min(260px,100%);min-height:48px;padding:6px 10px;font:inherit;font-size:22px;font-weight:700;text-align:center;}',
+    '.slps-name .slps-ask{margin:0;font-weight:700;font-size:16px;line-height:1.35;color:var(--px-ink,#1B2150);}',
     '.slps-name .slw-err{min-height:20px;}',
     '.slps-room{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:8px 0;}',
     '.slps-room .slps-pet{display:flex;flex-direction:column;align-items:center;gap:2px;height:auto;padding:8px;text-align:center;}',
@@ -390,6 +396,11 @@
     '.slps-memgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}',
     '}',
     '@media (prefers-reduced-motion:no-preference){.slps-card.slps-got .slps-have{animation:slpsGot .42s ease-out 1;}}',
+    /* R2 (QA2B-7): the card a learn trip comes back to (or an 'Adopt a {species} again'): a violet ring that stays; with motion
+       allowed it breathes out twice at 1 Hz as it arrives (never faster than 2 Hz) */
+    'html body .slps-ov .slps-card.slps-here{outline:4px solid var(--px-violet,#5B3FD6);outline-offset:3px;}',
+    '@media (prefers-reduced-motion:no-preference){html body .slps-ov .slps-card.slps-here{animation:slpsHere 1s ease-in-out 2;}}',
+    '@keyframes slpsHere{0%,100%{outline-offset:3px;}50%{outline-offset:8px;}}',
     '@keyframes slpsGot{0%{transform:scale(1);}45%{transform:scale(1.18);}100%{transform:scale(1);}}'
   ].join('');
   function injectCss(E) {
@@ -400,9 +411,41 @@
     s.textContent = CSS;
     d.head.appendChild(s);
   }
+  /* R2 (QA2D-2): the scrim closes a sheet only for a tap that began on the scrim after the sheet was up — a click whose
+     pointerdown came before the sheet was made, or within ARM ms of it, does nothing (the host's overlay() arms the same
+     way) — and a once-only card (o.once: the new player's adopt offer) never closes from the scrim: its own buttons, ✕
+     or Esc answer it. A guard on the document (capture: first in line on every engine) stops those clicks before the
+     host's overlay sees them. deps.clock() → ms is a test seam (default Date.now) */
+  var ARM = 400;
+  function clockOf(E) { var c = E.deps.clock; return typeof c === 'function' ? c() : Date.now(); }
+  function guardScrim(E, ov, once) {
+    var doc = E.doc, made = clockOf(E), down = null, off = false;
+    if (!doc || typeof doc.addEventListener !== 'function' || typeof ov.addEventListener !== 'function') return function () {};
+    (typeof root.PointerEvent === 'function' ? ['pointerdown'] : ['mousedown', 'touchstart']).forEach(function (t) {
+      ov.addEventListener(t, function (e) { down = { at: clockOf(E), scrim: e.target === ov }; }, true);
+    });
+    function onClick(e) {
+      if (off || e.target !== ov) return;
+      if (ov.isConnected === false) { stop(); return; }
+      var d = down; down = null;
+      if (!once && d && d.scrim && d.at - made >= ARM) return;     /* armed: the overlay's own listener closes it */
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (e.stopPropagation) e.stopPropagation();
+      if (e.preventDefault) e.preventDefault();
+    }
+    function stop() { if (!off) { off = true; doc.removeEventListener('click', onClick, true); } }
+    doc.addEventListener('click', onClick, true);
+    return stop;
+  }
   function sheet(E, inner, o) {
     injectCss(E);
-    return E.deps.overlay(inner, o || {});
+    o = o || {};
+    var opts = {}, unguard = null;
+    Object.keys(o).forEach(function (k) { if (k !== 'once') opts[k] = o[k]; });
+    opts.onClose = function () { if (unguard) unguard(); if (o.onClose) o.onClose(); };
+    var ov = E.deps.overlay(inner, opts);
+    if (ov) unguard = guardScrim(E, ov, !!o.once);
+    return ov;
   }
   function q(el, sel) { return el && typeof el.querySelector === 'function' ? el.querySelector(sel) : null; }
   function qa(el, sel) { return el && typeof el.querySelectorAll === 'function' ? Array.prototype.slice.call(el.querySelectorAll(sel)) : []; }
@@ -460,8 +503,8 @@
         /* a pet the child has: the Corner opens where it is (the Pet Corner picks the tab); the cap card and the banner open it plain */
         if (a === 'corner') { if (E.deps.openCorner) E.deps.openCorner(id && card && own(PLACE, card.getAttribute('data-state')) ? id : undefined); return; }
         /* wave 3: learn and come back for this card (the host closes the sheets; false keeps the shop open) */
-        if (a === 'learn') { learnFor(E, id, ov); return; }
-        if (a === 'open') { openDetail(E, deps, id, function () { draw('.slps-card[data-id="' + id + '"] .ic'); }); return; }
+        if (a === 'learn') { learnFor(E, id, ov, filter); return; }
+        if (a === 'open') { openDetail(E, deps, id, function () { draw('.slps-card[data-id="' + id + '"] .ic'); }, filter); return; }
         busy = true;
         /* redraw (counts, states, the cap) unless a refusal's reason is on the card: that card stays as it is */
         var done = function (ok, sel) { busy = false; if ((ok || !(err && err.textContent)) && ov.isConnected !== false) draw(sel); };
@@ -474,28 +517,46 @@
         } else adopt(deps, id, { btn: b, err: err }).then(function (ok) { done(ok, '.slps-card[data-id="' + id + '"] .ic'); });
       }
       ov._petShopDraw = draw;
-      /* opened on one animal (the Pet Corner's 'Adopt a {species} again', the news card): its card, in view */
-      var want = opts && typeof opts.id === 'string' ? opts.id : null;
+      /* opened on one card (the Pet Corner's 'Adopt a {species} again', the way back from a learn trip): the tab the trip
+         left from when it still shows the card (R2), else the tab asked for when it shows it, else All; the card in view,
+         ringed (.slps-here: static under reduced motion) and focused (its button when it can be used, else its picture) */
+      var want = opts && typeof opts.id === 'string' ? opts.id : null, trip = want ? tripFor(E, want) : null;
       var inView = function (vm) { return vm.groups.some(function (g) { return g.cards.some(function (c) { return c.id === want; }); }); };
-      if (want && filter !== 'all' && !inView(shopView(deps, filter))) filter = 'all';
+      if (want && trip && trip.filter !== filter && inView(shopView(deps, trip.filter))) filter = trip.filter;
+      else if (want && filter !== 'all' && !inView(shopView(deps, filter))) filter = 'all';
       draw();
       var card = want ? q(body, '.slps-card[data-id="' + want + '"]') : null;
       if (card) {
+        card.classList.add('slps-here');
         setTimeout(function () {
           if (card.isConnected === false) return;
-          try { if (card.scrollIntoView) card.scrollIntoView({ block: 'center' }); var b = q(card, '.ic'); if (b && b.focus) b.focus(); } catch (e) { /* gone */ }
+          var b = qa(card, '.row [data-a]').filter(function (x) { return !x.disabled; })[0] || q(card, '.ic') || q(card, '[data-a]');
+          try { if (card.scrollIntoView) card.scrollIntoView({ block: 'center' }); if (b && b.focus) b.focus(); } catch (e) { /* gone */ }
         }, 60);
       }
     });
   }
 
   /* wave 3 (contract 5): the host's learn-and-come-back trip for this id, from the Pet Shop; the sheet closes unless the
-     host says no (it may already have closed every sheet) */
-  function learnFor(E, id, ov) {
+     host says no (it may already have closed every sheet). R2 (QA2B-7): the shop remembers the card and the tab it was
+     on (in memory, for the trip's 3 hours), so the way back (the host's openPetShop {filter: 'all' | 'food', id}) opens
+     that tab on that card (spec §7: 'reopens the Pet Shop on that animal') */
+  var TRIP_MS = 3 * 3600 * 1000, lastTrip = null;
+  function learnFor(E, id, ov, filter) {
     if (typeof E.deps.learnFor !== 'function') return;
     var r;
+    lastTrip = { id: id, filter: FILTERS.indexOf(filter) >= 0 ? filter : 'all', at: clockOf(E) };
     try { r = E.deps.learnFor(id, { from: 'petShop' }); } catch (e) { r = false; }
-    if (r !== false && ov && ov.isConnected !== false && typeof ov._close === 'function') ov._close();
+    if (r === false) { lastTrip = null; return; }
+    if (ov && ov.isConnected !== false && typeof ov._close === 'function') ov._close();
+  }
+  /* the remembered trip for this id, once (null when it is another id or older than the trip) */
+  function tripFor(E, id) {
+    var t = lastTrip;
+    if (!t || t.id !== id) return null;
+    lastTrip = null;
+    var age = clockOf(E) - t.at;
+    return age >= 0 && age <= TRIP_MS ? t : null;
   }
   /* a food: the host's buy flow, then the pantry count on the card goes up */
   function buyFood(E, id, btn, err) {
@@ -511,7 +572,7 @@
     for (var i = 0; i < g.length; i++) for (var j = 0; j < g[i].items.length; j++) if (g[i].items[j].id === id) return g[i].items[j];
     return null;
   }
-  function openDetail(E, deps, id, after) {
+  function openDetail(E, deps, id, after, tab) {
     var raw = petCardOf(E, id);
     if (!raw) return null;
     var room = roomOf(E), c = petCardVM(E, raw, room), k = raw.isle && own(E.C.ISLES, raw.isle) ? raw.isle : 'home', stop = null;
@@ -534,7 +595,7 @@
     if (btn) {
       btn.addEventListener('click', function () {
         if (btn.disabled) return;
-        if (c.learn) { learnFor(E, id, ov); return; }
+        if (c.learn) { learnFor(E, id, ov, tab); return; }
         if (c.act === 'corner') { ov._close(); if (E.deps.openCorner) E.deps.openCorner(own(PLACE, c.state) ? id : undefined); return; }
         ov._close();
         adopt(deps, id, {}).then(function () { if (after) after(); });
@@ -629,13 +690,17 @@
   }
 
   /* the name step: the default name ready to keep or change (validatePetName), then the celebration */
+  var askSeq = 0;
   function nameStep(E, id) {
     var C = E.C, u = E.user(), w = u && u.world, p = w ? C.crewPet(w, id) : null, start = p ? p.name : (C.DEFAULT_PET_NAMES || {})[id] || '';
     return new Promise(function (resolve) {
       var answered = false, fin = function (v) { if (!answered) { answered = true; resolve(v); } };
       /* the new pet in the shop's own style: its photocard in 3D (the hamster is not a flat sprite there), the sprite in 2D and on LOW */
+      /* R2 (QA2A-11): the sheet says what to do (care.nameAsk, the box's own label too) and the box is named 'Name' */
+      var ask = 'slpsAsk' + (++askSeq);
       var ov = sheet(E, '<h2>' + esc(speciesName(E, id)) + '</h2><div class="slps-name"><div class="slps-namepic">' + petPic(E, id) + '</div>' +
-        '<input type="text" maxlength="14" autocomplete="off" autocapitalize="words" spellcheck="false" aria-label="' + esc(tx('care.rename')) + '" value="' + esc(start) + '">' +
+        '<p class="slps-ask" id="' + ask + '">' + esc(tx('care.nameAsk')) + '</p>' +
+        '<input type="text" maxlength="14" autocomplete="off" autocapitalize="words" spellcheck="false" aria-label="' + esc(tx('care.nameBox')) + '" aria-describedby="' + ask + '" value="' + esc(start) + '">' +
         '<div class="slw-err" aria-live="polite"></div>' +
         '<button type="button" class="slw-btn big on" data-a="name">' + esc(tx('crew.named', { name: start })) + '</button></div>',
         { small: true, cls: 'slps-ov slps-nameov', onClose: function () { fin(cur()); } });
@@ -688,7 +753,8 @@
         '<p>' + esc(tx(room.mode === 'home' ? 'care.welcome.cap' : 'care.welcome.capTotal')) + '</p><div class="slps-btns">' +
         '<button type="button" class="slw-btn big" data-a="later">' + esc(tx('char.meet.later')) + '</button>' +
         '<button type="button" class="slw-btn big on" data-a="shop">' + esc(me ? tx('care.adoptFriend', { name: me.name }) : tx('care.welcome.shop')) + '</button></div></div>',
-        { small: true, cls: 'slps-ov slps-offerov', onClose: function () { fin('later'); } });
+        /* once-only (R2): 'Later', ✕ or Esc answer it; the scrim never does */
+        { small: true, cls: 'slps-ov slps-offerov', once: true, onClose: function () { fin('later'); } });
       q(ov, '[data-a="later"]').addEventListener('click', function () { fin('later'); ov._close(); });
       q(ov, '[data-a="shop"]').addEventListener('click', function () {
         answered = true;

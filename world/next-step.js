@@ -48,7 +48,8 @@
                 next.try.<game> + next.play → play. Never with env.games false
        remix    a Classic finish on a kart track (w.pb 'kart:<track>') and its Remix never
                 raced (no 'kart:<track>_remix'), in REMIX order: next.remix + next.play → play
-                (the kart menu, never straight onto the Remix). Never with env.games false
+                with course: that Remix (R2: the kart menu opens with it picked, never straight
+                onto the race). Never with env.games false
        saving   real: the goal is still short (not locked, not full): next.learnMins or
                 next.learnDays {item, n} (time()) + learn.go → learn, with the bar
        suggest  real, no goal: the next game not owned (GAMES order), else the cheapest land
@@ -202,7 +203,7 @@
       var pb = plain(x.w.pb) ? x.w.pb : {}, tracks = Object.keys(REMIX);
       for (var i = 0; i < tracks.length; i++) {
         var t = tracks[i];
-        if (has(pb, 'kart:' + t) && !has(pb, 'kart:' + REMIX[t])) return card('remix', key('next.remix'), { key: 'next.play', params: null, go: { to: 'play', game: 'kart' } }, itemIcon(t));
+        if (has(pb, 'kart:' + t) && !has(pb, 'kart:' + REMIX[t])) return card('remix', key('next.remix'), { key: 'next.play', params: null, go: { to: 'play', game: 'kart', course: REMIX[t] } }, itemIcon(t));
       }
       return null;
     },

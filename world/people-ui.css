@@ -19,8 +19,8 @@
                          .slp-toggle / .slp-text (wide), .slp-priced (a dye not owned: .slp-price);
                          .on + .slp-tick when chosen; .slp-wait a picture still being painted
      .slp-banner .slp-q  the photo result · .slp-foot .slp-done   'That’s me'
-     .slp-castlist .slp-cast (.active) .slp-castpic .slp-chip (.own .lock .free) .slp-need .slp-act
-       .slp-shortbtns (wave 3: a short card's '📚 Learn' .slw-learnbtn above 'Save up for it')
+     .slp-castlist ([data-more] l / r / lr: its ends on a phone, R2) .slp-cast (.active) .slp-castpic .slp-chip (.own .lock .free)
+       .slp-need .slp-act .slp-shortbtns (wave 3: a short card's '📚 Learn' .slw-learnbtn above 'Save up for it')
      .slp-nav .slp-sub .slp-switch .slp-who .slp-pick .slp-extra .slp-extra-acts .slp-moves .slp-emote
      .slp-slots .slp-slot   (My character, A6: 👕 Wardrobe · 🎨 Change look · 🔁 Change character · ✨ More)
      .slp-wgrid .slp-wcard (.on) .slp-wbtn .slp-wnm .slp-dots .slp-more · .slp-row .slp-col .slp-lead
@@ -114,14 +114,48 @@ html body .slp-banner .slp-row { justify-content: flex-start; margin-top: 6px; }
 html body .slp-foot { flex: 0 0 auto; padding-top: 10px; border-top: 2px solid var(--px-off, #E3E8F4); }
 html body .slp-done { width: 100%; min-height: 52px; font-size: 18px; }
 
-/* ---------------- the cast carousel: one card at a time, swiped sideways inside the sheet ---------------- */
-html body .slp-castlist {
-  list-style: none; margin: 0; padding: 6px 4px 14px; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden;
-  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
-}
+/* ---------------- the cast: a wrapping grid on a wide sheet; on a phone one card at a time, swiped sideways ----------------
+   R2 (QA2D-6): a sheet 700 px and wider (a window of 724 px and more: the overlay's 12 px each side) shows every card in
+   a grid that wraps, so nothing hides past the edge on an iPad. Narrower, the list scrolls sideways: each card snaps to
+   its start, 44 px in from each end (the gutters), so the next card peeks in by 12 px: its border and padding only
+   (3 + 10 px), never a sliver of its buttons. The gutters are the list's ::before / ::after, sticky at each end like
+   the Maths strip (index.html [data-more]): where there is more to see (data-more l / r / lr, set by people-ui.js) a
+   soft fade and an arrow; a tap there brings the next card in, at once. people-ui.js also brings a focused card fully
+   into view (Tab), instantly under reduced motion */
+html body .slp-castlist { position: relative; list-style: none; margin: 0; padding: 6px 4px 14px; }
 html body .slp-cast {
-  flex: 0 0 min(80%, 290px); scroll-snap-align: center; display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px;
   background: var(--px-panel, #FFFFFF); border: 3px solid var(--px-line, #2B3A80); border-radius: 12px; box-shadow: 0 4px 0 0 var(--px-white-lip, #C9D3EC);
+}
+@media (min-width: 724px) {
+  html body .slp-castsheet .slp-sheet { max-width: 920px; }
+  html body .slp-castlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; align-items: stretch; }
+}
+@media (max-width: 723px) {
+  html body .slp-castlist {
+    display: flex; gap: 32px; padding: 6px 0 14px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory; scroll-padding-left: 44px; scroll-padding-right: 44px; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  html body .slp-castlist::-webkit-scrollbar { display: none; }
+  /* a card is the list less both gutters: at rest it starts 44 px in, and only 12 px of the next one shows */
+  html body .slp-cast { flex: 0 0 calc(100% - 88px); scroll-snap-align: start; }
+  /* the gutters: a 44 px spacer at each end that stays put while the cards scroll under it (the -32 px margins cancel the gap) */
+  html body .slp-castlist::before, html body .slp-castlist::after {
+    content: ''; flex: 0 0 44px; align-self: stretch; position: -webkit-sticky; position: sticky; z-index: 2;
+    background-repeat: no-repeat;
+  }
+  html body .slp-castlist::before { left: 0; margin-right: -32px; }
+  html body .slp-castlist::after { right: 0; margin-left: -32px; }
+  html body .slp-castlist[data-more="r"]::after, html body .slp-castlist[data-more="lr"]::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M2 2l6 6-6 6' fill='none' stroke='%235B3FD6' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+      linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.6));
+    background-position: 12px 90px, 0 0; background-size: 12px 20px, 100% 100%;
+  }
+  html body .slp-castlist[data-more="l"]::before, html body .slp-castlist[data-more="lr"]::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M8 2L2 8l6 6' fill='none' stroke='%235B3FD6' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+      linear-gradient(to left, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.6));
+    background-position: right 12px top 90px, 0 0; background-size: 12px 20px, 100% 100%;
+  }
 }
 html body .slp-cast.active { border-color: var(--px-violet, #5B3FD6); box-shadow: 0 4px 0 0 var(--px-violet-lip, #3A259A); }
 html body .slp-castpic {

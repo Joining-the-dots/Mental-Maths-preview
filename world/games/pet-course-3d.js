@@ -875,7 +875,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     if (phase !== 'results') resultsAt = -1;           /* the next results ease in again */
     if (menu) {
       const yaw = M.menuOrbit(vt, reduced), C = M.CAM.menu;
-      camTgt.set(px + C.dx, C.lookY, 0);
+      camTgt.set(px + M.lookAhead(C.dx, M.halfWidthAt(aspect, fov, C.z)), C.lookY, 0);   /* QA2C-3: the pet stays in view upright too */
       camPos.set(camTgt.x + Math.sin(yaw) * C.z, C.y, Math.cos(yaw) * C.z);
     } else if (demo) {                                  /* shop preview framing: a stage-riser turn */
       const a = reduced ? 0.4 : vt * 0.15 * TAU;
@@ -883,7 +883,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
       camPos.set(px + Math.sin(a) * 5.2, 1.6 + 0.3 * h, Math.cos(a) * 5.2);
     } else {
       hSm = reduced || firstFrame ? h : M.approach(hSm, h, dt, M.CAM.smooth);
-      M.followCam(px, hSm, camOff, people ? P.camLift : 0);
+      M.followCam(px, hSm, camOff, people ? P.camLift : 0, M.halfWidthAt(aspect, fov, M.CAM.z));   /* QA2C-3: the runner 20% in from the left on an upright phone */
       camPos.set(camOff.x, camOff.y, camOff.z); camTgt.set(camOff.tx, camOff.ty, camOff.tz);
       feverK = reduced ? (s && s.fever ? 1 : 0) : M.approach(feverK, s && s.fever ? 1 : 0, dt, 1 / M.CAM.feverT * 3);
       fov += M.CAM.feverFov * feverK;

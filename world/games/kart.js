@@ -163,7 +163,17 @@
       var u = L.COURSES[id].unlock, M = u ? L.MEDALS[u.medal] : null;
       chip(id, L.courseName(id), M && remixMedal(cfg) < u.medal ? 'Get a ' + M.icon + ' ' + M.name + ' time on any Remix course' : '');
     });
+    /* QA2C-11: on a narrow phone a road's lock line waits behind ⚙️ More options, under the Play
+       row (the chip still shows 🔒), so ▶ Play stays well clear of the bottom */
+    if (narrowMenu()) out.forEach(function (c) {
+      if (!c.locked || !c.lockText) return;
+      c.tip = c.lockText; c.lockBelow = true;
+      if (!(cfg && cfg._kartMore)) c.lockText = '';
+    });
     return out;
+  }
+  function narrowMenu() {
+    try { return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 420px)').matches; } catch (e) { return false; }
   }
   /* the Remix of a classic track, or null */
   function remixOf(base) {
@@ -207,7 +217,10 @@
     function open(id) { return id != null && list.some(function (v) { return v.id === id && !v.locked; }); }
     cfg._kartIsland = own(L.TRACKS, cfg.variant) ? cfg.variant : L.courseBase(cfg.variant);
     try { stored = localStorage.getItem('slgVar:' + def.key); } catch (e) { stored = null; }
-    if (!fresh && open(mine)) pick = mine;
+    /* QA2C-4: a launch that names a course (the island's Next step 'Try the Remix') opens on it
+       when it is open to this child; a locked or unknown id is ignored */
+    if (open(cfg.openCourse)) pick = cfg.openCourse;
+    else if (!fresh && open(mine)) pick = mine;
     else if (!fresh && open(stored)) pick = stored;
     else if (open(cfg._kartIsland)) pick = cfg._kartIsland;
     else pick = open(cfg.variant) ? cfg.variant : (list.filter(function (v) { return !v.locked; })[0] || list[0] || { id: cfg.variant }).id;
@@ -442,7 +455,7 @@
         if (round.done) return;
         if (lv) lv.frame();         /* a shared race: once per drawn frame, the others' karts and mine on the wire */
         held = h || held;
-        race.step(dt, held);
+        race.step(dt, easyLine(held));
         realT += dt; round.fxDt += dt;
         drain();
         tipsStep();
@@ -469,17 +482,21 @@
       forceEnd: function () { round.done = true; purrStop(); if (lv) lv.stop(); },
       /* the shell's text pill: the lap and the clock. The place is shown once, big, by the race view
          itself (the 3D HUD's place chip, the 2D place chip) — V4.55 fix run B11 */
-      hud: function () {
+      hud: function (o) {
         if (lv) lv.drawn();
-        var t = s.finishT != null ? s.finishT : s.t;
-        return 'Lap ' + Math.min(LAPN, pr.lap + 1) + '/' + LAPN + ' · ⏱ ' + L.fmt(t * 1000);
+        var t = s.finishT != null ? s.finishT : s.t, lap = Math.min(LAPN, pr.lap + 1) + '/' + LAPN;
+        /* a narrow phone (QA2C-12): the compact form, so the clock is never cut */
+        if (o && o.narrow) return lap + ' · ⏱ ' + L.fmt(t * 1000, 1);
+        return 'Lap ' + lap + ' · ⏱ ' + L.fmt(t * 1000);
       },
       /* the first-time tip on screen now ('' for none): the 2D and 3D views both show it */
       tip: function () { return tip ? tip.text : ''; },
-      result: function () { return race.result(); },
+      /* nothing to save from a race the Easy Drive line drove alone (autoOnly) */
+      result: function () { return autoOnly() ? null : race.result(); },
       /* the place: in a shared race the results table's, read now (null: none to show) */
       summaryTitle: function () {
         if (!pr.finished) return 'Race stopped';
+        if (autoOnly()) return '🏁 Race complete!';
         var p = placeNow();
         if (!race.rivals.length || p == null) return '🏁 Race complete!';
         return p === 1 ? '🎤 1st — centre stage!' : p === 2 ? '🥈 2nd place!' : p === 3 ? '🥉 3rd place!' : '💖 Fan Favourite!';
@@ -504,13 +521,15 @@
          Only a shell of API 3 asks for nextStep; an older one still shows summaryText and the tip on
          a line of its own (coachShow). A shared race follows the same rule. */
       nextStep: function () {
+        /* r2-games: a race the child never steered (Easy Drive did it all) asks them to steer first */
+        if (race.result() && autoOnly()) return stepLine();
         var c = coachLine();
         return c ? COACH_TIP + c : stepLine();
       },
       summaryText: function () { return shell3() ? '' : stepLine(); },
       /* the pill over the 3D view (shell API 3): the lap and the clock, as hud() — which a shared race
          needs called once per drawn frame (lv.drawn) */
-      hud3d: function () { return round.hud(); },
+      hud3d: function (o) { return round.hud(o); },
       /* everything else about the race, for the shell's Details ('' when it was not finished): one line
          of numbers — or, when the coach line took the next step (QA#7), two lines: the place line
          (stepLine) first, then the numbers */
@@ -536,6 +555,7 @@
       summaryBadges: function () {
         var res = race.result(), out = [];
         if (!res) return [{ text: '🏁 Finish all ' + LAPN + ' laps for a medal', kind: 'hint' }];
+        if (autoOnly()) return [];
         var m = L.medalFor(track.id, res.ms);
         out.push({ text: m ? MEDALS[m].icon + ' ' + MEDALS[m].name : '🏁 Finisher', kind: MEDAL_KIND[m] });
         /* no place badge (QA 25 Oct #7: '4th of 6' was the third '4th' on the sheet): the title or the
@@ -564,6 +584,7 @@
     function stepLine() {
       var res = race.result();
       if (!res) return TIME_UP(LAPN);
+      if (autoOnly()) return 'Next time, steer to race for a medal!';   /* r2-games: a race the child never steered */
       return nudge(res.ms);
     }
     /* GP-2: the one coach line after a finished race with no medal, or '' */
@@ -574,6 +595,24 @@
       if (s.scrapes >= 3) return COACH.walls;
       return s.sparks[0] + s.sparks[1] + s.sparks[2] ? '' : COACH.spark;
     }
+    /* QA2C verify (item 15): Easy Drive does the GO, and a child who had not steered yet left the
+       road about a second after GO. From GO until the child's first ⬅ or ➡ the kart now keeps to
+       the racing line (the plain driver's steering, the line the Glow Line shows); from that first
+       steer on the race is the child's own. Not in a shared race. A race the child never steered
+       in is not a race they drove: no medal, no personal best, no board place (autoOnly), as an
+       Encore Shootout round of automatic kicks (QA2C-2). */
+    var assisted = { up: false, down: false, left: false, right: false, drift: false }, steered = false;
+    function easyLine(h) {
+      if (!h) return h;
+      if (h.left || h.right) { if (s.phase === 'race') steered = true; return h; }
+      if (steered || lv || demo || !race.opts.easy || s.phase !== 'race') return h;
+      var a = race.drivePlain();
+      assisted.up = !!h.up; assisted.down = !!h.down; assisted.drift = !!h.drift;
+      assisted.left = !!a.left; assisted.right = !!a.right;
+      return assisted;
+    }
+    function autoOnly() { return !steered && !lv && !demo && !!race.opts.easy && !!race.result(); }
+    round.autoOnly = autoOnly;
     /* ---------- first-time tips (V4.55 fix run B5) ----------
        Said in the race, once per profile (the option store's tips bits), the first time each is
        useful: strips just ahead, a ramp just ahead, a bend just ahead (after the first few seconds).
@@ -614,9 +653,12 @@
       });
       return hit;
     }
+    /* QA2C-6: when the results offer the next course as a button (round.nextVariant: '🔀 Try the
+       Remix: more obstacles', '▶ Try Starlight Twist') the button says it alone, so the next step
+       is what comes after it (a crew, a near miss, the medal gap) */
     function nudge(ms) {
-      var par = L.PAR[track.id], C = L.CLASSES, road = roadNext();
-      if (remixNext()) return REMIX_NEXT;
+      var par = L.PAR[track.id], C = L.CLASSES, road = shell3() ? null : roadNext();
+      if (!shell3() && remixNext()) return REMIX_NEXT;   /* an older shell has no next-course button */
       if (road) return 'New course open: ' + L.courseName(road) + '!';
       if (par) {
         if (ms <= par.silver && !open2) return C[2].icon + ' ' + C[2].name + ' crew unlocked on ' + track.name + '!';
@@ -636,6 +678,7 @@
        road → {id, label, again?}; undefined otherwise (no opinion: the shell may still offer a
        course this round opened) */
     round.nextVariant = function () {
+      if (autoOnly()) return null;
       var rid = remixNext(), road = rid ? null : roadNext();
       if (rid) return { id: rid, label: REMIX_GO, again: REMIX_AGAIN };
       return road ? { id: road, label: '▶ Try ' + L.courseName(road) } : undefined;
@@ -1559,6 +1602,8 @@
       extra = true;
       if (more) out.push({ id: 'cam', label: 'Camera', value: CAMS.indexOf(o.cam) >= 0 ? o.cam : 'chase', below: true, options: CAM_CHIPS });
     }
+    /* a narrow phone keeps a road's lock line behind More options too (menuVariants, QA2C-11) */
+    if (!extra && coursesOn() && narrowMenu()) extra = menuVariants(cfg).some(function (c) { return c.lockBelow; });
     /* below: under the Play row (shell API 3), so opening them never moves ▶ Play */
     if (extra && !more) out.push({ id: 'more', label: '', value: false, below: true, options: [{ value: true, label: '⚙️ More options' }] });
     return out;
@@ -1573,13 +1618,19 @@
     else return;
     saveOpts(cfg, o);
   }
-  function pbText(rec, variant) {
+  /* o.results (shell, QA2C-1): the results sheet's best line. Its next step already gives the
+     next medal's gap, and its first badge this race's medal, so the line says neither again */
+  function pbText(rec, variant, cfg, o) {
     var L = logic();
     if (!L) return '';
     var par = L.PAR[variant];
     if (!rec || rec.ms == null) return par ? 'No best yet — set one! 🥉 Bronze is ' + L.fmt(par.bronze, 1) : '';
     if (!par && coursesOn() && L.isCourse(variant)) return '🏆 Best ' + L.fmt(rec.ms);   /* a course with no medal times yet */
     var m = L.medalFor(variant, rec.ms), nm = L.nextMedal(variant, rec.ms), M = L.MEDALS[m];
+    if (o && o.results) {
+      var mine = o.result && o.result.ms != null ? L.medalFor(variant, o.result.ms) : -1;
+      return '🏆 Best ' + L.fmt(rec.ms) + (mine === m ? '' : ' · ' + M.icon + ' ' + M.name);
+    }
     return '🏆 Best ' + L.fmt(rec.ms) + ' · ' + M.icon + ' ' + M.name +
       (nm ? ' · Next: ' + nm.icon + ' ' + nm.name + ' ' + L.fmt(nm.ms) + ' (' + (nm.gap / 1000).toFixed(1) + ' s to go)' : ' · Top of the podium!');
   }
