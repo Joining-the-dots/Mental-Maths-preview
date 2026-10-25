@@ -43,8 +43,9 @@
          the Crew aisle are SLIslandShop's). landmarkUid = the landmark standing on an
          owned island, else null.
      lockSign(C, w, isle, {t, trial, here})
-         → {short, priceText, aria}: a land's sign. Locked: '⭐ 2,000' (or 'FREE' in test
-         mode) and the lock.sign label; unlocked: no price and the fly-there label. here (the
+         → {short, priceText, aria}: a land's sign. Locked: '🪙 2,400' (or 'FREE' in test
+         mode) and the lock.signCoins label (a core paying in ⭐: '⭐ 2,000', lock.sign; F-KU5);
+         unlocked: no price and the fly-there label. here (the
          Sky map's sign for the island the child is on) → the chip's here words instead:
          isle.chipHere, or isle.chipHereLocked on a preview.
      bumped(beforeWorld, afterWorld)
@@ -71,6 +72,7 @@
     'isle.chipHereLocked': '{island}: looking around. Still locked',
     'isle.chipNew': 'New',
     'lock.sign': '{island} · ⭐ {price}',
+    'lock.signCoins': '{island} · 🪙 {price}',
     'sr.flyTo': '{island} — fly there'
   };
   var FREE = 'FREE';          /* the shop's own test-mode word (never a price) */
@@ -88,6 +90,11 @@
 
   function def(C, k) { return typeof k === 'string' && has(C.ISLES, k) ? C.ISLES[k] : null; }
   function landOf(C, k) { var d = def(C, k); return d && d.unlock ? C.item(d.unlock) : null; }
+  /* the island's money (F-KU5): what a land costs in the wallet the core pays with (C.priceOf: 🪙 coins since the
+     kids update's two wallets), and that wallet's sign; a core without wallets: its ⭐ price, as before */
+  function coinsOn(C) { return typeof C.walletOf === 'function' && C.walletOf() === 'coins'; }
+  function priceOf(C, it) { var p = it && typeof C.priceOf === 'function' ? C.priceOf(it) : null; return typeof p === 'number' && isFinite(p) ? p : it ? it.price : null; }
+  function sym(C) { return coinsOn(C) ? (C.COIN && C.COIN.sym) || '🪙' : '⭐'; }
   function skyOrder(C) { return C.ISLE_ORDER.filter(function (k) { return k !== 'home'; }); }
   /* a save's world, from the profile or the world itself (a profile with no world yet reads
      as an empty one); the caller's object is never given a world and never changed */
@@ -113,7 +120,7 @@
       return {
         isle: k, name: d.name, short: shortName(C, k, opts.t),
         state: state, locked: !unlocked, isNew: isNew,
-        price: land ? land.price : null, free: !!opts.trial && !unlocked,
+        price: land ? priceOf(C, land) : null, free: !!opts.trial && !unlocked,
         /* the label replaces the chip's own words for a screen reader, so it says New too */
         aria: say(opts.t, state === 'here' ? hereKey(!unlocked) : state === 'open' ? 'isle.chipOpen' : 'isle.chipLocked', { island: d.name }) +
           (isNew ? '. ' + say(opts.t, 'isle.chipNew') : '')
@@ -192,7 +199,7 @@
         isle: k, name: d.name, owned: owned,
         landId: d.unlock, landmarkId: d.landmark, landmarkUid: owned ? landmarkUid(C, w, k) : null,
         itemIds: themedIds(C, k),
-        status: owned ? 'open' : opts.trial ? 'free' : 'price', price: land ? land.price : 0
+        status: owned ? 'open' : opts.trial ? 'free' : 'price', price: land ? priceOf(C, land) : 0
       };
     });
   }
@@ -202,14 +209,14 @@
     opts = opts || {};
     var d = def(C, isle);
     if (!d) return null;
-    var land = landOf(C, isle), locked = !C.isleUnlocked(worldOf(w), isle), price = land ? fmt(land.price) : '';
+    var land = landOf(C, isle), locked = !C.isleUnlocked(worldOf(w), isle), price = land ? fmt(priceOf(C, land)) : '';
     return {
       short: shortName(C, isle, opts.t),
-      priceText: !locked ? '' : opts.trial ? FREE : '⭐ ' + price,
+      priceText: !locked ? '' : opts.trial ? FREE : sym(C) + ' ' + price,
       aria: opts.here ? say(opts.t, hereKey(locked), { island: d.name })
         : !locked ? say(opts.t, 'sr.flyTo', { island: d.name })
         : opts.trial ? d.name + ' · ' + FREE
-        : say(opts.t, 'lock.sign', { island: d.name, price: price })
+        : say(opts.t, coinsOn(C) ? 'lock.signCoins' : 'lock.sign', { island: d.name, price: price })
     };
   }
 

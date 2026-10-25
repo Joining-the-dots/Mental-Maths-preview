@@ -259,10 +259,49 @@
        unlock line, the empty Wear row, the 'more' buttons and the runner button) — swap them to tx() */
     'unlock.pet': 'A new pet who roams your island and can run the Debut Run.',
     'unlock.petGear': 'Any of your pets can wear it, on the island and in the Debut Run.',
-    'crew.wearNone': 'Caps, beanies, headphones and more are in the Island Shop, under My pets.',
+    'crew.wearNone': 'Caps, beanies, headphones and more are in the Island Shop, on the Pets shelf.',
     'crew.more': 'More pets and gear',
     'crew.makeRunner': '🏅 Make my runner',
     'info.sky': '🏝️ Open sky islands in the Island Shop, then cross the bridge to build there.',
+    /* ---- wave 3, the simpler app (25 Oct 2026, WAVE3-PLAN): the Next step card on My Island, the Learn buttons
+       and the learn-and-come-back trip, and the Island Shop as one land with a few shelves ---- */
+    'next.label': 'Next step',
+    'next.feedOne': '{name} is hungry.',
+    'next.feedMany': '{n} pets are hungry.',
+    'next.feedBtn': 'Feed {name}',
+    'next.feedAll': 'Feed my pets',
+    'next.rescue': '{name} is at the Pet Rescue. A visit with a meal helps them come home.',
+    'next.enough': '{item}: you have enough now.',
+    'next.getIt': 'Get it',
+    'next.try.course': 'Try Debut Run: an obstacle run with your pet.',
+    'next.try.penalty': 'Try Encore Shootout: football penalties.',
+    'next.try.kart': 'Try Neon Grand Prix: kart racing.',
+    'next.remix': 'Try the Remix: more obstacles!',
+    'next.play': '▶ Play',
+    'next.learnMins': '{item}: learn about {n} more minutes.',
+    'next.learnDays': '{item}: about {n} more days of learning.',
+    'next.free': '{item}: free while we test.',
+    'next.progress': '{n} of {price}',
+    'learn.go': '📚 Learn',
+    'learn.andBack': '📚 Learn and come back',
+    'learn.aboutMins': 'That’s about {n} minutes of learning.',
+    'learn.aboutDays': 'That’s about {n} days of learning.',
+    'shop.at': 'Shop at',
+    'shop.home.games': 'Games',
+    'shop.home.decor': 'Garden & decorations',
+    'shop.home.fun': 'Fun & paths',
+    'shop.home.pets': 'Pets',
+    'shop.home.lands': 'New lands',
+    'shop.home.more': 'More to look at',
+    'shop.door.house': 'Your home',
+    'shop.door.houseLine': 'Walls, roofs, doors and shapes.',
+    'shop.door.houseBtn': 'Restyle',
+    'shop.door.petsLine': 'Every pet you have, and where they are.',
+    'shop.door.petShopLine': 'Adopt a pet or get pet food.',
+    'shop.filter.afford': 'I can buy',
+    'shop.filter.none': 'Nothing here you can buy yet.',
+    'shop.filter.next': '{item} is next: {n} more 🪙.',
+    'shop.back': 'Back to the shop',
     /* the intro slides (slide 1 used to promise the city across the bay) */
     'intro.1.title': 'Your island in the sky',
     'intro.1.body': 'A home, your first pet and the Debut Run. Five more islands float nearby, waiting to be opened.',
@@ -404,7 +443,7 @@
     'care.promise': 'Pets only get hungry on the days you open My Island, never while you’re away.',
     /* 'News from the Pet Shop': the update card for a child who already has pets (KU13) */
     'care.welcome.title': 'News from the Pet Shop',
-    'care.welcome.body': 'Your pets now have a meal on the days you visit My Island. Buy food in the Pet Shop and feed them in the Pet Corner. Here’s a free bag of 6 meals to start!',
+    'care.welcome.body': 'Your pets now have a meal on the days you visit My Island. Buy food in the Pet Shop and feed them in My pets. Here’s a free bag of 6 meals to start!',
     /* the cap, 'total' (up to 3 pets owned; capKeep for a child who already has more) */
     'care.welcome.capTotal': 'You can have up to 3 pets.',
     'care.welcome.capKeep': 'You have {n} pets, and they all stay. Up to 3 live at home and the others stay at the Pet Hotel.',
@@ -460,7 +499,7 @@
     'care.homeFull': 'Home is full (3 of 3). Move a pet to the Pet Hotel to make room.',
     'care.makeRoom': 'Make room',
     /* the cap reached: 'total' only (the confirm before the 3rd pet, and the line at the cap) */
-    'care.ownFull': 'You can have up to 3 pets, and you have {n}. Look after them in the Pet Corner.',
+    'care.ownFull': 'You can have up to 3 pets, and you have {n}. Look after them in My pets.',
     'care.adoptLimit': '{name} would be your 3rd pet. That’s the most you can have.',
     'care.adoptLimit.yes': 'Adopt {name}',
     'care.adoptLimit.no': 'Keep looking',
@@ -522,8 +561,14 @@
     /* ---- the kids update: words the designs' screens quote that the copy drafts left out (KU-COPY, so the
        Pet Corner, the Pet Shop and the creator need no literals) ---- */
     /* the Pet Corner's heading and the update card's first button (pets.json ui U1, U5) */
-    'care.corner.title': 'Pet Corner',
-    'care.welcome.corner': 'Meet the Pet Corner',
+    /* wave 3 (25 Oct 2026): one name — the 🐾 button and its sheet are both 'My pets' */
+    'care.corner.title': 'My pets',
+    'care.welcome.corner': 'See my pets',
+    /* wave 3: My pets as one list — its footer (pantry count, adopt, food, clothes) */
+    'care.adoptPet': 'Adopt a pet',
+    'care.petClothes': 'Pet clothes',
+    'care.pantryMeals': 'Pantry: {n} meals',
+    'care.pantryMeals.one': 'Pantry: 1 meal',
     /* a pet card's other buttons (U5, U9) */
     'care.dress': 'Dress',
     'care.rename': 'Rename',
@@ -538,7 +583,41 @@
     /* the creator's Clothes panel, and a cast card when ⭐ are short (characters.json uiFlows.child) */
     'char.moreWardrobe': 'More in the Wardrobe',
     'char.cast.need': 'You need {n} more ⭐',
-    'char.cast.save': 'Save up for it'
+    'char.cast.save': 'Save up for it',
+
+    /* ---------------- two wallets (F-KU5; James, 24 Oct 2026; docs/island3d/v3/kids-update/wallets.md) ----------------
+       Learning earns ⭐ for 🎁 My rewards and the same number of 🪙 coins for My Island, which pays only in 🪙. The
+       host picks the coin form of a line that names the money while SLWorldCore.walletOf() is 'coins'; the ⭐ form
+       stays for a core that pays in stars. care.basic.* are F-KU4's free basic meal (wallets.md, word for word). */
+    'char.cast.needCoins': 'You need {n} more 🪙',
+    'care.noCoins': 'Earn {n} 🪙 in any learning game to buy {food}.',
+    'care.basic.button': 'Free basic meal',          /* the Pet Corner draws the 🥣 in front, as the paw on My pets */
+    'care.basic.line': 'Out of food? {name} can have a free basic meal today.',
+    'care.basic.done': '{name} enjoyed a basic meal. Their favourite food is in the Pet Shop.',
+    'care.basic.visit': 'Visit with a free basic meal',
+    'care.basic.shop': 'Out of coins? A hungry pet can have a free basic meal in My pets.',
+    'isle.unlockForCoins': 'Unlock for 🪙 {price}',
+    'lock.signCoins': '{island} · 🪙 {price}',
+    'games.noCoins': 'Games are just for fun. They never earn or spend coins or stars.',
+    'intro.2.coinsBody': 'Every maths, spelling or flags session earns 🪙 coins for your island, and the same number of stars for My rewards.',
+    'intro.3.coinsBody': 'Spend 🪙 coins on sky islands, pets, a football pitch, a race track and more. Your stars are never spent here. They stay for My rewards.',
+    'intro.3.trialCoins': 'Everything on the island is free right now: sky islands, pets, a football pitch, a race track and more. Nothing is spent, so your 🪙 coins wait for later. Try it all and tell Dad what you think.',
+    /* the one-time card for a child who had an island before the coins came (queued like every island-open card) */
+    'coins.news.title': 'Island coins are here',
+    'coins.news.earn': 'My Island has its own money now: 🪙 coins. Learning earns them, the same number as your stars.',
+    'coins.news.stars': 'Your stars stay for My rewards. The island never uses them.',
+    'coins.news.keep': 'Everything you already have on your island is still yours.',
+    'coins.news.start': 'Your coins start today. Every bit of learning adds more.',
+    'coins.news.trial': 'While we test, the island is free, so your coins wait for later.',
+    'coins.news.ok': 'Got it',
+    /* the Island Shop's lines about the money, the big-buy question and the end of free test mode */
+    'coins.shop.line': 'Island things cost 🪙 coins. Your stars stay for My rewards.',
+    'coins.shop.trialLine': 'Nothing is spent here while we test: not your coins, not your stars.',
+    'coins.confirm.note': 'Island things use 🪙 coins. Your stars for My rewards are never spent here.',
+    'coins.trialOver.body': 'From now on, island things cost 🪙 coins, which you earn by learning.',
+    'coins.trialOver.keep': 'Your stars stay for My rewards. Everything you already picked is still on your island.',
+    'coins.goal.trial': 'Test mode: everything on the island is free. Nothing is spent.',
+    'coins.balance': 'Your island coins'
   };
 
   /* re-voiced descriptions: every CATALOG desc with a banned word, plus a few that read young */

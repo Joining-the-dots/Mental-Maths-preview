@@ -145,8 +145,8 @@
          'owned' | 'affordable' | 'short' | 'locked' | 'comes' (a signature piece the child does not
          have) | 'have' (a free basic), can, code, need?, needs?, land, landName, goal, confirm,
          line: null | {key, params} (the card's status line: char.cast.opens {land},
-         char.cast.need {n}, or wardrobe.free for a free basic)}; free = test mode, as on every
-         shop card (the price row's FREE; ⭐ untouched); a character adds theme, comes (the
+         char.cast.need {n} (char.cast.needCoins on a 🪙 card, F-KU5), or wardrobe.free for a free
+         basic)}; free = test mode, as on every shop card (the price row's FREE; ⭐ and 🪙 untouched); a character adds theme, comes (the
          pieces it brings that the child does not have yet, for char.cast.comes), move {id, key
          'move.<id>'} and active; a piece adds slot, slotKey, cw, flags, dye (the hair colour code
          a dye unlocks) and with (the character a signature piece comes with).
@@ -209,10 +209,11 @@
     Object.keys(w).forEach(function (k) { copyW[k] = w[k]; });
     return { points: u && !u.owned && typeof u.points === 'number' ? u.points : 0, world: copyW };
   }
-  /* cheapest first; equal prices keep the order they came in (old engines' sort is not stable) */
-  function byPrice(C, ids) {
-    return ids.map(function (id, i) { return { id: id, i: i, p: C.item(id).price }; })
-      .sort(function (a, b) { return (a.p - b.p) || (a.i - b.i); })
+  /* cheapest first in the island's money (F-KU5: the wallet o names, else the core's, so 🪙 since the two
+     wallets); equal prices keep the ⭐ order, then the order they came in (old engines' sort is not stable) */
+  function byPrice(C, ids, o) {
+    return ids.map(function (id, i) { var it = C.item(id); return { id: id, i: i, p: priceIn(C, it, o), s: it.price }; })
+      .sort(function (a, b) { return (a.p - b.p) || (a.s - b.s) || (a.i - b.i); })
       .map(function (e) { return e.id; });
   }
   function isPet(C, id) { return C.item(id).kind === 'pet'; }
@@ -274,12 +275,13 @@
     return all.length ? { key: 'dressup', labelKey: shelfLabel(k, 'dressup'), ids: all, lead: chars.length ? chars[0] : null } : null;
   }
   /* the V4.54 shop order (rewards-world.js openShop): what you can buy, what you are saving for, locked,
-     owned last; cheapest first inside each; equal ones keep the order they came in */
+     owned last; cheapest first inside each (in the call's wallet, F-KU5); equal ones keep the ⭐ order, then the
+     order they came in */
   function ranked(C, U, items, o) {
     return items.map(function (it, i) {
       var r = RANK[C.itemState(U, it.id, o).state];
-      return { id: it.id, i: i, r: r == null ? 9 : r, p: it.price };
-    }).sort(function (a, b) { return (a.r - b.r) || (a.p - b.p) || (a.i - b.i); }).map(function (e) { return e.id; });
+      return { id: it.id, i: i, r: r == null ? 9 : r, p: priceIn(C, it, o), s: it.price };
+    }).sort(function (a, b) { return (a.r - b.r) || (a.p - b.p) || (a.s - b.s) || (a.i - b.i); }).map(function (e) { return e.id; });
   }
   function wardrobeTab(C, u, opts) {
     opts = opts || {};
@@ -317,7 +319,7 @@
     if (state === 'locked') {
       card.needs = (it.requires || []).filter(function (r) { return !C.owns(w, r); })[0] || null;
       card.line = { key: 'char.cast.opens', params: { land: k ? C.ISLES[k].name : card.needs && C.item(card.needs) ? C.item(card.needs).name : '' } };
-    } else if (state === 'short' && has(card, 'need')) card.line = { key: 'char.cast.need', params: { n: card.need } };
+    } else if (state === 'short' && has(card, 'need')) card.line = { key: card.wallet === 'coins' && copyHas('char.cast.needCoins') ? 'char.cast.needCoins' : 'char.cast.need', params: { n: card.need } };   /* 'You need 15 more 🪙' (F-KU5) */
     else if (state === 'have') card.line = { key: 'wardrobe.free', params: null };
     if (it.kind === 'char') {
       card.theme = it.theme || null;
@@ -543,13 +545,13 @@
     /* a pet the cap shuts out is not something to buy now, whatever it costs */
     var can = function (id) { return C.itemState(U, id, o).state === 'affordable' && !(shut && C.item(id).kind === 'pet'); };
     var homePets = C.shopItems().filter(function (it) { return it.kind === 'pet' && it.isle === 'home'; });
-    var home = byPrice(C, homeItems(C).concat(homePets).map(function (it) { return it.id; }).filter(can));
+    var home = byPrice(C, homeItems(C).concat(homePets).map(function (it) { return it.id; }).filter(can), o);
     if (home.length) out.push({ isle: null, ids: home });
     /* the characters and pieces anyone can buy; a land's own are in its group below (its Dress-up shelf) */
-    var wear = byPrice(C, soldItems(C).filter(function (it) { return !landOf(C, it); }).map(function (it) { return it.id; }).filter(can));
+    var wear = byPrice(C, soldItems(C).filter(function (it) { return !landOf(C, it); }).map(function (it) { return it.id; }).filter(can), o);
     if (wear.length) out.push({ isle: null, key: 'wardrobe', labelKey: 'wardrobe.title', ids: wear });
     skyOrder(C).forEach(function (k) {
-      var ids = byPrice(C, shopIds(C, k).filter(can));
+      var ids = byPrice(C, shopIds(C, k).filter(can), o);
       if (ids.length) (k === here ? first : out).push({ isle: k, ids: ids });
     });
     return first.concat(out);
@@ -562,7 +564,7 @@
     var gear = C.CATALOG.filter(function (it) { return !it.isle && !it.retired && it.kind === 'acc'; }).map(function (it) { return it.id; });
     var out = [{ key: 'pets', labelKey: 'shop.crew.pets', ids: pets, collapsed: false, states: statesOf(x, pets) }];
     if (opts.food && foods(C).length) out.push({ key: 'food', labelKey: foodLabel(), ids: foods(C).map(function (it) { return it.id; }), collapsed: false });
-    out.push({ key: 'gear', labelKey: 'shop.crew.gear', ids: byPrice(C, gear), collapsed: false });
+    out.push({ key: 'gear', labelKey: 'shop.crew.gear', ids: byPrice(C, gear, x.o), collapsed: false });
     skyOrder(C).forEach(function (k) {
       var head = landHead(C, x.w, k, x.o), ids = shopIds(C, k).filter(function (id) { return isPet(C, id) || isAcc(C, id); });
       out.push({

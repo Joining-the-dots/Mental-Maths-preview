@@ -126,6 +126,18 @@
     E.unlater = function (h) { var f = ctx.clearTimeout || root.clearTimeout; if (f && h != null) f(h); };
     return E;
   }
+  /* the island's money (F-KU5): what a thing costs and what the child has, in the wallet the core pays with (🪙 since
+     the two wallets); a core without wallets: ⭐ as before */
+  function coinsOn(E) { return typeof E.C.walletOf === 'function' && E.C.walletOf() === 'coins'; }
+  function priceIn(E, it) { var p = it && typeof E.C.priceOf === 'function' ? E.C.priceOf(it) : null; return typeof p === 'number' && isFinite(p) ? p : it ? it.price : 0; }
+  function balIn(E, u) { return !u ? 0 : typeof E.C.walletBalance === 'function' ? E.C.walletBalance(u) : (u.points | 0); }
+  /* F-KU4's free basic meal (SLPetCare.basicMeal): may this pet have it now, in the shop's own {trial}? A read; false
+     without it (an older pet-care.js) */
+  function basicOk(E, petId) {
+    var P = E.P, u = E.u();
+    if (!P || typeof P.basicMeal !== 'function' || !P.BASIC || !u) return false;
+    try { var r = P.basicMeal(u, petId, E.day(), { trial: E.trial() }); return !!(r && r.ok); } catch (e) { return false; }
+  }
   function ready(ctx) {
     var E = env(ctx);
     return !!(E.C && E.P && typeof E.P.ready === 'function' && E.P.ready() && typeof E.C.petRoom === 'function' && E.u());
@@ -274,14 +286,23 @@
       vm.soon = typeof ev.left === 'number' ? ev.left : p && p.rescue && p.rescue.starIn != null ? p.rescue.starIn : K.starAfter - K.starWarn;
     } else vm.lines.push({ key: 'care.' + ev.type, vars: { name: vm.name } });     /* warn, last */
     vm.main = visit ? { a: 'visit', key: 'care.rescue.visit', vars: { name: vm.name } } : { a: 'feed', key: 'care.feed' };
-    /* nothing in the pantry this pet eats: the way to earn the ⭐ (never in test mode), else the Pet Shop */
+    /* nothing in the pantry this pet eats: the way to earn the 🪙 (F-KU5; never in test mode), else the Pet Shop */
     if (!mealFor(E, ev.id)) {
-      var cheap = cheapestMeal(E, ev.id), u = E.u(), need = cheap ? cheap.price - ((u && u.points) | 0) : 0;
+      var cheap = cheapestMeal(E, ev.id), u = E.u(), need = cheap ? priceIn(E, cheap) - balIn(E, u) : 0;
       var shop = typeof ctx.openShop === 'function' ? { a: 'shop', key: 'care.welcome.shop' } : null;
+      var learn = typeof ctx.goLearn === 'function' ? { a: 'learn', key: 'care.goLearn' } : null;
       if (!E.trial() && cheap && need > 0) {
-        vm.learn = { key: 'care.noPoints', vars: { n: need, food: inSentence(cheap.name) } };
-        vm.main = typeof ctx.goLearn === 'function' ? { a: 'learn', key: 'care.goLearn' } : shop || vm.main;
+        vm.learn = { key: coinsOn(E) ? 'care.noCoins' : 'care.noPoints', vars: { n: need, food: inSentence(cheap.name) } };
+        vm.main = learn || shop || vm.main;
       } else vm.main = shop || vm.main;
+      /* F-KU4's free basic meal: a hungry pet is always looked after, with no money at all (James, 24 Oct 2026). The
+         card's main button opens the tray that has it; earning more stays the second button */
+      if (basicOk(E, ev.id)) {
+        vm.basic = true;
+        vm.lines.push({ key: 'care.basic.line', vars: { name: vm.name } });
+        if (vm.main && vm.main.a !== 'feed' && vm.main.a !== 'visit' && !vm.more) vm.more = vm.main;
+        vm.main = visit ? { a: 'visit', key: 'care.rescue.visit', vars: { name: vm.name } } : { a: 'feed', key: 'care.feed' };
+      }
     }
     return vm;
   }
@@ -297,7 +318,7 @@
   }
   function cheapestMeal(E, petId) {
     var list = E.C.foodItems().filter(function (f) { return f.group !== 'treat' && eatsGroup(E, petId, f.group); });
-    list.sort(function (a, b) { return a.price - b.price; });
+    list.sort(function (a, b) { return (priceIn(E, a) - priceIn(E, b)) || (a.price - b.price); });   /* in 🪙 (F-KU5) */
     return list[0] || null;
   }
   /* the food picker's tiles: every food with its count, why it cannot be used now (SLPetCare.canFeed), the favourite,
@@ -606,8 +627,8 @@
       }
       /* a meal (or a Rescue visit): the tray closes, the strip plays the moment, the end line follows */
       function feed(id, food, visit) {
-        var day = E.day(), ms = E.now(), name = petName(E, id);
-        return act(function (u) { return visit ? E.P.rescueVisit(u, id, food, day, ms) : E.P.feed(u, id, food, day, ms); }, function (res) {
+        var day = E.day(), ms = E.now(), name = petName(E, id), basic = !!E.P.BASIC && food === E.P.BASIC, o = { trial: E.trial() };
+        return act(function (u) { return visit ? E.P.rescueVisit(u, id, food, day, ms, o) : E.P.feed(u, id, food, day, ms, o); }, function (res) {
           if (!res || !res.ok) {
             S.msg[id] = own(FOOD_KEY, res && res.code) ? E.t(FOOD_KEY[res.code], { name: name, food: inSentence(foodName(E, food)), fav: '' }) : refusal(E, res);
             return;
@@ -616,8 +637,10 @@
         }).then(function (res) {
           if (!res || !res.ok) return;
           sound(E, SOUND.feed);
-          return feedingStrip(E.ctx, id, food, { res: res, kind: visit ? 'visit' : 'feed', ov: ov }).then(function () {
+          /* the free basic meal has no food of its own: the moment shows a plain bowl (no food id) */
+          return feedingStrip(E.ctx, id, basic ? null : food, { res: res, kind: visit ? 'visit' : 'feed', ov: ov }).then(function () {
             var end = visit ? (res.home ? E.t('care.rescue.home', { name: name }) : E.t('care.rescue.progress', { n: res.visits }))
+              : basic ? E.t('care.basic.done', { name: name })
               : res.treat && !res.counted ? E.t('care.treatMax', { name: name }) : res.fav ? E.t('care.fav', { name: name }) : E.t('care.fed', { name: name });
             if (visit && res.home) { sound(E, SOUND.home); S.tab = 'home'; }
             S.msg[id] = end; say(end); toast(E, end);
@@ -632,6 +655,7 @@
         feed: function (id) { toggle('feed', id); },
         visit: function (id) { toggle('visit', id); },
         food: function (id, v) { feed(id, v, !!(S.tray && S.tray.kind === 'visit')); },
+        basic: function (id) { feed(id, E.P.BASIC, !!(S.tray && S.tray.kind === 'visit')); },
         pat: function (id) { cheer('pat', id); },
         play: function (id) { cheer('play', id); },
         dress: function (id) { toggle('dress', id); },
@@ -658,7 +682,7 @@
       /* opened on one pet (a day card's Feed or Visit, Dress): its block comes into view, focus on its first food, the
          piece it wears (else its first piece) when its wear tray is open, else its first button */
       if (o.petId) E.later(function () {
-        var b = panel.querySelector('[data-pet="' + o.petId + '"]'), f = b && (Array.prototype.filter.call(b.querySelectorAll('[data-a="food"]'), function (x) { return !x.getAttribute('aria-disabled'); })[0] ||
+        var b = panel.querySelector('[data-pet="' + o.petId + '"]'), f = b && (b.querySelector('[data-a="basic"]') || Array.prototype.filter.call(b.querySelectorAll('[data-a="food"]'), function (x) { return !x.getAttribute('aria-disabled'); })[0] ||
           b.querySelector('[data-a="acc"][aria-pressed="true"]') || b.querySelector('[data-a="acc"]') || b.querySelector('[data-a]'));
         try { if (b && b.scrollIntoView) b.scrollIntoView({ block: 'start' }); if (f) f.focus(); } catch (e) { /* ignore */ }
       }, 60);
@@ -686,8 +710,12 @@
       tiles = tiles.filter(function (f) { return f.ok; }).concat(tiles.filter(function (f) { return !f.ok; }));
       /* a pantry that never held food (a merged save): say what to get, never an empty box */
       var cheap = tiles.length ? null : cheapestMeal(E, id);
+      /* F-KU4's free basic meal (F-KU5): nothing here this pet eats and nothing the child can get now, so a plain meal,
+         once an island day (the core's rule), kindly offered first; a visit at the Rescue takes it too */
+      var basic = basicOk(E, id) ? line(esc(E.t('care.basic.line', { name: p.name })), 'slw-pcc-note slw-pcc-basicline') + '<div class="slw-pcc-btns slw-pcc-basic">' +
+        btn('basic', '🥣 ' + E.t(kind === 'visit' ? 'care.basic.visit' : 'care.basic.button'), { id: id, cls: 'slw-buy slw-pcc-do', fk: 'basic:' + id }) + '</div>' : '';
       return '<div class="slw-pcc-tray">' + (full ? line(esc(E.t('care.full', { name: p.name })), 'slw-pcc-note') : '') +
-        (cheap ? line(esc(E.t('care.none', { food: inSentence(cheap.name) })), 'slw-pcc-note') : '') +
+        (cheap ? line(esc(E.t('care.none', { food: inSentence(cheap.name) })), 'slw-pcc-note') : '') + basic +
         '<div class="slw-pcc-foods" role="group" aria-label="' + esc(E.t('care.pantry')) + '">' + tiles.map(function (f) {
           var why = f.code === 'full' ? '' : whyText(E, f.why);
           return '<button type="button" class="slw-pcc-food' + (f.ok ? '' : ' off') + (f.fav ? ' fav' : '') + '" data-a="food" data-id="' + esc(id) + '" data-v="' + f.id + '" data-fk="food:' + esc(id) + ':' + f.id + '"' +

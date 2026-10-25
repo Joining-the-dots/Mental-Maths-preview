@@ -39,7 +39,7 @@
    changed here) AND, at the same rate, 🪙 island coins (w.coins, through earnCoins). With
    ECONOMY.wallet 'coins' every island purchase (things, land, pets, food, wear, characters)
    is paid in coins at coinPrice(), and u.points is never touched by the island; with 'stars'
-   (the default until the hosts show coins) everything is exactly as before. Free test mode
+   (the default before F-KU5) everything is exactly as before. Free test mode
    charges nothing in either wallet. w.coins is absent until the first coin write; an old
    save starts at 0 coins and keeps everything it owns (docs/island3d/v3/kids-update/wallets.md).
    ================================================================ */
@@ -62,8 +62,9 @@
        Daily-30 session pays 2-2.5×). Every coin price is set from sessionPts and this. */
     daySessions: 2,
     /* what island things are paid with: 'stars' (u.points, V4.57 and before) | 'coins' (w.coins).
-       A call's opts.wallet overrides it. The hosts switch it to 'coins' when they show 🪙 (F-KU5). */
-    wallet: 'stars'
+       A call's opts.wallet overrides it. 'coins' since F-KU5 (James, 24 Oct 2026: island money and
+       real-reward ⭐ are separate wallets), now that every island screen shows 🪙. */
+    wallet: 'coins'
   };
 
   /* ---------------- land ---------------- */
@@ -1585,7 +1586,7 @@
     if (it.kind === 'pet' && !(opts && opts.noPetCap)) {
       var room = petRoom(w);
       if (room.mode === 'home' && room.atCap) return { ok: false, code: 'home_full', reason: 'Home is full (' + room.max + ' of ' + room.max + '). Move a pet to the Pet Hotel to make room.' };
-      if (room.mode !== 'home' && !room.canAdopt) return { ok: false, code: 'own_full', reason: 'You can have up to ' + room.max + ' pets, and you have ' + room.count + '. Look after them in the Pet Corner.' };
+      if (room.mode !== 'home' && !room.canAdopt) return { ok: false, code: 'own_full', reason: 'You can have up to ' + room.max + ' pets, and you have ' + room.count + '. Look after them in My pets.' };
     }
     if (it.kind === 'food') {
       if (pantryCount(w, id) + it.meals > CARE.pantryMax) return { ok: false, code: 'pantry_full', reason: 'Your pantry is full of ' + it.name + '.' };

@@ -157,8 +157,13 @@
     try { s = P && typeof P.foodIcon === 'function' ? P.foodIcon(id) : ''; } catch (e) { s = ''; }
     return '<span class="slps-food">' + (s || sprite(E, id)) + '</span>';
   }
+  /* the island's money (F-KU5): a card made in 🪙 (island-shop's wallet: 'coins', since the two wallets) shows 🪙 and
+     its shortfall in coins; a ⭐ card (a core that pays in stars) reads as before */
+  function symOf(c) { return c && c.wallet === 'coins' ? '🪙' : '⭐'; }
+  function money(c) { return symOf(c) + ' ' + fmt(c.price); }
+  function needLine(c, n) { return tx(c && c.wallet === 'coins' ? 'char.cast.needCoins' : 'char.cast.need', { n: fmt(n) }); }
   function priceHtml(c) {
-    return '<div class="pr">' + (c.free ? '<s>⭐ ' + fmt(c.price) + '</s> <span class="slw-free">' + esc(tx('wardrobe.free')) + '</span>' : '⭐ ' + fmt(c.price)) + '</div>';
+    return '<div class="pr">' + (c.free ? '<s>' + money(c) + '</s> <span class="slw-free">' + esc(tx('wardrobe.free')) + '</span>' : money(c)) + '</div>';
   }
 
   /* ================================================================
@@ -173,7 +178,7 @@
   /* the kids update's new species (SLIslandLook.KU_IDS): a card's 'New' badge while the child has none */
   function isNew(id) { var L = sib('SLIslandLook', './world-look.js'); return !!(L && Array.isArray(L.KU_IDS) && L.KU_IDS.indexOf(id) >= 0); }
   function petCardVM(E, c, room, U) {
-    var vm = { id: c.id, kind: 'pet', name: c.name, fact: factOf(E, c.id), price: c.price, free: c.free, state: c.state,
+    var vm = { id: c.id, kind: 'pet', name: c.name, fact: factOf(E, c.id), price: c.price, free: c.free, state: c.state, wallet: c.wallet || null,
       readopt: !!c.readopt, chip: null, act: null, can: false, line: null,
       fresh: (c.state === 'adopt' || c.state === 'ownFull' || c.state === 'homeFull' || c.state === 'locked') && !c.readopt && isNew(c.id) ? tx('isle.chipNew') : null,
       loves: c.favFood ? { id: c.favFood, text: tx('care.shop.loves', { food: speciesName(E, c.favFood) }) } : null };
@@ -198,14 +203,14 @@
       vm.can = !!c.can;
     }
     /* 'total' at the cap ('ownFull'): the cap chip and the Pet Corner (above); the banner says why (care.ownFull) */
-    if ((vm.act === 'adopt' || vm.act === 'room') && !vm.can && c.code === 'insufficient' && typeof c.need === 'number') vm.line = tx('char.cast.need', { n: fmt(c.need) });
+    if ((vm.act === 'adopt' || vm.act === 'room') && !vm.can && c.code === 'insufficient' && typeof c.need === 'number') vm.line = needLine(c, c.need);
     return vm;
   }
   function foodCardVM(E, c, trialMax) {
-    var vm = { id: c.id, kind: 'food', name: c.name, fact: descOf(E, c.id), price: c.price, free: c.free, have: c.have, state: c.state,
+    var vm = { id: c.id, kind: 'food', name: c.name, fact: descOf(E, c.id), price: c.price, free: c.free, have: c.have, state: c.state, wallet: c.wallet || null,
       act: 'buy', can: !!c.can, line: null, pantry: tx('care.pantry') + ' · ' + c.have };
     if (c.state === 'full') vm.line = tx('care.pantryFull', { food: c.name });
-    else if (c.state === 'short' && typeof c.need === 'number') vm.line = tx('care.noPoints', { n: fmt(c.need), food: c.name });
+    else if (c.state === 'short' && typeof c.need === 'number') vm.line = tx(c.wallet === 'coins' ? 'care.noCoins' : 'care.noPoints', { n: fmt(c.need), food: c.name });
     /* test mode: a greyed 'Get it free' says why on the card (QA 24 Oct, item 8) */
     else if (c.state === 'trialFull') vm.line = tx('care.trialFull', { n: trialMax || ((E.C.CARE || {}).trialPantryMax) || 0 });
     return vm;
@@ -218,7 +223,11 @@
     var groups = raw.map(function (g) {
       if (g.key === 'food') {
         var meter = tx('care.pantry') + ' · ' + g.meals + (g.trialMax ? ' / ' + g.trialMax : '');
-        return { key: 'food', kind: 'food', title: tx(g.labelKey), lines: g.lineKey ? [tx(g.lineKey, { n: g.trialMax })] : [], meter: meter,
+        var lines = g.lineKey ? [tx(g.lineKey, { n: g.trialMax })] : [];
+        /* no meal the child can get now (F-KU4's free basic meal, F-KU5): a hungry pet is never left out, the Pet Corner has it */
+        if (!trial && E.care && typeof E.care.basicMeal === 'function' && !g.items.some(function (c) { return c.group !== 'treat' && c.can; }) &&
+            g.items.some(function (c) { return c.group !== 'treat' && c.state === 'short'; })) lines.push(tx('care.basic.shop'));
+        return { key: 'food', kind: 'food', title: tx(g.labelKey), lines: lines, meter: meter,
           cards: g.items.map(function (c) { return foodCardVM(E, c, g.trialMax); }) };
       }
       var title = g.key === 'home' ? tx('care.shop.home') : g.name;
@@ -252,7 +261,7 @@
     if ((!c.chip || c.chip.cls === 'lock') && !priceOnButton) h += priceHtml(c);
     if (c.line) h += '<div class="slps-need">' + esc(c.line) + '</div>';
     var label = c.act === 'adopt' ? tx('care.shop.adopt') : c.act === 'room' ? tx('care.makeRoom') : c.act === 'corner' ? tx('care.corner.title')
-      : c.act === 'buy' ? (c.free ? tx('isle.unlockFree') : '⭐ ' + fmt(c.price)) : '';
+      : c.act === 'buy' ? (c.free ? tx('isle.unlockFree') : money(c)) : '';
     var needsBuy = c.act === 'adopt' || c.act === 'room' || c.act === 'buy';
     if (label && (!needsBuy || buy)) {
       h += '<div class="row"><button type="button" class="' + (c.act === 'corner' ? 'slw-btn' : 'slw-buy') + '" data-a="' + c.act + '" data-id="' + esc(c.id) + '"' +
@@ -664,7 +673,7 @@
         var short = raw && raw.code === 'insufficient' && typeof raw.need === 'number';
         /* with cap 'home' a full home adopts through 'Make room' (afford: the price and land allow it) */
         var go = raw && raw.readopt && (raw.state === 'adopt' ? raw.can || short : raw.state === 'homeFull' && room && room.mode === 'home' && raw.afford);
-        if (go) c.again = { text: tx(/^[aeiou]/i.test(sp) && CP() && CP().STRINGS && Object.prototype.hasOwnProperty.call(CP().STRINGS, 'care.memory.againAn') ? 'care.memory.againAn' : 'care.memory.again', { species: lower(sp) }), can: (raw.state === 'adopt' ? !!raw.can : true) && typeof E.deps.buy === 'function', need: short ? tx('char.cast.need', { n: fmt(raw.need) }) : null };
+        if (go) c.again = { text: tx(/^[aeiou]/i.test(sp) && CP() && CP().STRINGS && Object.prototype.hasOwnProperty.call(CP().STRINGS, 'care.memory.againAn') ? 'care.memory.againAn' : 'care.memory.again', { species: lower(sp) }), can: (raw.state === 'adopt' ? !!raw.can : true) && typeof E.deps.buy === 'function', need: short ? needLine(raw, raw.need) : null };
       }
       return c;
     }).reverse();

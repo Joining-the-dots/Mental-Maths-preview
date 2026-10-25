@@ -110,7 +110,13 @@
     return { sk: PL.skin, ec: PL.eyes.iris, hc: PL.hairNatural, gc: PL.glasses, cc: PL.covering, hac: PL.aid }[f] || [];
   }
   function landName(id) { var c = C(), it = c && c.item(id); return it ? it.name : ''; }
-  function priceText(it, trial) { return trial ? tx('wardrobe.free') : '⭐ ' + fmt(it.price); }
+  /* the island's money (F-KU5): characters and clothes cost 🪙 coins (C.priceOf, since the two wallets) and a shortfall
+     says 'You need N more 🪙'; a core that pays in ⭐ reads as before */
+  function coinsOn() { var c = C(); return !!(c && typeof c.walletOf === 'function' && c.walletOf() === 'coins'); }
+  function money(n) { return (coinsOn() ? '🪙' : '⭐') + ' ' + fmt(n); }
+  function priceIn(it) { var c = C(), p = it && c && typeof c.priceOf === 'function' ? c.priceOf(it.id) : null; return typeof p === 'number' && isFinite(p) ? p : it ? it.price : 0; }
+  function needKey() { var c = CP(); return coinsOn() && c && c.STRINGS && own(c.STRINGS, 'char.cast.needCoins') ? 'char.cast.needCoins' : 'char.cast.need'; }
+  function priceText(it, trial) { return trial ? tx('wardrobe.free') : money(priceIn(it)); }
   function eyeNames() { var B = BODY(); return B && B.EYE_SHAPES ? B.EYE_SHAPES : ['1', '2', '3', '4']; }
 
   /* ---------------- the draft and its undo (memory only) ---------------- */
@@ -250,7 +256,7 @@
       if (!s || s.state === 'missing') return;
       var st = s.state === 'owned' ? 'owned' : s.state === 'locked' ? 'opens' : s.state === 'short' ? 'short' : 'affordable';
       out.push({
-        id: c.id, name: c.name, theme: c.theme, price: c.price, state: st, free: st === 'affordable' && !!s.free, need: s.need || 0,
+        id: c.id, name: c.name, theme: c.theme, price: priceIn(Pm.item(c.id) || c), state: st, free: st === 'affordable' && !!s.free, need: s.need || 0,
         active: act === c.id, goal: goal === c.id, opens: st === 'opens' ? landName(s.needs[0]) : null,
         comes: c.includes.filter(function (id) { return !Pm.has(w, id); }).map(itemName),
         move: c.move ? { id: c.move.id, name: tx('move.' + c.move.id) } : null
@@ -388,12 +394,12 @@
   function castHtml(ctx, c, s) {
     var chip = c.state === 'owned' ? '<span class="slp-chip own">✓</span>'
       : c.state === 'opens' ? '<span class="slp-chip lock"><span aria-hidden="true">🔒</span> ' + esc(tx('char.cast.opens', { land: c.opens })) + '</span>'
-      : c.free ? '<span class="slp-chip free"><s>⭐ ' + fmt(c.price) + '</s> ' + esc(tx('wardrobe.free')) + '</span>'
-      : '<span class="slp-chip">⭐ ' + fmt(c.price) + '</span>';
+      : c.free ? '<span class="slp-chip free"><s>' + money(c.price) + '</s> ' + esc(tx('wardrobe.free')) + '</span>'
+      : '<span class="slp-chip">' + money(c.price) + '</span>';
     var act = '';
     if (c.state === 'owned') act = btn('play', tx('char.cast.play', { name: c.name }), { v: c.id, pressed: c.active, cls: 'slw-btn big' + (c.active ? '' : ' on') });
-    else if (c.state === 'affordable' && s.buy) act = btn('buy', c.free ? tx('isle.unlockFree') : '⭐ ' + fmt(c.price), { v: c.id, cls: 'slw-buy', label: c.name + ', ' + (c.free ? tx('wardrobe.free') : '⭐ ' + fmt(c.price)) });
-    else if (c.state === 'short') act = '<p class="slp-need">' + esc(tx('char.cast.need', { n: fmt(c.need) })) + '</p>' + btn('goal', tx('char.cast.save'), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') });
+    else if (c.state === 'affordable' && s.buy) act = btn('buy', c.free ? tx('isle.unlockFree') : money(c.price), { v: c.id, cls: 'slw-buy', label: c.name + ', ' + (c.free ? tx('wardrobe.free') : money(c.price)) });
+    else if (c.state === 'short') act = '<p class="slp-need">' + esc(tx(needKey(), { n: fmt(c.need) })) + '</p>' + btn('goal', tx('char.cast.save'), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') });
     return '<li class="slp-cast' + (c.active ? ' active' : '') + '" data-id="' + c.id + '"><div class="slp-castpic">' + picHtml(c.id, ctx) + '</div>' +
       '<h3>' + esc(c.name) + '</h3><p class="slp-theme">' + esc(c.theme) + '</p><p class="slp-chips">' + chip + '</p>' +
       (c.comes.length ? '<p class="slp-comes">' + esc(tx('char.cast.comes', { items: c.comes.join(', ') })) + '</p>' : '') +

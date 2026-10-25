@@ -56,6 +56,22 @@
   }
   function TO() { return { trial: trial() }; }
   function iState(u, id) { return C.itemState(u, id, TO()); }
+  /* the island's money (F-KU5; James, 24 Oct 2026: two wallets). Learning earns ⭐ for 🎁 My rewards and the same
+     number of 🪙 coins, and My Island pays only in 🪙 (C.walletOf() 'coins'). Every island price, balance and
+     shortfall on these screens reads these, never it.price or u.points; a core that pays in ⭐ reads as before.
+     In free test mode nothing moves in either wallet, and the prices still show (struck through) */
+  function coinsOn() { return typeof C.walletOf === 'function' && C.walletOf() === 'coins'; }
+  function SYM() { return coinsOn() ? (C.COIN && C.COIN.sym) || '🪙' : '⭐'; }
+  function priceOf(it) { var p = it && typeof C.priceOf === 'function' ? C.priceOf(it) : null; return typeof p === 'number' && isFinite(p) ? p : it ? it.price : 0; }
+  function balOf(u) { return !u ? 0 : typeof C.walletBalance === 'function' ? C.walletBalance(u) : u.points || 0; }
+  function money(n) { return SYM() + ' ' + fmt(n); }
+  function balTitle() { return coinsOn() ? tx('coins.balance') : 'Your spendable points'; }
+  /* a pet the pet cap shuts out (itemState 'full', code own_full: F-KU4's A4): its chip, '3 of 3 pets' (an old save
+     above the cap: 'Full: you have 5 pets'), the Pet Shop's own words (F-KU2) */
+  function capChip(s) {
+    var max = s && typeof s.max === 'number' ? s.max : C.CARE ? C.CARE.homeMax : 3, n = s && typeof s.count === 'number' ? s.count : max;
+    return tx(n > max ? 'care.shop.capKeep' : 'care.shop.capFull', { n: n });
+  }
   /* island music (world/music.js): starts after a tap, obeys mute, only on My Island */
   function musicOn() { try { return !!(window.SLMusic && SLMusic.enabled()); } catch (e) { return false; } }
   function islandMusic(ctxName) {
@@ -593,7 +609,7 @@
       var R = C.REGIONS[rk]; if (!R.unlock || unlocked[rk]) return;
       var it = C.item(R.unlock);
       var el = document.createElement('div'); el.className = 'slw-tag3d';
-      el.innerHTML = '<button type="button" class="slw-sign" data-land="' + it.id + '">🔒 ' + esc(R.name) + (trial() ? '<br>FREE' : '<br>⭐ ' + fmt(it.price)) + '</button>';
+      el.innerHTML = '<button type="button" class="slw-sign" data-land="' + it.id + '">🔒 ' + esc(R.name) + (trial() ? '<br>FREE' : '<br>' + money(priceOf(it))) + '</button>';
       el.querySelector('button').addEventListener('click', function () { openItem(it.id); });
       list.push({ el: el, region: rk });
     });
@@ -787,7 +803,7 @@
       html += '<span class="st">' + esc(n === 0 ? tx('isle.takeFull') : n === 1 ? tx('isle.squareFree') : tx('isle.squaresFree', { n: n })) + '</span>';
     } else {
       html += '<span class="st">' + esc(tx('isle.lockedHint')) + '</span>' + (land ? '<button type="button" class="slw-buy" data-act="isle-unlock" data-land="' + land.id + '" data-fk="here:unlock">' +
-        lbl('lock', trial() ? tx('isle.unlockFree') : tx('isle.unlockFor', { price: fmt(land.price) })) + '</button>' : '');
+        lbl('lock', trial() ? tx('isle.unlockFree') : tx(coinsOn() ? 'isle.unlockForCoins' : 'isle.unlockFor', { price: fmt(priceOf(land)) })) + '</button>' : '');
     }
     return html + '<button type="button" class="slw-btn" data-act="isle-home" data-fk="here:home">' + lbl('home', tx('isle.back')) + '</button></div>';
   }
@@ -1051,7 +1067,7 @@
       '<div class="slw' + (mode !== 'play' ? ' slw-edit' : '') + (showtimeOn || (!is3d && Date.now() < encoreUntil) ? ' showtime' : '') + '">' +
         '<div class="slw-hud">' +
           '<button class="slw-learn" type="button" data-act="learn" data-fk="hud:learn">Back to learning</button>' +
-          '<div class="slw-pts" title="Your spendable points">⭐ <span id="slwPts">' + fmt(u.points) + '</span></div>' +
+          '<div class="slw-pts" title="' + esc(balTitle()) + '">' + SYM() + ' <span id="slwPts">' + fmt(balOf(u)) + '</span></div>' +
           goalHtml(u) +
           '<div class="slw-acts">' +
             '<button class="slw-btn big" type="button" data-act="shop" data-fk="hud:shop">' + lbl('shop', 'Island Shop') + '</button>' +
@@ -1093,12 +1109,14 @@
   function lightLabel() { return showtimeOn ? lbl('sun', tx('light.day')) : lbl('moon', tx('light.showtime')); }
   function lightAria() { return esc(showtimeOn ? tx('light.toDay') : tx('light.toShow')); }
   function goalHtml(u) {
-    if (trial()) return '<div class="slw-goal slw-trial" role="note"><span class="gt">Test mode: everything on the island is free. Your ⭐ stay put.</span></div>';
+    if (trial()) return '<div class="slw-goal slw-trial" role="note"><span class="gt">' + (coinsOn() ? esc(tx('coins.goal.trial')) : 'Test mode: everything on the island is free. Your ⭐ stay put.') + '</span></div>';
     var gp = C.goalProgress(u);
     if (!gp) return '<button class="slw-goal" type="button"><span class="gt">' + lbl('goal', 'Pick a savings goal in the Island Shop') + '</span></button>';
-    return '<button class="slw-goal' + (gp.ready ? ' ready' : '') + '" type="button" aria-label="Savings goal: ' + esc(gp.name) + '">' +
+    /* a pet goal the pet cap shuts out (goalProgress full, A4): never 'Ready', the cap instead; its sheet has the Pet Corner */
+    var ready = gp.ready && !gp.full;
+    return '<button class="slw-goal' + (ready ? ' ready' : '') + '" type="button" aria-label="Savings goal: ' + esc(gp.name) + '">' +
       '<span class="gi">' + iconHtml(gp.id, artState(C.ensureWorld(u))) + '</span>' +
-      '<span style="flex:1;min-width:0;"><span class="gt">' + (gp.ready ? 'Ready: you can buy ' + esc(gp.name) : '🎯 ' + esc(gp.name) + ' · ' + fmt(gp.have) + ' / ' + fmt(gp.price) + ' ⭐') + '</span>' +
+      '<span style="flex:1;min-width:0;"><span class="gt">' + (gp.full ? '🎯 ' + esc(gp.name) + ' · ' + esc(capChip(C.petRoom ? C.petRoom(C.ensureWorld(u)) : null)) : ready ? 'Ready: you can buy ' + esc(gp.name) : '🎯 ' + esc(gp.name) + ' · ' + fmt(gp.have) + ' / ' + fmt(gp.price) + ' ' + SYM()) + '</span>' +
       '<span class="gb" style="display:block;"><i style="width:' + gp.pct + '%"></i></span></span></button>';
   }
 
@@ -1257,7 +1275,7 @@
   /* a locked island: one block with its name and price (FREE while we test) → the land's sheet */
   function lockHtml(k) {
     var land = C.item(C.ISLES[k].unlock); if (!land) return '';
-    var name = tx('isle.unlockName', { island: isleName(k) }), price = trial() ? 'FREE' : '⭐ ' + fmt(land.price);
+    var name = tx('isle.unlockName', { island: isleName(k) }), price = trial() ? 'FREE' : money(priceOf(land));
     return '<button type="button" class="slw-lock2d" data-land="' + land.id + '" aria-label="' + esc(name + ' · ' + price) + '">' + ico('lock') +
       '<span>' + esc(name) + '</span><span class="pr">' + esc(price) + '</span></button>';
   }
@@ -1297,7 +1315,7 @@
         rc.forEach(function (c) { var q = c.split(','); xs.push(+q[0]); sy += +q[1]; });
         var onLeft = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2 < C.COLS / 2;
         var it = C.item(R.unlock);
-        html += '<button type="button" class="slw-sign" data-land="' + it.id + '" style="' + (onLeft ? 'left:1%;' : 'left:auto;right:1%;') + 'transform:translate(0,-50%);top:' + pct(PAD + (sy / rc.length + 0.5) * CH, STAGE_H) + ';">🔒 ' + esc(R.name) + (trial() ? '<br>FREE' : '<br>⭐ ' + fmt(it.price)) + '</button>';
+        html += '<button type="button" class="slw-sign" data-land="' + it.id + '" style="' + (onLeft ? 'left:1%;' : 'left:auto;right:1%;') + 'transform:translate(0,-50%);top:' + pct(PAD + (sy / rc.length + 0.5) * CH, STAGE_H) + ';">🔒 ' + esc(R.name) + (trial() ? '<br>FREE' : '<br>' + money(priceOf(it))) + '</button>';
       });
       /* you, beside the house */
       var house = w.placed.filter(function (p) { return p.id === 'house_cottage'; })[0];
@@ -1904,8 +1922,8 @@
     if (titled) hd.insertBefore(first, x);
     if (titled && opts.pts !== false && !opts.small) {
       var u = me(), p = document.createElement('span');
-      p.className = 'slw-hdpts'; p.setAttribute('title', 'Your spendable points');
-      p.innerHTML = '⭐ <b class="n">' + fmt(u && u.points) + '</b>';
+      p.className = 'slw-hdpts'; p.setAttribute('title', balTitle());
+      p.innerHTML = SYM() + ' <b class="n">' + fmt(balOf(u)) + '</b>';
       hd.insertBefore(p, x);
     }
     if (!titled) hd.className += ' bare';
@@ -1920,10 +1938,10 @@
     var sheet = $('.slw-sheet', ov), h = headH(ov);
     if (sheet && sheet.style && sheet.style.setProperty) try { sheet.style.setProperty('--slw-hdh', h + 'px'); } catch (e) {}
   }
-  /* every open sheet's ⭐ balance follows the points (a purchase, learning in another tab) */
+  /* every open sheet's balance (🪙, F-KU5) follows the wallet (a purchase, learning in another tab) */
   function syncHeadPts() {
     var u = me(); if (!u) return;
-    document.querySelectorAll('.slw-hdpts .n').forEach(function (n) { n.textContent = fmt(u.points); });
+    document.querySelectorAll('.slw-hdpts .n').forEach(function (n) { n.textContent = fmt(balOf(u)); });
   }
   function closeAllOverlays() {
     closePhoto();                             /* the photo sheet stops its camera itself (KU-CH14): never a bare remove */
@@ -1943,7 +1961,7 @@
 
   /* ---------------- shop ---------------- */
   function shopCats() {
-    var cats = [['all', '⭐ All'], ['afford', 'I can buy'], ['garden', 'Garden'], ['paths', 'Paths'], ['fun', 'Fun'],
+    var cats = [['all', coinsOn() ? 'All' : '⭐ All'], ['afford', 'I can buy'], ['garden', 'Garden'], ['paths', 'Paths'], ['fun', 'Fun'],
       ['city', lbl('city', tx('shop.tab.city', null, 'City'))], ['home', lbl('home', 'Home')], ['pets', lbl('crew', tx('label.crew', null, 'Crew'))]];
     if (wardrobeOn()) cats.push(['wardrobe', esc(tx('wardrobe.tab'))]);      /* the characters and their wear (KU-CH17) */
     return cats.concat([['land', 'Land'], ['sky', lbl('isles', tx('shop.tab.sky'))], ['games', lbl('games', 'Games')]]);
@@ -1959,25 +1977,28 @@
     var w = C.ensureWorld(u), s = iState(u, it.id), rep = C.isRepeatable(it);
     var chip = s.state === 'owned' ? '<span class="chip own">✓ Owned</span>'
       : s.state === 'locked' ? '<span class="chip lock">🔒 Needs ' + esc(C.item(s.needs[0]).name) + '</span>'
+      : s.state === 'full' ? '<span class="chip uni">' + esc(capChip(s)) + '</span>'
       : s.state === 'capped' ? '<span class="chip own">✓ Plenty for testing (' + s.copies + ')</span>'
       : rep ? '<span class="chip rep">' + (trial() ? 'Get as many as you like' : 'Buy as many as you like') + (s.copies ? ' · you have ' + s.copies : '') + '</span>'
       : '<span class="chip uni">' + (trial() ? 'Free while we test' : 'Buy once, keep forever') + '</span>';
     var buyLabel = s.state === 'owned' ? (it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant' ? 'Use it' : 'Owned ✓')
-      : s.state === 'locked' ? '🔒 Locked' : s.state === 'short' ? 'Need ' + fmt(s.need) + ' more ⭐' : s.state === 'capped' ? 'Plenty ✓' : s.free ? 'Get it free' : 'Buy';
+      : s.state === 'locked' ? '🔒 Locked' : s.state === 'short' ? 'Need ' + fmt(s.need) + ' more ' + SYM() : s.state === 'capped' ? 'Plenty ✓' : s.free ? 'Get it free' : 'Buy';
     var disabled = s.state === 'locked' || s.state === 'short' || s.state === 'capped' || (s.state === 'owned' && !(it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant'));
     var isGoal = C.goalId(w) === it.id;
     /* every card button carries a focus key (card:<what>:<id>), so a repaint (a goal set, a buy refused) keeps focus on it */
-    var goalBtn = (s.state === 'owned' || trial()) ? '' : '<button type="button" class="slw-goalbtn' + (isGoal ? ' on' : '') + '" data-goal="' + it.id + '" data-fk="card:goal:' + it.id + '" aria-pressed="' + isGoal + '" title="' + (isGoal ? 'This is your goal' : 'Make this my savings goal') + '">🎯</button>';
+    var goalBtn = (s.state === 'owned' || s.state === 'full' || trial()) ? '' : '<button type="button" class="slw-goalbtn' + (isGoal ? ' on' : '') + '" data-goal="' + it.id + '" data-fk="card:goal:' + it.id + '" aria-pressed="' + isGoal + '" title="' + (isGoal ? 'This is your goal' : 'Make this my savings goal') + '">🎯</button>';
     var shine = (window.SLIslandLook && SLIslandLook.shineLevel) ? ' shine-' + SLIslandLook.shineLevel(it.price) : '';
     /* an owned sky land is a way there; a locked land's things are a preview: a look, never a Buy (D99) */
     var act = s.state === 'owned' && isleOfLand(it) && canTravel() ? '<button type="button" class="slw-buy" data-goisle="' + it.isle + '" data-fk="card:go:' + it.id + '">' + esc(tx('isle.goThere')) + '</button>'
       : s.state === 'locked' && it.isle ? '<button type="button" class="slw-btn" data-open="' + it.id + '" data-fk="card:see:' + it.id + '">' + esc(tx('shop.seeIt')) + '</button>'
+      /* the pet cap (itemState 'full', A4): the pets the child has, in the Pet Corner, never a Buy that does nothing */
+      : s.state === 'full' ? '<button type="button" class="slw-btn" data-corner="" data-ctab="home" data-fk="card:corner:' + it.id + '">' + esc(tx('care.corner.title')) + '</button>'
       : '<button type="button" class="slw-buy" data-buy="' + it.id + '" data-fk="card:buy:' + it.id + '"' + (disabled ? ' disabled' : '') + '>' + buyLabel + '</button>';
     var game = gameOf(it);
     return '<div class="slw-card' + shine + '"><button type="button" class="ic" data-open="' + it.id + '" aria-label="See ' + esc(it.name) + '">' + iconHtml(it.id, artState(w)) + '</button>' +
       '<div class="nm">' + esc(it.name) + '</div><div class="ds">' + esc(dsc(it)) + '</div>' + (game ? '<div class="slw-plays">🎮 ' + esc(game.name + ': ' + game.what) + '</div>' : '') + chip +
-      (trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">⭐ ' + fmt(it.price) + '</s> <span class="slw-free">FREE</span></div>'
-        : '<div class="pr">⭐ ' + fmt(it.price) + (rep ? ' <span style="font-size:11px;color:#8a84a3;">each</span>' : '') + '</div>') +
+      (trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">' + money(priceOf(it)) + '</s> <span class="slw-free">FREE</span></div>'
+        : '<div class="pr">' + money(priceOf(it)) + (rep ? ' <span style="font-size:11px;color:#8a84a3;">each</span>' : '') + '</div>') +
       '<div class="row">' + act + goalBtn + '</div></div>';
   }
   /* a pet the child has, or one the cap shuts out (F-KU3: SLIslandShop.shopPet): where it is (At home, At the Pet
@@ -1996,7 +2017,7 @@
       : '<button type="button" class="slw-buy" data-buy="' + it.id + '"' + (c.enabled ? '' : ' disabled') + '>' + esc(tx(c.actKey)) + '</button>';
     return '<div class="slw-card' + shine + '"><button type="button" class="ic" data-open="' + it.id + '" aria-label="See ' + esc(it.name) + '">' + iconHtml(it.id, artState(w)) + '</button>' +
       '<div class="nm">' + esc(it.name) + '</div><div class="ds">' + esc(dsc(it)) + '</div>' + chip +
-      (c.owned ? '' : trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">⭐ ' + fmt(it.price) + '</s> <span class="slw-free">FREE</span></div>' : '<div class="pr">⭐ ' + fmt(it.price) + '</div>') +
+      (c.owned ? '' : trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">' + money(c.price) + '</s> <span class="slw-free">FREE</span></div>' : '<div class="pr">' + money(c.price) + '</div>') +
       '<div class="row">' + act + '</div></div>';
   }
   /* the sky island a land opens, or null (Meadow Hill and Beach Cove are Home's own land) */
@@ -2038,7 +2059,7 @@
   /* a land's status (Unlocked ✓ / ⭐ price / FREE), what its shop has, and the way there unless you are there */
   function isleStatusHtml(s, here) {
     var k = s.isle;
-    return (s.status === 'open' ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (s.status === 'free' ? 'FREE' : '⭐ ' + fmt(s.price)) + '</span>') +
+    return (s.status === 'open' ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (s.status === 'free' ? 'FREE' : money(s.price)) + '</span>') +
       '<span class="ct">' + esc(tx('shop.isleCount', { n: s.counts.things })) + '</span>' +
       (here || !canTravel() ? '' : '<button type="button" class="slw-btn" data-goisle="' + k + '" data-fk="go:' + k + '">' + esc(tx(s.owned ? 'isle.goThere' : 'isle.visit')) + '</button>');
   }
@@ -2126,7 +2147,7 @@
       lands += '<div class="slw-crewland" data-isle="' + k + '"><h4 class="slw-acch"><button type="button" class="slw-crewacc' + (open ? ' open' : '') + '" data-crewacc="' + k + '" data-fk="crew:' + k + '" aria-expanded="' + open + '"' +
         (open ? ' aria-controls="slwCL-' + k + '"' : '') + '><span class="ic">' + (typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !g.owned }) : '') + '</span>' +
         '<span class="nm"><span class="fl">' + esc(tx(g.labelKey, { island: g.name })) + '</span><span class="sh">' + esc(tx(g.labelKey, { island: tx('isle.short.' + k, null, g.name) })) + '</span></span>' +
-        (g.owned ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (g.status === 'free' ? 'FREE' : '⭐ ' + fmt(g.price)) + '</span>') +
+        (g.owned ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (g.status === 'free' ? 'FREE' : money(g.price)) + '</span>') +
         (left ? '<span class="ct">' + esc(tx('shop.isleCount', { n: left })) + '</span>' : '') + '</button></h4>' + (open ? grid(g.ids, 'slwCL-' + k) : '') + '</div>';
     });
     return top + '<div class="slw-crewlands">' + lands + '</div>';
@@ -2153,8 +2174,10 @@
     crewAcc = isleNow() !== 'home' ? isleNow() : null;    /* the Crew tab opens on the island you are on (D114) */
     var u = me();
     islandMusic('shop');
-    /* the ⭐ balance is in the sheet's sticky header; a buy that can't go ahead says why on its own card, never at the top */
-    var ov = overlay('<h2>' + lbl('shop', 'Island Shop') + '</h2><div style="font-weight:800;color:#6b5a22;">' + (trial() ? 'Your ⭐ are saved for My rewards (not used here).' : 'Learning earns more ⭐. It’s the same balance as My rewards.') + '</div>' + (trial() ? '<div class="slw-trialbar">Test mode: everything in this shop is <b>free</b>. Your points aren’t used, so try anything.</div>' : '') + '<div class="slw-cats" id="slwCats"></div><div id="slwShopBody"></div>', { onClose: function () { islandMusic(showtimeOn ? 'island_showtime' : 'island_day'); } });
+    /* the balance (🪙, F-KU5) is in the sheet's sticky header; a buy that can't go ahead says why on its own card, never at the top.
+       The line under the title says which money the island uses, and that the ⭐ for My rewards are never spent here */
+    var moneyLine = coinsOn() ? esc(tx(trial() ? 'coins.shop.trialLine' : 'coins.shop.line')) : trial() ? 'Your ⭐ are saved for My rewards (not used here).' : 'Learning earns more ⭐. It’s the same balance as My rewards.';
+    var ov = overlay('<h2>' + lbl('shop', 'Island Shop') + '</h2><div class="slw-moneyline" style="font-weight:800;color:#6b5a22;">' + moneyLine + '</div>' + (trial() ? '<div class="slw-trialbar">Test mode: everything in this shop is <b>free</b>' + (coinsOn() ? ', so try anything.' : '. Your points aren’t used, so try anything.') + '</div>' : '') + '<div class="slw-cats" id="slwCats"></div><div id="slwShopBody"></div>', { onClose: function () { islandMusic(showtimeOn ? 'island_showtime' : 'island_day'); } });
     var cats = $('#slwCats', ov), body = $('#slwShopBody', ov), sheet = $('.slw-sheet', ov);
     /* a new tab or island starts at its top: under the tab row where that row sticks (phones), else with the row;
        either way below the sticky header */
@@ -2210,7 +2233,7 @@
     }
     function paint() {
       var u2 = me(), fk = focusKey(ov), sl = cats.scrollLeft, fl0 = $('.slw-islefilter', body), fsl = fl0 ? fl0.scrollLeft : 0;
-      var pn = $('.slw-hdpts .n', ov); if (pn) pn.textContent = fmt(u2.points);
+      var pn = $('.slw-hdpts .n', ov); if (pn) pn.textContent = fmt(balOf(u2));
       cats.innerHTML = shopCats().map(function (c) { return '<button type="button" class="slw-btn' + (shopCat === c[0] ? ' on' : '') + '" data-cat="' + c[0] + '" data-fk="cat:' + c[0] + '" aria-pressed="' + (shopCat === c[0]) + '">' + c[1] + '</button>'; }).join('');
       var all = shopCat === 'all' ? allTabHtml(u2) : null;
       /* 'I can buy' and the Crew tab come grouped from the shop view-model (null: nothing to buy yet, or no view-model) */
@@ -2224,16 +2247,16 @@
       items.sort(function (a, b) {
         var sa = iState(u2, a.id).state, sb = iState(u2, b.id).state;
         var rank = { affordable: 0, short: 1, locked: 2, capped: 3, owned: 3, full: 3 };   /* full: a pet the cap shuts out (F-KU4), with what cannot be bought now */
-        return ((rank[sa] == null ? 9 : rank[sa]) - (rank[sb] == null ? 9 : rank[sb])) || (a.price - b.price);
+        return ((rank[sa] == null ? 9 : rank[sa]) - (rank[sb] == null ? 9 : rank[sb])) || (priceOf(a) - priceOf(b)) || (a.price - b.price);   /* cheapest first in 🪙 (F-KU5) */
       });
       var next = null;
       if (!items.length && shopCat === 'afford') {
-        C.shopItems().forEach(function (it) { if (iState(u2, it.id).state === 'short' && (!next || it.price < next.price)) next = it; });
+        C.shopItems().forEach(function (it) { if (iState(u2, it.id).state === 'short' && (!next || priceOf(it) < priceOf(next))) next = it; });
       }
       body.innerHTML = shopCat === 'sky' ? skyTabHtml(u2) : grouped !== null ? grouped : '<div class="slw-grid" id="slwShopGrid">' + (all || (items.length ? items.map(function (it) { return cardHtml(u2, it); }).join('')
         : trial() ? '<p style="grid-column:1/-1;font-weight:800;text-align:center;color:#1d8a4c;padding:18px;">You’ve got everything there is. Thanks for testing.</p>'
-        : '<p style="grid-column:1/-1;font-weight:800;text-align:center;color:#6b6390;padding:18px;">Nothing to buy just yet — every bit of learning earns ⭐!' +
-          (next ? '<br>Next up: <b>' + esc(next.name) + '</b> — just ' + fmt(next.price - (u2.points || 0)) + ' more ⭐.' : '') + '</p>')) + '</div>';
+        : '<p style="grid-column:1/-1;font-weight:800;text-align:center;color:#6b6390;padding:18px;">Nothing to buy just yet — every bit of learning earns ' + SYM() + '!' +
+          (next ? '<br>Next up: <b>' + esc(next.name) + '</b> — just ' + fmt(priceOf(next) - balOf(u2)) + ' more ' + SYM() + '.' : '') + '</p>')) + '</div>';
       fillPhotocards(ov);
       /* phones: the tab row and the island chips are sideways strips; the pressed ones come into view */
       cats.scrollLeft = sl; showChip(cats, $('.on', cats));
@@ -2285,7 +2308,7 @@
     }
     return commit(function (u) {
       var r = C.setGoal(u, target);
-      if (r.ok) { var fw = C.ensureWorld(u); fw.goalPrice = it ? it.price : null; fw.goalName = it ? it.name : null; }
+      if (r.ok) { var fw = C.ensureWorld(u); fw.goalPrice = it ? priceOf(it) : null; fw.goalName = it ? it.name : null; }   /* in the island's money (F-KU5) */
       return r;
     }).then(function (res) {
       if (res && res.ok) { toast(target ? '🎯 New goal: ' + it.name : 'Goal cleared.'); draw(); return true; }
@@ -2373,17 +2396,19 @@
       '<h2>' + esc(it.name) + '</h2><div class="slw-detail"><div class="big" id="slwBig">' + iconHtml(id, artState(w)) + '</div>' +
       '<div class="info"><div style="color:#6b6585;">' + esc(dsc(it)) + '</div>' +
       '<div class="slw-unlocks">' + unlockText(it) + '</div>' +
-      (lm ? '' : trial() ? '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;"><s style="color:#9a94b5;">⭐ ' + fmt(it.price) + '</s> <span class="slw-free">FREE while we test</span></div>'
-        : '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;">⭐ ' + fmt(it.price) + (C.isRepeatable(it) ? ' each' : '') + '</div>') +
-      '<div class="slw-need">' + (pc ? esc(pc.line ? tx(pc.line.key, pc.line.params || undefined) : tx(pc.chip.key, pc.chip.params || undefined)) : lm ? '' : s.state === 'short' ? 'You have ⭐ ' + fmt(u.points) + ' — just ' + fmt(s.need) + ' more to go!' : s.state === 'owned' ? 'You own this ✓' : '') + '</div>' +
+      (lm ? '' : trial() ? '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;"><s style="color:#9a94b5;">' + money(priceOf(it)) + '</s> <span class="slw-free">FREE while we test</span></div>'
+        : '<div class="pr" style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:22px;color:#b9821a;">' + money(priceOf(it)) + (C.isRepeatable(it) ? ' each' : '') + '</div>') +
+      '<div class="slw-need">' + (pc ? esc(pc.line ? tx(pc.line.key, pc.line.params || undefined) : tx(pc.chip.key, pc.chip.params || undefined)) : lm ? '' : s.state === 'full' ? esc(tx('care.ownFull', { n: s.count })) : s.state === 'short' ? 'You have ' + money(balOf(u)) + ' — just ' + fmt(s.need) + ' more to go!' : s.state === 'owned' ? 'You own this ✓' : '') + '</div>' +
       '<div class="slw-err" id="slwItemErr" role="alert"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
         (pc ? '<button class="slw-buy" type="button" id="slwCornerNow">' + esc(tx(pc.actKey)) + '</button>'
+          /* the pet cap without the shop view-model (A4): the Pet Corner, never a Buy that does nothing */
+          : s.state === 'full' ? '<button class="slw-buy" type="button" id="slwCornerNow">' + esc(tx('care.corner.title')) + '</button>'
           : lm ? (lmOwned ? '' : '<button class="slw-btn" type="button" id="slwSeeLand">' + esc(tx('isle.seeLand', { land: isleName(lm) })) + '</button>')
           : s.state === 'owned'
           ? ((it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant') ? '<button class="slw-buy" type="button" id="slwUse">Use it</button>' : '') +
             (it.kind === 'attraction' && it.game ? '<button class="slw-buy" type="button" id="slwPlayNow">▶ Play</button>' : '')
-          : '<button class="slw-buy" type="button" id="slwBuyNow"' + (s.state !== 'affordable' ? ' disabled' : '') + '>' + (s.state === 'affordable' ? (s.free ? '🎁 Get it free' : 'Buy for ⭐ ' + fmt(it.price)) : s.state === 'locked' ? '🔒 Locked' : s.state === 'capped' ? 'Plenty for testing ✓' : 'Not enough ⭐ yet') + '</button>' +
+          : '<button class="slw-buy" type="button" id="slwBuyNow"' + (s.state !== 'affordable' ? ' disabled' : '') + '>' + (s.state === 'affordable' ? (s.free ? '🎁 Get it free' : 'Buy for ' + money(priceOf(it))) : s.state === 'locked' ? '🔒 Locked' : s.state === 'capped' ? 'Plenty for testing ✓' : 'Not enough ' + SYM() + ' yet') + '</button>' +
             (trial() ? '' : '<button class="slw-goalbtn' + (C.goalId(w) === id ? ' on' : '') + '" type="button" id="slwGoalNow">🎯 ' + (C.goalId(w) === id ? 'My goal ✓' : 'Make it my goal') + '</button>')) +
         trip + (demoGame ? '<button class="slw-btn" type="button" id="slwDemo">▶ Watch a preview</button>' : '') + peopleBtns(it, s) +
       '</div></div></div>');
@@ -2396,7 +2421,7 @@
       goIsle(k).then(function (ok) { if (ok && uid && isleNow() === k) s3('frameItem', uid); });
     });
     var sl = $('#slwSeeLand', ov); if (sl) sl.addEventListener('click', function () { ov._close(); openItem(C.ISLES[lm].unlock); });
-    var cn = $('#slwCornerNow', ov); if (cn) cn.addEventListener('click', function () { closeAllOverlays(); openCareCorner(pc.corner.petId ? { petId: pc.corner.petId, tab: pc.corner.tab } : { tab: pc.corner.tab }); });
+    var cn = $('#slwCornerNow', ov); if (cn) cn.addEventListener('click', function () { closeAllOverlays(); openCareCorner(pc ? (pc.corner.petId ? { petId: pc.corner.petId, tab: pc.corner.tab } : { tab: pc.corner.tab }) : { tab: 'home' }); });
     var bn = $('#slwBuyNow', ov);
     if (bn) bn.addEventListener('click', function () { buyItem(it, bn, $('#slwItemErr', ov), function (ok) { if (ok) ov._close(); }); });
     var gn = $('#slwGoalNow', ov); if (gn) gn.addEventListener('click', function () { toggleGoal(id).then(function (changed) { if (changed !== false) ov._close(); }); });
@@ -2453,10 +2478,12 @@
         if (quiet && done) done(false);
       });
     };
-    if (!chk.trial && it.price >= C.ECONOMY.confirmAt) {
+    /* the price in the wallet the purchase uses (chk.price: 🪙 since the two wallets, F-KU5); ECONOMY.confirmAt is in that money too */
+    var cost = typeof chk.price === 'number' ? chk.price : priceOf(it);
+    if (!chk.trial && cost >= C.ECONOMY.confirmAt) {
       var c = overlay('<h2>Buy ' + esc(it.name) + '?</h2><div class="big" style="width:140px;margin:8px auto;position:relative;">' + iconHtml(it.id, artState(W())) + '</div>' +
-        '<p style="font-weight:700;">It costs <b>⭐ ' + fmt(it.price) + '</b>. You’ll have <b>⭐ ' + fmt((u.points || 0) - it.price) + '</b> left.</p>' +
-        '<p style="font-size:13px;font-weight:700;color:#6b6390;margin-top:-4px;">These are the same ⭐ you save for real prizes in 🎁 My rewards.</p>' +
+        '<p style="font-weight:700;">It costs <b>' + money(cost) + '</b>. You’ll have <b>' + money(balOf(u) - cost) + '</b> left.</p>' +
+        '<p class="slw-moneynote" style="font-size:13px;font-weight:700;color:#6b6390;margin-top:-4px;">' + (coinsOn() ? esc(tx('coins.confirm.note')) : 'These are the same ⭐ you save for real prizes in 🎁 My rewards.') + '</p>' +
         '<div style="display:flex;gap:8px;justify-content:center;"><button class="slw-btn big" type="button" id="slwNo">Not yet</button><button class="slw-buy" type="button" id="slwYes" style="flex:0 0 auto;padding:10px 22px;">Yes, buy it!</button></div>', { small: true, onClose: function () { confirming = false; if (quiet && !went && done) done(false); } });
       confirming = true;
       fillPhotocards(c);
@@ -2601,7 +2628,7 @@
         /* shapes preview in the child's own colours; roofs and extras on the child's own shape */
         var pv = slot === 'shape' ? ART.sprite('house_cottage', Object.assign({}, st, { shape: it.id })).svg : ART.icon(it.id, st);
         return '<button type="button" class="slw-trayitem" data-style="' + it.id + '" ' + (own ? '' : 'data-locked="1"') + ' aria-pressed="' + on + '" style="' + (on ? 'border-color:#6c5ce7;background:#f1edfb;' : '') + (own ? '' : 'opacity:.55;') + '">' +
-          pv + '<span>' + esc(it.name) + (own ? (on ? ' ✓' : '') : (trial() ? ' · FREE' : ' · ⭐' + fmt(it.price))) + '</span></button>';
+          pv + '<span>' + esc(it.name) + (own ? (on ? ' ✓' : '') : (trial() ? ' · FREE' : ' · ' + money(priceOf(it)))) + '</span></button>';
       }).join('');
     }
     var ov = overlay('<h2>' + lbl('home', 'Your home') + '</h2><div class="slw-detail"><div class="big" style="max-width:300px;">' + ART.sprite('house_cottage', st).svg + '</div><div class="info">' +
@@ -2751,8 +2778,11 @@
   function openInfo() {
     var st = arcadeState();
     var ov = overlay('<h2>❓ How My Island works</h2>' +
-      '<p style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn ⭐ points.<br>' + (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b> — your ⭐ stay put.' : '🛍️ <b>Spend</b> them in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) + '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn points.<br>' +
-      esc(promiseLine()) + (trial() ? '' : '<br>⭐ Spending points never lowers your total-earned score.') + '</p>' + timeHtml(st) +
+      (coinsOn() ? '<p class="slw-howmoney" style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn coins for your island, and the same number of stars for My rewards.<br>' +
+        (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b>. Nothing is spent.' : '🪙 <b>Spend</b> coins in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) +
+        '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn anything.<br>' + esc(promiseLine()) + '<br>⭐ The island never spends your stars. They stay for My rewards.</p>'
+      : '<p style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn ⭐ points.<br>' + (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b> — your ⭐ stay put.' : '🛍️ <b>Spend</b> them in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) + '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn points.<br>' +
+      esc(promiseLine()) + (trial() ? '' : '<br>⭐ Spending points never lowers your total-earned score.') + '</p>') + timeHtml(st) +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="slw-btn" type="button" id="slwReplay">▶ Show the welcome again</button>' +
       (can3DAgain() ? '<button class="slw-btn" type="button" id="slw3dAgain">Try 3D again</button>' : '') + '</div>', { small: true });
     $('#slwReplay', ov).addEventListener('click', function () { ov._close(); showIntro(); });
@@ -2807,8 +2837,9 @@
     if (!w.introSeen) { introWhenDrawn(); return; }
     if (!maybeMakeoverV3(w)) maybeMakeover(w);         /* the sky note first; the v2 city note waits for the next open */
     if (!trial() && !w.trialOverSeen && (w.ledger || []).some(function (e) { return e && e.trial; })) {
-      var ov = overlay('<div class="slw-intro"><div class="card" style="margin:0 auto;"><div class="hero">⭐ 🏝️</div><h2>Testing’s over — thank you!</h2>' +
-        '<p style="font-weight:700;color:#4a3f75;">From now on, island things cost ⭐ — the same ⭐ you save for real prizes in 🎁 My rewards. Everything you already picked is still on your island.</p>' +
+      var ov = overlay('<div class="slw-intro"><div class="card" style="margin:0 auto;"><div class="hero">' + (coinsOn() ? '🪙 🏝️' : '⭐ 🏝️') + '</div><h2>Testing’s over — thank you!</h2>' +
+        (coinsOn() ? '<p style="font-weight:700;color:#4a3f75;">' + esc(tx('coins.trialOver.body')) + '</p><p style="font-weight:700;color:#4a3f75;">' + esc(tx('coins.trialOver.keep')) + '</p>'
+          : '<p style="font-weight:700;color:#4a3f75;">From now on, island things cost ⭐ — the same ⭐ you save for real prizes in 🎁 My rewards. Everything you already picked is still on your island.</p>') +
         '<div style="display:flex;justify-content:center;"><button class="slw-btn big on" type="button" id="slwTrialOk">Got it</button></div></div></div>',
         { small: true, onClose: function () { commit(function (u) { var fw = C.ensureWorld(u); if (fw.trialOverSeen) return { ok: false }; fw.trialOverSeen = true; return { ok: true }; }); } });
       $('#slwTrialOk', ov).addEventListener('click', function () { ov._close(); });
@@ -2855,9 +2886,9 @@
     /* the welcome: an island in the sky with five more floating nearby (the v2 slides promised a city across the bay) */
     var slides = [
       ['🏝️', tx('intro.1.title'), tx('intro.1.body')],
-      ['📚 ➜ ⭐', 'Learn to earn', 'Every maths, spelling or flags session earns ⭐.'],
-      trial() ? ['🧪 🎁', tx('intro.3.trialTitle'), tx('intro.3.trialBody')]
-        : ['⭐ ➜ 🏝️', tx('intro.3.title'), tx('intro.3.body')]
+      coinsOn() ? ['📚 ➜ 🪙', 'Learn to earn', tx('intro.2.coinsBody')] : ['📚 ➜ ⭐', 'Learn to earn', 'Every maths, spelling or flags session earns ⭐.'],
+      trial() ? ['🧪 🎁', tx('intro.3.trialTitle'), coinsOn() ? tx('intro.3.trialCoins') : tx('intro.3.trialBody')]
+        : coinsOn() ? ['🪙 ➜ 🏝️', tx('intro.3.title'), tx('intro.3.coinsBody')] : ['⭐ ➜ 🏝️', tx('intro.3.title'), tx('intro.3.body')]
     ];
     /* pet care (pets U2): one more slide, a pet beside its bowl; care starts when the welcome closes, and a new player
        is offered the Pet Shop after it (pets.adoptOffer, KU13) */
@@ -2871,6 +2902,7 @@
         var w = C.ensureWorld(u);
         if (w.introSeen) return { ok: false };
         w.introSeen = true;
+        if (coinsOn() && w.tutSeen) w.tutSeen.coins = true;   /* the welcome told a new player about the coins: no coin card for them (F-KU5) */
         if (P && !careStarted(w)) fresh = !!P.start(u, day, ms).started;
         return { ok: true };
       }).then(function (res) { if (res && res.ok && fresh) { adoptDue[who] = true; careChanged(); } });
@@ -2893,7 +2925,7 @@
   function checkGoalReached(onOpen) {
     var u = me(); if (!u || trial()) return;
     var w = C.ensureWorld(u), gp = C.goalProgress(u);
-    if (!gp || !gp.ready || w.goalNotified === gp.id) return;
+    if (!gp || !gp.ready || gp.full || w.goalNotified === gp.id) return;   /* full: a pet goal the pet cap shuts out (A4) */
     commit(function (fu) { var fw = C.ensureWorld(fu); if (fw.goalNotified === gp.id) return { ok: false }; fw.goalNotified = gp.id; return { ok: true }; });
     window._slwLastGoal = gp.id;
     if (onOpen) celebrate({ title: '🎯 Goal reached', sub: 'You’ve saved enough for ' + gp.name + '. Buy it now, or keep saving for something bigger.', icon: gp.id, sfx: 'fanfare', btns: [{ label: 'Go to it', fn: function () { openItem(gp.id); } }] });
@@ -3146,7 +3178,7 @@
     try { c = wardrobeOn() ? SH.wardrobeCard(C, u, id, TO()) : null; } catch (e) { c = null; }
     if (!c || !it) return '';
     var ci = charInfo(C.ensureWorld(u), u), on = c.kind === 'char' ? !!c.active : wornNow(ci, it);
-    var line = c.line ? tx(c.line.key, c.line.params) : '', price = '⭐ ' + fmt(c.price), chip = '', act = '';
+    var line = c.line ? tx(c.line.key, c.line.params) : '', price = money(c.price), chip = '', act = '';
     if (c.state === 'owned') {
       chip = '<span class="chip own">✓</span>';
       act = c.kind === 'char' ? '<button type="button" class="slw-buy" data-pplay="' + id + '" aria-pressed="' + on + '"' + (on ? ' disabled' : '') + '>' + (on ? '✓ ' : '') + esc(tx('char.cast.play', { name: c.name })) + '</button>'
@@ -3267,6 +3299,26 @@
         if (!window.SLPeopleUI) throw new Error('people-ui');
         return window.SLPeopleUI.meetCard(ctx);
       }).then(function (r) { peopleChanged(); return r; });
+    } });
+  /* 'Island coins are here' (prio 6; F-KU5): once, for a child who had an island before the two wallets (the
+     welcome tells a new player and sets the same tutSeen.coins). Coins come from learning, the ⭐ stay for My rewards,
+     everything they have stays theirs; in test mode the coins wait for later. Seen when it closes */
+  function coinsNewsHtml() {
+    var lines = ['coins.news.earn', 'coins.news.stars', 'coins.news.keep', trial() ? 'coins.news.trial' : 'coins.news.start'];
+    return '<div class="slw-intro slw-coinsnews"><div class="card" style="margin:0 auto;"><div class="hero">' + esc(SYM()) + '</div><h2>' + esc(tx('coins.news.title')) + '</h2>' +
+      lines.map(function (k) { return '<p style="font-weight:700;color:#4a3f75;">' + esc(tx(k)) + '</p>'; }).join('') +
+      '<div style="display:flex;justify-content:center;"><button class="slw-btn big on" type="button" id="slwCoinsOk">' + esc(tx('coins.news.ok')) + '</button></div></div></div>';
+  }
+  enqueueOpen({ id: 'coins.news', prio: 6,
+    when: function (w) { return coinsOn() && !!w && !!w.introSeen && !(w.tutSeen && w.tutSeen.coins); },
+    show: function () {
+      return new Promise(function (resolve) {
+        var ov = overlay(coinsNewsHtml(), { small: true, onClose: function () {
+          commit(function (u) { var fw = C.ensureWorld(u); if (fw.tutSeen.coins) return { ok: false }; fw.tutSeen.coins = true; return { ok: true }; }).then(resolve, resolve);
+        } });
+        var ok = $('#slwCoinsOk', ov);
+        if (ok) ok.addEventListener('click', function () { ov._close(); });
+      });
     } });
 
   /* ================================================================
@@ -3718,7 +3770,7 @@
   }
   function openGames() {
     var w = W(), st = arcadeState();
-    var html = '<h2>' + lbl('games', 'Island games') + '</h2>' + timeHtml(st) + '<p style="font-size:12.5px;font-weight:700;color:#7c8696;margin:0 0 8px;">' + esc(tx('games.noPoints')) + '</p><div class="slw-games">';
+    var html = '<h2>' + lbl('games', 'Island games') + '</h2>' + timeHtml(st) + '<p style="font-size:12.5px;font-weight:700;color:#7c8696;margin:0 0 8px;">' + esc(tx(coinsOn() ? 'games.noCoins' : 'games.noPoints')) + '</p><div class="slw-games">';
     Object.keys(GAMES).forEach(function (g) {
       var G = GAMES[g], own = C.owns(w, G.att);
       /* the card's colours go in --slw-g (the Pixel skin draws them as a band; the injected rule fills the card) */
@@ -3884,7 +3936,7 @@
   function onPointsChanged() {
     if (!root) return;
     var el = document.getElementById('slwPts'); var u = me();
-    if (el && u) el.textContent = fmt(u.points);
+    if (el && u) el.textContent = fmt(balOf(u));
     syncHeadPts();
     var g = root.querySelector('.slw-goal');
     if (g && u) { var tmp = document.createElement('div'); tmp.innerHTML = goalHtml(u); g.replaceWith(tmp.firstChild); var ng = root.querySelector('.slw-goal'); if (ng) ng.addEventListener('click', goalTap); }

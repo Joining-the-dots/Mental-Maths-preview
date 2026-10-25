@@ -5274,6 +5274,10 @@ function awardPoints(n) {
     const dk = todayKey();
     u.pointsByDay[dk] = (u.pointsByDay[dk] || 0) + n;
   } catch (e) {}
+  /* F-KU5: learning fills both wallets. The same n 🪙 island coins go to this profile (slEarnCoins, the My Island
+     block). Every wrapper of awardPoints (the Daily 30's doubling too) comes through here; refunds never do. A
+     missing or failing island script never stops learning. */
+  try { if (typeof window.slEarnCoins === 'function') window.slEarnCoins(u, n); } catch (e) {}
   saveState();
   updatePointsDisplay();
 }
@@ -22082,6 +22086,8 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
         if (typeof u.pointsEarned !== 'number') u.pointsEarned = 0;
         u.points += n;
         u.pointsEarned += n;
+        /* F-KU5: a story bonus is a learning reward, so it fills both wallets (wallets.md, question 4) */
+        try { if (typeof window.slEarnCoins === 'function') window.slEarnCoins(u, n); } catch (e) {}
       }
       if (sub) { sub.reviewed = true; sub.bonus = n; }
       if (typeof saveState === 'function') saveState();
@@ -32424,6 +32430,59 @@ window.SL_WORLD_TRIAL = true;
     }
     return loading;
   };
+  /* [KU-COINS] Learning fills both wallets (F-KU5; docs/island3d/v3/kids-update/wallets.md). The base awardPoints
+     calls slEarnCoins(u, n) with the n ⭐ it has just given, before it saves: the same n 🪙 island coins go to that
+     profile through SLWorldCore.earnCoins, the core's earn hook (it shapes w.coins; nothing here writes it). The
+     core comes with the island, so until it is in, the coins wait in memory under the profile's name while
+     world-core.js loads on its own (the island's own load when that has started); then they go in and the save
+     is written. Refunds and one-off migrations add to u.points themselves and never come here. Nothing here can
+     stop learning: a failure leaves the ⭐ as they are and the coins waiting for the next try. */
+  var owedCoins = {}, coinLoad = null;
+  function coinCore() { var C = window.SLWorldCore; return C && typeof C.earnCoins === 'function' ? C : null; }
+  function coinNow() { return Date.now(); }
+  function payOwedCoins() {
+    var C = coinCore(), paid = false;
+    if (!C) return false;
+    Object.keys(owedCoins).forEach(function (name) {
+      var n = owedCoins[name], u = state.users && state.users[name];
+      delete owedCoins[name];
+      try { if (u && C.earnCoins(u, n, { now: coinNow() }).ok) paid = true; } catch (e) {}
+    });
+    if (paid) { try { saveState(); } catch (e) {} try { if (typeof updatePointsDisplay === 'function') updatePointsDisplay(); } catch (e) {} }
+    return true;
+  }
+  function loadCoinCore() {
+    if (coinLoad) return coinLoad;
+    var p;
+    try { p = loading || loadScript('world/world-core.js' + worldQuery()); } catch (e) { p = Promise.reject(e); }
+    /* not in (the file failed): the next award tries again; a core that came without the coin wallet (an older cached
+       build) is never loaded a second time, so the island's own core is never replaced under it */
+    coinLoad = p.then(payOwedCoins, payOwedCoins).then(function (ok) { if (!ok && !window.SLWorldCore) coinLoad = null; });
+    return coinLoad;
+  }
+  function profileName(u) {
+    try {
+      if (state.users[state.activeUser] === u) return state.activeUser;
+      var names = Object.keys(state.users);
+      for (var i = 0; i < names.length; i++) if (state.users[names[i]] === u) return names[i];
+    } catch (e) {}
+    return null;
+  }
+  window.slEarnCoins = function (u, n) {
+    if (!u || typeof u !== 'object' || !(typeof n === 'number' && n > 0)) return null;
+    var C = coinCore();
+    if (C) {
+      if (Object.keys(owedCoins).length) payOwedCoins();
+      return C.earnCoins(u, n, { now: coinNow() });
+    }
+    if (window.SLWorldCore) return { ok: false, code: 'old_core' };   /* a core without the coin wallet: nothing to earn with, never a second copy */
+    var name = profileName(u);
+    if (!name) return null;
+    owedCoins[name] = (owedCoins[name] || 0) + n;
+    loadCoinCore();
+    return { ok: false, code: 'waiting' };
+  };
+  /* [/KU-COINS] */
   /* Optional parts that load when they are first needed (kids update, KU21), each once and in
      order. A load that fails is forgotten, so the next call tries again (the island decides when). */
   function loadOnce(list, css) {
@@ -32459,7 +32518,20 @@ window.SL_WORLD_TRIAL = true;
   /* points pill: a little bump + "+N" when learning earns points; savings-goal
      toast once when the goal becomes affordable; tells the island when the
      balance or the profile changes. Purely presentational. */
-  var lastShown = { user: null, pts: null };
+  var lastShown = { user: null, pts: null, coins: null };
+  /* [KU-COINS] the savings goal is in the island's wallet: with 🪙 (F-KU5) the goal's coin price against the coin
+     balance, read from the world core (no core yet, no toast: the price in w.goalPrice may be an older build's ⭐);
+     never for a pet the pet cap shuts out (goalProgress full: there is nothing to buy until a place is free) */
+  function goalCheck(u, pts) {
+    var w = u && u.world, C = window.SLWorldCore;
+    var gid = w && (w.goal || w.goal3);   /* a V4.54 goal or a sky-island goal (v3) */
+    if (!gid || !C || typeof C.walletOf !== 'function') return null;
+    var it = C.item(gid);
+    if (it && it.kind === 'pet' && C.CARE && C.CARE.ownCap !== 'home' && typeof C.petRoom === 'function' && !C.petRoom(w).canAdopt) return null;
+    if (C.walletOf() === 'coins') return { gid: gid, price: C.priceOf(gid), bal: C.coinBalance(u), was: lastShown.coins };
+    return { gid: gid, price: w.goalPrice, bal: pts, was: lastShown.pts };
+  }
+  function coinsNow(u) { var C = window.SLWorldCore; return C && typeof C.coinBalance === 'function' && u ? C.coinBalance(u) : null; }
   try {
     var rawUpd = updatePointsDisplay;
     var wrappedUpd = function () {
@@ -32475,14 +32547,16 @@ window.SL_WORLD_TRIAL = true;
             f.className = 'sl-plus'; f.textContent = '+' + (pts - lastShown.pts);
             pill.appendChild(f); setTimeout(function () { f.remove(); }, 1000);
           }
-          var w = u.world, gid = w && (w.goal || w.goal3);   /* a V4.54 goal or a sky-island goal (v3) */
-          if (gid && typeof w.goalPrice === 'number' && pts >= w.goalPrice && w.goalNotified !== gid &&
-              lastShown.pts < w.goalPrice && !document.querySelector('[data-sl-modal]')) {
+        }
+        if (lastShown.user === name) {
+          var g = goalCheck(u, pts), w = u && u.world;
+          if (g && typeof g.price === 'number' && typeof g.was === 'number' && g.bal >= g.price && g.was < g.price && w.goalNotified !== g.gid &&
+              !document.querySelector('[data-sl-modal]')) {
             slGoalToast(w.goalName || 'your goal');
           }
         }
         var userChanged = lastShown.user !== null && lastShown.user !== name;
-        lastShown.user = name; lastShown.pts = pts;
+        lastShown.user = name; lastShown.pts = pts; lastShown.coins = coinsNow(u);
         if (window.SLWorld) { if (userChanged) window.SLWorld.onUserChanged(); else window.SLWorld.onPointsChanged(); }
         if (userChanged && window.slCareBanner) window.slCareBanner.check();   /* [KU-CARE] the new player's own pets */
       } catch (e) {}
