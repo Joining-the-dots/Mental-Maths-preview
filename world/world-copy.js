@@ -638,6 +638,9 @@
     detail_chimney: 'A chimney that sends up puffs of smoke.',
     ball_planet: 'A ball with its own ring, like a planet.',
     kart_unicorn: 'Pink, shimmering and very fast-looking.',
+    /* QA#9: a game's card already names its game ('🎮 Neon Grand Prix: kart racing'), so these never do */
+    att_pitch: 'A football pitch for your island.',
+    att_kart: 'A garage and race track entrance for your island.',
     track_loop: 'A smooth loop round the island.'
   };
 

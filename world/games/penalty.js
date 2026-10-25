@@ -706,11 +706,12 @@
       },
       /* B7: the ONE next step (an unlock first: the shell's 🎧 Try Bop button goes with it, B10) */
       nextStep: function () { return targetLine(); },
+      /* QA 25 Oct #7: each thing is said once. The title names the medal ('🥉 BRONZE: Great shooting!')
+         and the next step names the rival this round opened ('Bop is unlocked: try him next!', with
+         the shell's 🎧 Try Bop), so neither is a badge as well */
       summaryBadges: function () {
-        var out = [], m = medalInfo(medalFor(s.score)), un = newlyUnlocked();
-        if (m) out.push({ text: m.icon + ' ' + m.name + ' vs ' + rival.name, kind: m.kind });
+        var out = [], m = medalInfo(medalFor(s.score));
         if (s.goals >= 5) out.push({ text: '🎤 ENCORE dance earned!', kind: 'ribbon' });
-        if (un) out.push({ text: '🔓 ' + un.name + ' unlocked!', kind: 'ribbon' });
         if (!m) out.push({ text: 'Next: 🥉 Bronze at 400', kind: 'hint' });
         return out;
       },

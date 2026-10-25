@@ -302,7 +302,7 @@
     walls: 'Ease off in the bends: ⬇ brakes a bit before the turn.',
     spark: 'Hold ✨ in a bend until the sparks go pink, then let go for a boost!'
   };
-  var COACH_SEP = '\n💡 ';                    /* in the summary text: a line break, then the tip */
+  var COACH_TIP = '💡 ', COACH_SEP = '\n' + COACH_TIP;   /* the tip's mark; in the summary text: a line break, then the tip */
   /* what a course's knock-over things and crossers are called, by their look */
   var THINGS = { cone: 'cones', crystal: 'crystals', sandcastle: 'sandcastles', 'stage-bot': 'stage-bots', 'lava-rock': 'lava rocks', crab: 'crabs' };
   function thingsOf(F) {
@@ -311,10 +311,12 @@
     if ((F.crossers || []).length) out.push(THINGS[sk.crosser] || 'crossers');
     return out.join(' and ') || 'cones';
   }
-  /* On the results sheet the coach line leaves the long stats line and gets a line of its own under
-     the medals, in lemon ink (contrast over 12:1 on the sheet), so a child sees the tip first. The
-     shell's summary text keeps it (it is read out with the rest). */
+  /* On an older shell's results sheet the coach line leaves the long stats line and gets a line of its
+     own under the medals, in lemon ink (contrast over 12:1 on the sheet), so a child sees the tip
+     first. A shell of API 3 shows ONE hint, as the Debut Run does (QA#7): the coach line IS the next
+     step there (round.nextStep), so this adds nothing (a shared race's table block calls it too). */
   function coachShow(el, line) {
+    if (shell3()) return;
     var sc = el && el.parentNode, p = null, d, tip;
     try { p = sc ? sc.querySelector('p') : null; } catch (e) { p = null; }
     if (!p || !line) return;
@@ -322,7 +324,7 @@
     d = el.ownerDocument || document;
     tip = d.createElement('p');
     tip.className = 'slg-coach';
-    tip.textContent = COACH_SEP.slice(1) + line;
+    tip.textContent = COACH_TIP + line;
     if (tip.style) { tip.style.color = '#ffe27a'; tip.style.fontWeight = '800'; }
     sc.insertBefore(tip, el);
   }
@@ -482,28 +484,36 @@
         if (!race.rivals.length || p == null) return '🏁 Race complete!';
         return p === 1 ? '🎤 1st — centre stage!' : p === 2 ? '🥈 2nd place!' : p === 3 ? '🥉 3rd place!' : '💖 Fan Favourite!';
       },
+      /* QA 25 Oct #7: the place is said once on the results: in the title from 1st to 3rd ('🥈 2nd
+         place!'), else here ('4th · 1:45.19') */
       summaryBig: function () {
         var res = race.result(), p = placeNow();
         if (!res) return 'Not finished';
-        return (race.rivals.length && p != null ? ordinal(p) + ' · ' : '') + L.fmt(res.ms);
+        return (race.rivals.length && p > 3 ? ordinal(p) + ' · ' : '') + L.fmt(res.ms);
       },
       /* V4.55 fix run B7: the results say what happened and ONE next step — '1st in this race ·
          Silver time · Try the Remix: more obstacles!' (nextStep); how the race went (laps, sparks,
          strips, notes, …) is behind the shell's Details (summaryDetails). A shell of API 3 shows
          nextStep under the personal best and puts summaryText behind Details, so that is empty
-         there; an older shell shows summaryText, which is then the same line. In a shared race the
-         place is left to the big line and the table, which follow the results. */
+         there; an older shell shows summaryText, which is then the same line (stepLine). In a shared
+         race the place is left to the big line and the table, which follow the results.
+         QA#7 (kids update): ONE hint, as the Debut Run has. After a hard race (no medal) the kind
+         coach line IS the next step — '💡 Ease off in the bends: …' — and the line it stands in for
+         (the place, 'Finished', the medal gap or the nudge) goes first behind Details. A Remix nudge
+         is not lost: its button (nextVariant, '🔀 Try the Remix: more obstacles') is the main one.
+         Only a shell of API 3 asks for nextStep; an older one still shows summaryText and the tip on
+         a line of its own (coachShow). A shared race follows the same rule. */
       nextStep: function () {
-        var res = race.result();
-        if (!res) return TIME_UP(LAPN);
-        var m = L.medalFor(track.id, res.ms), p = lv ? null : placeNow();
-        return [race.rivals.length && p > 0 ? ordinal(p) + ' in this race' : '', m ? MEDALS[m].name + ' time' : 'Finished', nudge(res.ms)].filter(Boolean).join(' · ');
+        var c = coachLine();
+        return c ? COACH_TIP + c : stepLine();
       },
-      summaryText: function () { return shell3() ? '' : round.nextStep(); },
+      summaryText: function () { return shell3() ? '' : stepLine(); },
       /* the pill over the 3D view (shell API 3): the lap and the clock, as hud() — which a shared race
          needs called once per drawn frame (lv.drawn) */
       hud3d: function () { return round.hud(); },
-      /* everything else about the race, for the shell's Details ('' when it was not finished) */
+      /* everything else about the race, for the shell's Details ('' when it was not finished): one line
+         of numbers — or, when the coach line took the next step (QA#7), two lines: the place line
+         (stepLine) first, then the numbers */
       summaryDetails: function () {
         if (!race.result()) return '';
         var parts = ['Laps ' + pr.laps.map(function (l) { return l.toFixed(1); }).join(' · ')];
@@ -519,7 +529,8 @@
         if (s.spins) w.push(s.spins + ' spin-out' + (s.spins > 1 ? 's' : ''));
         if (s.scrapes) w.push(s.scrapes + ' scrape' + (s.scrapes > 1 ? 's' : ''));
         parts.push(w.length ? w.join(' · ') : 'no wall bumps!');
-        return parts.join(' · ');           /* the coach line (GP-2) is not here: it has its own line under the medals (coachShow) */
+        /* the coach line (GP-2) is never here: it is the next step (API 3) or has its own line (coachShow) */
+        return coachLine() ? [stepLine(), parts.join(' · ')] : parts.join(' · ');
       },
       coachLine: coachLine,
       summaryBadges: function () {
@@ -527,17 +538,17 @@
         if (!res) return [{ text: '🏁 Finish all ' + LAPN + ' laps for a medal', kind: 'hint' }];
         var m = L.medalFor(track.id, res.ms);
         out.push({ text: m ? MEDALS[m].icon + ' ' + MEDALS[m].name : '🏁 Finisher', kind: MEDAL_KIND[m] });
-        /* a shared race never says 'n of n' (the table beside it has every row) */
-        var p = placeNow();
-        if (race.rivals.length && p != null) out.push({ text: p === 1 ? '🎤 Centre stage' : ordinal(p) + (lv ? ' place' : ' of ' + (race.rivals.length + 1)), kind: 'ribbon' });
+        /* no place badge (QA 25 Oct #7: '4th of 6' was the third '4th' on the sheet): the title or the
+           big line says the place, and a shared race's table has every row */
         if (!s.wall && !s.hits) out.push({ text: '✨ Clean race', kind: 'ribbon' });   /* no wall touch and no cone or crosser */
         if (s.rocket) out.push({ text: '🚀 Rocket start', kind: 'ribbon' });
         return out;
       },
       onFinish: function () {
         purrStop();
-        /* a coach line gets a line of its own on the results sheet (a shared race's table block does the same) */
-        if (!lv && coachLine() && typeof round.resultsExtra !== 'function') round.resultsExtra = function (el) { coachShow(el, coachLine()); if (el && el.style) el.style.display = 'none'; };
+        /* an older shell: a coach line gets a line of its own on the results sheet (a shared race's table
+           block does the same); a shell of API 3 shows it as the next step instead (QA#7) */
+        if (!lv && !shell3() && coachLine() && typeof round.resultsExtra !== 'function') round.resultsExtra = function (el) { coachShow(el, coachLine()); if (el && el.style) el.style.display = 'none'; };
       },
       autoHeld: {},
       autopilot: function () { round.autoHeld = style ? race.driveStyle() : race.drivePlain(); },
@@ -546,6 +557,15 @@
       dispose: function () { purrStop(); mus('layer', 'arp', false); mus('key', 0); if (lv) lv.dispose(); }
     };
     function placeNow() { return lv ? lv.place() : s.finishPlace; }
+    /* the results' place line: '1st in this race · Silver time · Try the Remix: more obstacles!' (B7) */
+    /* the next step without the coach line. QA 25 Oct #7 (games-social): it no longer says the place or the
+       medal again ('4th in this race · Finished · …' beside '4th · 1:45.19' and '🏁 Finisher'): the title or
+       the big line has the place, the first badge the medal; what is left is the nudge */
+    function stepLine() {
+      var res = race.result();
+      if (!res) return TIME_UP(LAPN);
+      return nudge(res.ms);
+    }
     /* GP-2: the one coach line after a finished race with no medal, or '' */
     function coachLine() {
       var res = race.result(), F = track.feat;
@@ -1449,7 +1469,7 @@
     R.resultsExtra = function (el) {
       var again, row, note;
       box = el; liveCss(el.ownerDocument); paint();
-      coachShow(el, R.coachLine());
+      coachShow(el, R.coachLine());           /* an older shell only: on API 3 the tip is the next step (QA#7) */
       try {
         again = el.parentNode.querySelector('#slgAgain'); row = again && again.parentNode; note = el.parentNode.querySelector('#slgAgainNote');
         if (row && row.classList) { row.classList.add('slk-again'); if (note) row.insertBefore(note, row.firstChild); }
@@ -1511,9 +1531,11 @@
   }
   /* the camera chips (the HUD's 🎥 button cycles through the same four, with the same names) */
   var CAM_CHIPS = [{ value: 'chase', label: '🎥 Chase' }, { value: 'stage', label: '🎤 Stage' }, { value: 'map', label: '🗺️ Map' }, { value: 'tv', label: '📺 TV' }];
-  /* the Glow Crew row and the Camera row wait under "More options" until this child's first finish
-     (V4.55 fix run B5): a new driver sees the course, Race or Solo and Easy Drive */
-  function moreOpen(cfg) { return !!(cfg && cfg._kartMore) || hasKartPb(cfg); }
+  /* the Glow Crew row and the Camera row wait under "More options" (V4.55 fix run B5): a driver sees
+     the course, Race or Solo and Easy Drive. QA 25 Oct #5: they stay there until the child opens them
+     on this visit (they opened by themselves after the first finish, and pushed ▶ Play below an
+     iPad's screen) */
+  function moreOpen(cfg) { return !!(cfg && cfg._kartMore); }
   function menuOptions(cfg) {
     hookVariant(cfg);
     var L = logic(), o = loadOpts(cfg), variant = (cfg && cfg.variant) || 'track_loop', out = [], more = moreOpen(cfg), extra = false;
@@ -1528,16 +1550,17 @@
       /* the Glow Crew's speed (this row was 'Stage': that word is now only the camera). A course with
          no medal times yet has no time to aim for "here", so no lock note */
       var cls = effCls(cfg, o, variant), C = L.CLASSES, here = !!L.PAR[variant];
-      if (more) out.push({ id: 'cls', label: 'Glow Crew — ' + C[cls].name + ': ' + C[cls].tip, value: cls, options: C.map(function (c, i) {
+      if (more) out.push({ id: 'cls', label: 'Glow Crew — ' + C[cls].name + ': ' + C[cls].tip, value: cls, below: true, options: C.map(function (c, i) {
         var locked = !clsOpen(cfg, variant, i), M = L.MEDALS[i];
         return { value: i, label: c.icon + ' ' + c.name, locked: locked, note: locked && here ? '🔒 Get a ' + M.icon + ' ' + M.name + ' time here to unlock ' + c.icon + ' ' + c.name : '' };
       }) });
     }
     if (view3dOn(cfg)) {
       extra = true;
-      if (more) out.push({ id: 'cam', label: 'Camera', value: CAMS.indexOf(o.cam) >= 0 ? o.cam : 'chase', options: CAM_CHIPS });
+      if (more) out.push({ id: 'cam', label: 'Camera', value: CAMS.indexOf(o.cam) >= 0 ? o.cam : 'chase', below: true, options: CAM_CHIPS });
     }
-    if (extra && !more) out.push({ id: 'more', label: '', value: false, options: [{ value: true, label: '⚙️ More options' }] });
+    /* below: under the Play row (shell API 3), so opening them never moves ▶ Play */
+    if (extra && !more) out.push({ id: 'more', label: '', value: false, below: true, options: [{ value: true, label: '⚙️ More options' }] });
     return out;
   }
   function setOption(cfg, id, value) {

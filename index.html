@@ -3425,6 +3425,10 @@ function slLcMissing(code, where) {
   .tp-done .tp-state { color:#2ecc71; }
   @media (max-width: 720px) {
     .tt-layout { flex-direction:column; }
+    /* QA 25 Oct #4: in the column the frame takes the screen's width, not the 100-column
+       grid's (align-items:flex-start sized it to the grid: a 3,472 px page on a phone).
+       The grid scrolls inside its own frame; the page never scrolls sideways */
+    .tt-layout .grid-frame { align-self:stretch; width:100%; min-width:0; max-width:100%; }
     .trick-panel { flex:1 1 auto; width:100%; box-sizing:border-box; max-height:240px; }
   }
 </style>
@@ -35316,10 +35320,25 @@ window.SL_WORLD_TRIAL = true;
   }
 
   var offered = {};
+  /* QA 25 Oct #14: 'Maybe later' is remembered on this device for this player and today, so a
+     reload or a player switch does not bring the offer back (the 🚀 chip still starts it). A
+     screen preference in this browser's storage, nothing more: when storage is blocked the
+     page's own memory (offered) still holds it until a reload */
+  var LATER_KEY = 'slD30Later';
+  function laterMap() {
+    try { var m = JSON.parse(window.localStorage.getItem(LATER_KEY) || '{}'); return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; } catch (e) { return {}; }
+  }
+  function saidLater(name) { return laterMap()[name] === todayKey(); }
+  function rememberLater(name) {
+    var m = laterMap(), out = {}, day = todayKey();
+    Object.keys(m).forEach(function (k) { if (m[k] === day) out[k] = day; });   /* only today's are kept */
+    out[name] = day;
+    try { window.localStorage.setItem(LATER_KEY, JSON.stringify(out)); } catch (e) {}
+  }
   function offer(manual) {
     var u = cur();
     if (!u) return;
-    if (!manual && offered[u.name]) return;
+    if (!manual && (offered[u.name] || saidLater(u.name))) { offered[u.name] = true; return; }
     offered[u.name] = true;
     if (document.getElementById('d30Offer')) return;
     var el = document.createElement('div');
@@ -35337,7 +35356,7 @@ window.SL_WORLD_TRIAL = true;
         '<div><button class="btn d30-later" type="button" style="margin-top:8px;">Maybe later</button></div>' +
       '</div>';
     document.body.appendChild(el);
-    el.querySelector('.d30-later').addEventListener('click', function () { try { el.remove(); } catch (e) {} });
+    el.querySelector('.d30-later').addEventListener('click', function () { rememberLater(u.name); try { el.remove(); } catch (e) {} });
     el.querySelector('.d30-start').addEventListener('click', function () {
       try { el.remove(); } catch (e) {}
       var u2 = cur();

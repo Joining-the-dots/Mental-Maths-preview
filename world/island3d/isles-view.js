@@ -86,10 +86,11 @@
      'cell' | 'ghost' | 'none', …}. hit = {actor {target 'pet:<id>' | 'me', t}, item {uid, t,
      isle?}, ghost (t), isle (SLIslesGL.pick() {kind 'bridge' | 'isle' | 'gate', isle, t, x, y,
      z}), cell (the visited frame's rayToCell {c, r, land, t, …}), region ('cove' | 'meadow':
-     Home's locked land under the tap)}; o = {mode, visit, skyMap, unlocked}.
+     Home's locked land under the tap), near ({uid, isle?}: QA#2, a thing of the visited island that
+     plays, just off the tap on screen)}; o = {mode, visit, skyMap, unlocked}.
        play: pets / avatar (unless an item box is ≥ 0.6 u nearer) > items on the visited island >
-       bridges ({to}: the far end) > other islands / gates > land cells > a locked Home region >
-       other cells. The visited island's own box (isles-gl returns it so it occludes what is behind
+       bridges ({to}: the far end) > near ({kind 'item', near: true}) > other islands / gates > land
+       cells > a locked Home region > other cells. The visited island's own box (isles-gl returns it so it occludes what is behind
        it) is no island hit. edit: items > land cells > region > cells (other islands, bridges and
        gates are ignored: no accidental flights). place: the ghost > cells. Sky map (play only):
        any island, bridge or gate → {kind 'isle'} of that island (the visited one too).
@@ -647,10 +648,14 @@
     var actor = mode === 'play' && hit.actor && hit.actor.target ? hit.actor : null;
     if (actor && (!item || !num(item.t) || !num(actor.t) || actor.t <= item.t + OCCLUDE_U)) return actorRoute(actor.target);
     if (item) return { kind: 'item', uid: item.uid };
+    /* QA#2: a tap just off one of this island's things that play (hit.near) is that thing, never the island behind it */
+    var near = mode === 'play' && hit.near && hit.near.uid != null && (hit.near.isle == null || hit.near.isle === visit) ? hit.near : null;
     if (mode === 'play' && gl && !(gl.kind === 'isle' && gl.isle === visit)) {
       if (gl.kind === 'bridge') return { kind: 'bridge', isle: gl.isle, to: gl.isle === visit ? 'home' : gl.isle, locked: false, land: landOf(C, gl.isle) };
+      if (near) return { kind: 'item', uid: near.uid, near: true };
       if (gl.kind === 'gate' || gl.kind === 'isle') return isleRoute(C, gl.kind, gl.isle, unl);
     }
+    if (near) return { kind: 'item', uid: near.uid, near: true };
     if (cell && cell.land) return cellRoute(cell, visit);
     if (hit.region && visit === 'home' && typeof hit.region === 'string') {
       var R = C.REGIONS && C.REGIONS[hit.region];

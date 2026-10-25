@@ -39,7 +39,7 @@
      markerCard(who, week)       the 'Take me off the boards' card
      cardShapeOk(card)           the mirror of the rules' cardShape
      standings(cards, key, period, week, {roster, isRude, me, top, order, games, local}) → {rows, count}
-     moveLine(before, after, {key, period, group, order}) → {text, kind} or null;  LINE_KINDS
+     moveLine(before, after, {key, period, group, order, course}) → {text, kind} or null;  LINE_KINDS
      patchRow(cards, uid, card)  → cards with that child's own card replaced
      showValue(key, v)           a board value as a child reads it: '1:22.40' (the game's own m:ss.xx), '2,995'
      sayValue(key, v)            the same, spoken: '1 minute 22.40 seconds', '2,995'
@@ -489,8 +489,10 @@
   }
   /* The one line under a result: before and after are standings() of the same board, group
      and period from before and after the child's new value (same options both times).
-     ctx = {key, period, group, order}; a list with no place on any row is taken as 'az'
-     whatever ctx says. Good news or a near miss only:
+     ctx = {key, period, group, order, course}; a list with no place on any row is taken as 'az'
+     whatever ctx says. course (optional): the course as the game's menu calls it, '' for none (a
+     menu with one course names only the game: '👑 New record for this device!'); without it the
+     board's own name (QA 25 Oct #11). Good news or a near miss only:
        record  👑 a new best-ever lead        lead  👑 into this week's lead
        up      ⬆️ up to a place that is shown  first  on the board for the first time this week
        near    🎯 close behind the next place  best   'az' order: the child's own progress
@@ -502,7 +504,8 @@
     if (!r || !g || !isBoard(before) || !isBoard(after) || (!week && c.period !== 'ever')) return null;
     var a = ownRow(after), b = ownRow(before);
     if (!a || !isInt(a.v) || (b && !isInt(b.v))) return null;
-    var first = !b, improved = first || beats(r, a.v, b.v), on = ' on ' + r.name + '!';
+    var nm = typeof c.course === 'string' ? c.course : r.name;
+    var first = !b, improved = first || beats(r, a.v, b.v), on = nm ? ' on ' + nm + '!' : '!';
     function line(kind, text) { return { text: text, kind: kind }; }
     var az = c.order === 'az' || !after.rows.some(function (x) { return isObj(x) && isInt(x.place); });
     if (az) return improved ? line('best', '⬆️ A new best ' + (week ? 'this week' : 'ever') + on) : null;
@@ -512,7 +515,7 @@
       if (first || rB > 1 || !alone(before, b)) return line('lead', '👑 ' + g.lead + ' this week' + on);
     }
     if (improved && b && rA < rB && isInt(a.place)) {
-      return line('up', '⬆️ Up to ' + ordinal(a.place) + ' ' + g.where + (week ? ' this week' : ', best ever,') + on);
+      return line('up', '⬆️ Up to ' + ordinal(a.place) + ' ' + g.where + (week ? ' this week' : nm ? ', best ever,' : ', best ever') + on);
     }
     if (first && week) return line('first', 'You’re on ' + g.board + ' this week!');
     if (rA > 1 && isInt(a.gap) && a.gap > 0) {

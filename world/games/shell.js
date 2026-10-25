@@ -179,7 +179,9 @@
        def.controlsFor(cfg)        touch pads per config
        def.menuVariants(cfg)       [{id, name, icon, tip, locked, lockText, medal, best}]
        def.menuVariantsLabel       e.g. 'rival' ('Change rival')
-       def.menuOptions(cfg)        [{id, label, value, options:[{value, label, locked, note}]}]
+       def.menuOptions(cfg)        [{id, label, value, options:[{value, label, locked, note}], below}]
+                                   below: true draws the row under the Play row (QA 25 Oct #5:
+                                   extra choices a child opens never push ▶ Play down)
        def.setOption(cfg, id, value)
        def.pbText(rec, variant, cfg)
        def.music {track}           with window.SLMusic present
@@ -214,8 +216,10 @@
                                    tag added by start()): available(cfg) puts 🏆 Leaderboards
                                    (#slgBoards) in the Play row, menuHint(game, variant, cfg)
                                    one line under the personal best, onResult({game, variant,
-                                   result, outcome, cfg}) one line in #slgBoardSlot on the
-                                   results sheet; prefetch(cfg), open({host, …})
+                                   result, outcome, cfg, menuName}) one line in #slgBoardSlot on
+                                   the results sheet (menuName: the course as the menu calls it,
+                                   '' for none, undefined: the board's name); prefetch(cfg),
+                                   open({host, …})
      API 3 (V4.55 fixes; each optional — a game using none of them draws the API 2 sheets):
        round.nextStep()            ONE next step, a line under the personal best ('Only 130
                                    more for Gold!'). With it the results read: title, big line,
@@ -496,13 +500,14 @@
           var vars = (cfg.ownedVariants || []);
           vhtml = vars.length > 1 ? '<div class="row">' + vars.map(function (v) { return '<button class="slg-var' + (v.id === variant ? ' on' : '') + '" type="button" data-var="' + esc(v.id) + '">' + esc(v.name) + '</button>'; }).join('') + '</div>' : '';
         }
-        var ohtml = '';
+        var ohtml = '', lhtml = '';
         if (def.menuOptions) {
           (def.menuOptions(cfg) || []).forEach(function (o) {
-            ohtml += '<div class="slg-opt" role="group" aria-label="' + esc(o.label) + '"><span class="lb">' + esc(o.label) + '</span>' + (o.options || []).map(function (op) {
+            var h = '<div class="slg-opt" role="group" aria-label="' + esc(o.label) + '"><span class="lb">' + esc(o.label) + '</span>' + (o.options || []).map(function (op) {
               var on = op.value === o.value;
               return '<button class="slg-var' + (on ? ' on' : '') + '" type="button" aria-pressed="' + on + '" data-opt="' + esc(o.id) + '" data-val="' + esc(String(op.value)) + '"' + (op.locked ? ' disabled' : '') + '>' + (op.locked ? '🔒 ' : '') + esc(op.label) + '</button>';
             }).join('') + '</div>' + (o.options || []).filter(function (op) { return op.locked && op.note; }).map(function (op) { return '<p class="slg-lock">' + esc(op.note) + '</p>'; }).join('');
+            if (o.below === true) lhtml += h; else ohtml += h;
           });
         }
         /* a game's own buttons in the Play row (def.menuButtons), each with one note line */
@@ -515,7 +520,7 @@
           });
         }
         var sc = menuSc = setScreen(ROT_HTML + '<div class="slg-emo">' + def.emoji + '</div><h2>' + esc(title) + '</h2>' + vhtml + ohtml + '<p>' + esc(pbLine(variant)) + '</p>' +
-          '<div class="row"><button class="slg-b go" type="button" id="slgPlay">▶ Play</button><button class="slg-b" type="button" id="slgHow">❓ How to play</button>' + bhtml + '</div>' + nhtml);
+          '<div class="row"><button class="slg-b go" type="button" id="slgPlay">▶ Play</button><button class="slg-b" type="button" id="slgHow">❓ How to play</button>' + bhtml + '</div>' + nhtml + lhtml);
         if (bhtml) sc.querySelectorAll('[data-mbtn]').forEach(function (b) { b.addEventListener('click', function () { try { if (def.onMenuButton) def.onMenuButton(b.dataset.mbtn, ctl, cfg); } catch (e) {} }); });
         menuBoards(sc, false);
         sc.querySelectorAll('[data-var]').forEach(function (b) { b.addEventListener('click', function () { variant = b.dataset.var; cfg.variant = variant; if (cfg.onSelectVariant) cfg.onSelectVariant(variant); if (v3 && v3.setRound) v3.setRound(null, variant); menu(); }); });
@@ -763,13 +768,25 @@
         try {
           var B = window.SLBoards;
           if (!r || r.ok !== true || !B || typeof B.onResult !== 'function') return;
-          Promise.resolve(B.onResult({ game: def.key, variant: v, result: res, outcome: r, cfg: cfg })).then(function (info) {
+          Promise.resolve(B.onResult({ game: def.key, variant: v, result: res, outcome: r, cfg: cfg, menuName: menuName(v) })).then(function (info) {
             var slot = sc.querySelector('#slgBoardSlot');
             if (!slot || !info || !info.text || exited) return;
             slot.textContent = String(info.text);
             if (screen === sc) say(String(info.text));
           }).catch(function () {});
         } catch (e) {}
+      }
+      /* QA 25 Oct #11: the course v as this menu names it, for the board line: '' when the menu offers
+         no choice of course (one owned course: the menu shows only the game's title, so 'on Meadow
+         Dash' would be a name the child never meets), the owned course's name when it offers
+         several; undefined for a game with its own list (rivals, kart courses), whose boards keep
+         their own names */
+      function menuName(v) {
+        if (def.menuVariants) return undefined;
+        var own = cfg.ownedVariants || [];
+        if (own.length < 2) return '';
+        for (var i = 0; i < own.length; i++) if (own[i] && String(own[i].id) === String(v) && own[i].name) return String(own[i].name);
+        return undefined;
       }
       function variantChoices() {
         if (def.menuVariants) { try { return (def.menuVariants(cfg) || []).filter(function (v) { return !v.locked; }).length; } catch (e) { return 0; } }

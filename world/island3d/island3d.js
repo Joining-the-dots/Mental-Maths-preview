@@ -204,6 +204,12 @@
        placing.isle, anim.unlockIsle; without unlockedIsles / isles (a V4.54 host) they come from
        view.world (C.unlockedIsles / C.placedOn). on.tapIsle(isle) is new; tapCell / dragCell gain the
        island. setAnchors entries {el, isle} sit at that island's gate / dock / map sign.
+     · Play taps (QA#2): a thing's tags (▶ PLAY / ✋ / NEW!) are HTML the taps go through, so a tap on one
+       (or within TAG_PAD px when the ray hit nothing of the island: a neighbour's body just off the tag is
+       the neighbour) is a tap on that thing; a tap on nothing of the island within NEAR_PX (or
+       NEAR_FRAC of its width) of a thing that plays (not a game gate or the house) is that thing, never the
+       island behind it (routeTap's hit.near). A tap on a landmark shows its name over it (the bubble stays inside the stage) and brings
+       it into view when the stage's edge cuts it off; frameItem aims at a tall thing's middle.
      · info() adds {isle, skyMap, overview, isles: {isle: {mode, lod, live, calls, tris, items}},
        programs, calls, tris, jobs}. setUser also reaches K.vox.atlas() and every vox handler.
    ================================================================ */
@@ -218,6 +224,12 @@
   var DEG = Math.PI / 180;
   var MODES = { play: 1, edit: 1, place: 1 };
   var OCCLUDE_U = 0.6;          /* a pet still wins a tap unless an item box is this much nearer */
+  /* QA#2 (v3 play taps): the ▶ PLAY / ✋ / NEW! tags float over the canvas as HTML the taps pass through */
+  var TAG_PAD = 10;             /* px: a tap this close to a thing's tag (on nothing else of the island) is that thing */
+  var TAG_MIN = 24, TAG_GAP = 4; /* px: a tag's size where the DOM measures none (Node); the gap between its rows */
+  var NEAR_PX = 16;             /* px: a tap on nothing of the island this close to a thing that plays is that thing, */
+  var NEAR_FRAC = 0.35;         /* or this share of its box's width on screen (the Big Wheel's rim and tubs overhang
+                                   its 3 × 2 footprint by about a third of it each side) */
   var DANCE_EVERY_BARS = 16, DANCE_BPM = 118, DANCE_COUNTS = 8;
   var ANCHOR_HZ = 15;
   var EMOTES = ['heart', 'note', 'star'];
@@ -343,6 +355,11 @@
     out = out || {};
     out.x = (nx + 1) / 2 * w; out.y = (1 - ny) / 2 * h;
     return out;
+  }
+  /* how far (px) a screen point is from a screen rect: 0 on or inside it (QA#2's tag and near-miss taps) */
+  function rectDist(x, y, x0, y0, x1, y1) {
+    var dx = Math.max(x0 - x, 0, x - x1), dy = Math.max(y0 - y, 0, y - y1);
+    return Math.sqrt(dx * dx + dy * dy);
   }
   /* ---------------- v3 (pure) ---------------- */
   var ISLES3 = ['home', 'pier', 'jungle', 'treetop', 'castle', 'ice'];
@@ -2736,6 +2753,16 @@
         }
         if (bu != null) hit.item = { t: best, uid: bu, isle: visit };
       }
+      if (mode === 'play' && !wide) {
+        /* QA#2: a tap on a thing's floating tag is that thing, in front of everything; within TAG_PAD px of
+           the tag only when the ray hit nothing of this island (a thing or a pet: on a crowded Home a tap
+           on a neighbour's body just off this badge is the neighbour); else a tap on nothing of this island
+           within NEAR_PX of a thing that plays is that thing (routeTap: after a bridge, before another
+           island, so never the island behind it) */
+        var tg = tagAt(x, y, visit);
+        if (tg && (tg.d === 0 || (!hit.item && !hit.actor))) hit.item = { t: 0, uid: tg.uid, isle: visit };
+        else if (!hit.item) { var nu = nearAt(x, y, visit); if (nu != null) hit.near = { uid: nu, isle: visit }; }
+      }
       var cell = null, sea = null;
       try { cell = F.rayToCell(_ro, _rd, landFor(visit) || undefined); } catch (e) { cell = null; }
       if (cell) hit.cell = { c: cell.c, r: cell.r, land: !!cell.land };
@@ -2751,12 +2778,67 @@
       var k = route.kind;
       PICK.kind = k === 'pet' || k === 'avatar' ? 'actor' : k === 'item' || k === 'ghost' || k === 'cell' || k === 'none' ? k : 'route';
       PICK.has = k !== 'none';
-      if (k === 'item') PICK.uid = route.uid;
+      if (k === 'item') { PICK.uid = route.uid; PICK.near = !!route.near; }
       else if (k === 'pet' || k === 'avatar') PICK.target = route.target;
       else if (k === 'cell') { PICK.c = route.c; PICK.r = route.r; }
       var gp = cell || sea;
       if (gp) { PICK.x = gp.x; PICK.y = gp.y; PICK.z = gp.z; }
       return PICK;
+    }
+    /* QA#2: a hit box's screen rect (canvas px), or null when a corner is behind the camera */
+    var _bc = null;
+    function screenRect(hb) {
+      if (!hb || !camera) return null;
+      if (!_bc) _bc = new T.Vector3();
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (var i = 0; i < 8; i++) {
+        _bc.set(i & 1 ? hb.max[0] : hb.min[0], i & 2 ? hb.max[1] : hb.min[1], i & 4 ? hb.max[2] : hb.min[2]);
+        var s = screenOf(_bc);
+        if (!s) return null;
+        if (s.x < x0) x0 = s.x;
+        if (s.x > x1) x1 = s.x;
+        if (s.y < y0) y0 = s.y;
+        if (s.y > y1) y1 = s.y;
+      }
+      return { x0: x0, y0: y0, x1: x1, y1: y1 };
+    }
+    /* a tag's size: its rows stack upward from the anchor point, centred on it (.slw-tag3d) */
+    function tagSize(wrap) {
+      var kids = wrap && wrap.children ? wrap.children : [], w = 0, h = 0, n = 0;
+      for (var i = 0; i < kids.length; i++) {
+        var kw = kids[i].offsetWidth, kh = kids[i].offsetHeight;
+        if (typeof kw !== 'number' || typeof kh !== 'number') kw = kh = TAG_MIN;
+        else if (!(kw > 0 && kh > 0)) continue;              /* a row that is not shown */
+        if (kw > w) w = kw;
+        h += kh; n++;
+      }
+      return n ? { w: w, h: h + TAG_GAP * (n - 1) } : null;
+    }
+    /* the visited island's thing whose shown tag is nearest the tap, under it or within TAG_PAD px of it:
+       {uid, d} (d = 0 on the tag itself), or null */
+    function tagAt(x, y, visit) {
+      var best = null, bd = Infinity;
+      for (var i = 0; i < anchorList.length; i++) {
+        var a = anchorList[i];
+        if (!a.vis || a.show === false || String(a.key).indexOf('u:') !== 0) continue;
+        var rec = recs.get(a.key.slice(2)), sz = rec && !rec.hidden && !rec.storing && rec.isle === visit ? tagSize(a.wrap) : null;
+        if (!sz) continue;
+        var d = rectDist(x, y, a.x - sz.w / 2, a.y - sz.h, a.x + sz.w / 2, a.y);
+        if (d <= TAG_PAD && d < bd) { bd = d; best = rec.uid; }
+      }
+      return best == null ? null : { uid: best, d: bd };
+    }
+    /* the visited island's thing that plays (not a game gate or the house: those open more than a ride)
+       whose box is within NEAR_PX (or NEAR_FRAC of its width) of the tap on screen, or null */
+    function nearAt(x, y, visit) {
+      var best = null, bd = Infinity;
+      for (var i = 0; i < recList.length; i++) {
+        var r = recList[i], act = r.it && r.it.act;
+        if (r.isle !== visit || r.hidden || r.storing || !r.hit || !act || act === 'launch' || act === 'home') continue;
+        var b = screenRect(r.hit), d = b ? rectDist(x, y, b.x0, b.y0, b.x1, b.y1) : Infinity;
+        if (d <= Math.max(NEAR_PX, NEAR_FRAC * (b ? b.x1 - b.x0 : 0)) && d < bd) { bd = d; best = r.uid; }
+      }
+      return best;
     }
     /* a tap on another island, its bridge or gate, or a locked Home region (v3) */
     function tapRoute(r) {
@@ -2766,7 +2848,7 @@
       tell.apply(null, [h.hook].concat(h.args));
     }
     function pick(x, y) {
-      PICK.kind = 'none'; PICK.uid = null; PICK.target = null; PICK.region = null; PICK.route = null; PICK.c = PICK.r = -1; PICK.has = false;
+      PICK.kind = 'none'; PICK.uid = null; PICK.target = null; PICK.region = null; PICK.route = null; PICK.c = PICK.r = -1; PICK.has = false; PICK.near = false;
       if (!rayAt(x, y)) return PICK;
       if (v3) return pick3(x, y);
       var h = { actor: null, item: null, ghost: -1, cell: null, land: null, sea: null };
@@ -2853,7 +2935,18 @@
       var rec = recs.get(uid);
       if (!rec || encoreHeld(uid)) return;      /* a stage mid-encore ignores its taps */
       startAnim(rec, 'squish', false);          /* the universal squish + 'pop' */
+      if (v3 && mode === 'play') showRide(rec);
       tell('tapItem', uid);
+    }
+    /* QA#2: a landmark's ride is big and slow (the Big Wheel's quarter turn, the treehouse lift): its name
+       pops up over it (kept inside the stage) the moment it is tapped, and one cut off by the stage's edge
+       is brought into view at the same zoom (a cut under reduced motion), so the child sees the ride start */
+    function showRide(rec) {
+      var it = rec.it;
+      if (!it || it.kind !== 'landmark' || !it.act || rec.act || !camera) return;
+      var b = screenRect(rec.hit);
+      if (rig && (!b || b.x0 < 0 || b.y0 < 0 || b.x1 > cssW || b.y1 > cssH)) { rig.focusOn(aimOf(rec), { zoom: rig.goal.zoom }); afterCamera(); }
+      showBubble('u:' + rec.uid, nameOf(rec.uid));
     }
     function encoreLive() { return !!(encoreLock && perfNow() < encoreLock.until); }
     function encoreHeld(uid) { return encoreLive() && encoreLock.uid === uid; }
@@ -3092,10 +3185,15 @@
       if (_v.z < -1 || _v.z > 1) return null;
       return toScreen(_v.x, _v.y, cssW, cssH, _scr2);
     }
-    function placeTag(a, wp) {
+    function placeTag(a, wp, inside) {
       var s = wp ? screenOf(wp) : null;
       if (!s) { if (a.vis) { a.wrap.style.visibility = 'hidden'; a.vis = false; } return; }
       var x = Math.round(s.x * 2) / 2, y = Math.round((s.y + (a.dyPx || 0)) * 2) / 2;
+      /* QA#2: the name bubble stays whole inside the stage (a landmark at the island's back edge would push it
+         off the top): it rises from its point, centred on it */
+      var sz = inside ? tagSize(a.wrap) : null;
+      if (sz && cssW > sz.w + 8) x = Math.min(Math.max(x, sz.w / 2 + 4), cssW - sz.w / 2 - 4);
+      if (sz) y = Math.max(y, Math.min(sz.h + 4, cssH));
       if (!a.vis) { a.wrap.style.visibility = ''; a.vis = true; }
       if (Math.abs(x - a.x) >= 0.5 || Math.abs(y - a.y) >= 0.5) {
         a.x = x; a.y = y;
@@ -3115,7 +3213,7 @@
       }
       if (bubble) {
         if (clockT > bubble.until) hideBubble();
-        else { var bp = worldOfKey(bubble.key, _v2); if (bp) bp.y += 0.25 + bubble.lift; placeTag(bubble, bp); }
+        else { var bp = worldOfKey(bubble.key, _v2); if (bp) bp.y += 0.25 + bubble.lift; placeTag(bubble, bp, true); }
       }
       placeRing();
     }
@@ -3134,6 +3232,7 @@
       } else nm.textContent = text;
       wrap.appendChild(nm);
       wrap.style.visibility = 'hidden';
+      wrap.style.zIndex = '2';                   /* QA#2: over the tags, which a redraw re-adds after it */
       anchorsEl.appendChild(wrap);
       var lift = 0;
       for (var i = 0; i < anchorList.length; i++) if (anchorList[i].key === key) lift = 0.35;   /* above ▶ PLAY / ✋ */
@@ -3192,10 +3291,21 @@
       projectAnchors();
       wake();
     }
+    /* where the camera aims to frame a thing (QA#2): v3 aims at a tall thing's middle, not its foot (the view
+       ray through its middle, down to the camera's target height), so the Big Wheel and the name over it stay
+       in view as far as the island's pan limit allows */
+    function aimOf(rec) {
+      var p = { x: rec.wx, z: rec.wz }, ty = rig && rig.pose && isFinite(rig.pose.ty) ? rig.pose.ty : rec.wy;
+      if (v3 && rec.h > 1 && rayAt(cssW / 2, cssH / 2) && _rd.y < -0.05) {
+        var k = (ty - (rec.wy + rec.h / 2)) / _rd.y;
+        if (k > 0) { p.x += _rd.x * k; p.z += _rd.z * k; }
+      }
+      return p;
+    }
     function frameItem(uid) {
       var rec = recs.get(uid);
       if (!rec || !rig || (v3 && rec.isle !== visitNow())) return;        /* v3: never a flight in disguise */
-      rig.focusOn({ x: rec.wx, z: rec.wz }, { zoom: Math.min(rig.zoomMax(), Math.max(1.5, rig.goal.zoom)) });
+      rig.focusOn(aimOf(rec), { zoom: Math.min(rig.zoomMax(), Math.max(1.5, rig.goal.zoom)) });
       afterCamera();
     }
     /* Find me (KU34): the camera eases to the child's figure at the largest play zoom (a cut under reduced
@@ -4799,6 +4909,7 @@
     normMode: normMode, batchKey: batchKey, diffPlaced: diffPlaced, litChanges: litChanges, rayBox: rayBox,
     choosePick: choosePick, dragTarget: dragTarget, itemLabel: itemLabel, petLabel: petLabel,
     nextDance: nextDance, modelAct: modelAct, toScreen: toScreen, FX_PRESETS: FX_PRESETS,
+    rectDist: rectDist, TAG_PAD: TAG_PAD, NEAR_PX: NEAR_PX, NEAR_FRAC: NEAR_FRAC,
     /* Encore City: per-copy style, placement variety, auto-tiling, layer ownership, the QA grid */
     ENCORE_CAM: ENCORE_CAM, ENCORE_SEC: ENCORE_SEC, NO_JITTER: NO_JITTER,
     seedVariant: seedVariant, houseStyle: houseStyle, copyStyle: copyStyle, ghostUid: ghostUid, jitterFor: jitterFor, idNeighbours: idNeighbours,

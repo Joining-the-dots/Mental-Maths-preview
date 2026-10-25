@@ -20,7 +20,10 @@
          and swaps its SVG for a 256² transparent PNG, progressively: memory hit →
          now; Cache Storage 'sl-pc-<LOOK_VERSION>' (sl-pc-2 for Encore City) hit →
          next tick; otherwise a queued render. The SVG stays in place (visibility
-         hidden) to keep the layout, and the <img data-pc-img> is laid over it.
+         hidden) to keep the layout, and the <img data-pc-img> is laid over it:
+         over the element's box, made position:relative when static — or, for an
+         element with no box of its own (display: contents, as the island's .slw-pc
+         is), over its nearest ancestor that has one (QA#1: the pet naming sheet).
          Resolves with how many elements got a PNG. Call it after every paint
          (cheap and idempotent).
      turntable(host, id, st, opts) → stop()
@@ -1111,6 +1114,17 @@
     var p = parseSpec(el.getAttribute('data-pc'), el.getAttribute('data-st'), el.getAttribute('data-pck'));
     return p ? specOf(p.id, p.st, p.pck) : null;
   }
+  /* the box a laid-over PNG fills: the element's own, or — when it has none (display: contents, the
+     island's .slw-pc, so the old SVG sizing rules still reach the SVG) — its nearest ancestor's. Left
+     static, an element with no box holds nothing: the PNG was laid over the next positioned ancestor
+     instead, which on the pet naming sheet was the whole sheet, over the name box (QA#1) */
+  function overBox(el) {
+    var b = el;
+    try {
+      while (b.parentNode && b.parentNode.nodeType === 1 && root.getComputedStyle(b).display === 'contents') b = b.parentNode;
+    } catch (e) { return el; }
+    return b;
+  }
   /* lay the PNG over the element's SVG (which keeps the layout) once it has decoded */
   function apply(el, url, key) {
     if (!el || !url) return;
@@ -1134,7 +1148,7 @@
     img.onload = function () {
       if (el.getAttribute('data-pc-done') !== key) return;     /* superseded meanwhile */
       if (overlay) {
-        try { if (root.getComputedStyle(el).position === 'static') el.style.position = 'relative'; } catch (e) { /* ignore */ }
+        try { var box = overBox(el); if (root.getComputedStyle(box).position === 'static') box.style.position = 'relative'; } catch (e) { /* ignore */ }
         others.forEach(function (o) { if (o.parentNode === el) o.style.visibility = 'hidden'; });
       }
       img.style.opacity = '1';

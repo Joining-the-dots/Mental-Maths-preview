@@ -42,8 +42,10 @@
      attach(sheet, {overlay, day})   the button on the Island games sheet
      prefetch(cfg)         warm the family list for a game that opened
                            (the class card is brought up to date, its list is not read)
-     onResult({game, variant, result, outcome, cfg}) → Promise of
-                           {text, kind} or null; never rejects
+     onResult({game, variant, result, outcome, cfg, menuName}) → Promise of
+                           {text, kind} or null; never rejects. menuName (optional, a
+                           string): the course as the game's menu calls it, '' when the
+                           menu names none; the line then says that, not the board's name
      menuHint(game, variant, cfg) → one line, or ''
      noteWin({scope, code, rows, race, cfg}) → Promise of {text, kind: 'win', n, week}
                            or null; never rejects. Chunk FR: a race or challenge round's
@@ -647,7 +649,7 @@
      when their lists are in memory (the family's first when both have the same kind of
      news), else this device when two or more profiles have a score there. was / now: the
      profile before and after the result */
-  function lineFor(name, key, week, was, now) {
+  function lineFor(name, key, week, was, now, shown) {
     var gs = [gates(name), gates(name, false, true)].filter(listFor), best = null;
     var order = gs.length ? S.gamesCfg(gs[0].fam).order : modeOf(name).order;
     (gs.length ? gs : [null]).forEach(function (g) {
@@ -664,7 +666,9 @@
           after = B.standings(localCards(week, name, now), key, period, week, o);
           if (after.count < 2) return;
         }
-        var line = B.moveLine(before, after, { key: key, period: period, group: !list ? 'this device' : g.k === 'c' ? S.classLabel(g.code) : 'your family', order: order });
+        var ctx = { key: key, period: period, group: !list ? 'this device' : g.k === 'c' ? S.classLabel(g.code) : 'your family', order: order };
+        if (typeof shown === 'string') ctx.course = shown;      /* the course as the menu calls it (the shell's menuName) */
+        var line = B.moveLine(before, after, ctx);
         if (line && (!best || B.LINE_KINDS.indexOf(line.kind) < B.LINE_KINDS.indexOf(best.kind))) best = line;
       });
     });
@@ -684,7 +688,7 @@
     Object.keys(pb).forEach(function (k) { pbWas[k] = pb[k]; });
     if (o.isPB === true) { if (o.prev) pbWas[key] = o.prev; else delete pbWas[key]; }
     function shot(l, p) { return { avatar: u.avatar, color: u.color, lb: l, world: { pb: p } }; }
-    var line = modeOf(name).boards === 'off' ? null : lineFor(name, key, week, shot(lb, pbWas), shot(noted.lb, pb));
+    var line = modeOf(name).boards === 'off' ? null : lineFor(name, key, week, shot(lb, pbWas), shot(noted.lb, pb), typeof a.menuName === 'string' ? a.menuName : undefined);
     /* d: something to post at the next chance (left alone for a child who is off the boards) */
     lbCommit(name, function (cur) { var n = B.noteResult(cur, key, v, week).lb; if (!n.off) n.d = 1; return n; })
       .then(function () { if (guard(name) && (gates(name).ok || gates(name, false, true).ok)) later(name, day); });

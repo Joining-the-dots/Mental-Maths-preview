@@ -102,8 +102,10 @@
     { id: 'final', name: 'FINAL CHORUS', pop: 'FINAL CHORUS', beats: 32, v: 380, first: 2, gaps: [2, 2, 4, 2, 2, 4, 2, 2, 4, 2, 2], pool: ['low', 'log', 'hedge', 'stack', 'bar'], stars: 3, letter: 'E', shields: 0 }
   ];
   var LETTERS = 'ENCORE';
-  var LETTER_HINT = ['REHEARSAL, at the top of a jump', 'VERSE, up high with a double jump', 'PRE-CHORUS, sliding under an LED gate',
-    'CHORUS, on top of a pink cushion', 'BOUNCE BRIDGE, bounce then double jump', 'FINAL CHORUS, up high with a double jump'];
+  /* where each letter waits, in plain words (QA 25 Oct #11: the results say 'part 2 of 6', never the
+     song's sections: VERSE, PRE-CHORUS… stay on the door signs in the run) */
+  var LETTER_HINT = ['in part 1, at the top of a jump', 'in part 2, up high with a double jump', 'in part 3, sliding under an LED gate',
+    'in part 4, on top of a pink cushion', 'in part 5, bounce then double jump', 'in part 6, up high with a double jump'];
 
   /* schedule segments: the 6 sections, the 2-beat run-out to the finish arch, the Encore,
      then an open end. Times are schedule time tau = t - lag. */
@@ -785,7 +787,7 @@
     function goalLine() {
       if (!s.finished) {
         var sec = Math.min(5, s.section);
-        return 'Next time: reach ' + (sec < 5 ? 'the ' + SECTIONS[sec + 1].name : 'the FINISH') + '!';
+        return 'Next time: reach ' + (sec < 5 ? 'part ' + (sec + 2) : 'the finish') + '!';
       }
       var md = curMedal(), sc = clampScore();
       if (md === 1) return 'Only ' + fmt(T.MEDAL.SILVER - sc) + ' more for ' + MEDALS[2].icon + ' ' + MEDALS[2].name + '!';
@@ -936,8 +938,8 @@
       summaryText: function () {
         var ringsTxt = s.rings ? ' · 🎯 with Timing rings' : '', coach = coachLine(), out;
         if (!s.finished) {
-          var sec = Math.min(5, s.section), pct = Math.floor(s.progress * 100);
-          return 'You reached the ' + SECTIONS[sec].name + ' (' + pct + '%)' + ringsTxt;
+          var sec = Math.min(5, s.section);
+          return 'You reached part ' + (sec + 1) + ' of ' + SECTIONS.length + ringsTxt;
         }
         var hs = ''; for (var i = 0; i < s.maxHearts; i++) hs += i < s.hearts ? '❤' : '🤍';
         var lt = ''; for (var k = 0; k < 6; k++) lt += (k ? ' ' : '') + (s.lettersMask & (1 << k) ? LETTERS[k] : '_');

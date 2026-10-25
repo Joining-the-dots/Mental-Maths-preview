@@ -914,9 +914,10 @@
      screen when My Island opens: --slw-fit = the window's height − the stage's top on the page − FIT_GAP (its
      frame and lip), and the camera refits to the new size. Where even the stage's minimum does not fit (phones:
      the app's header and tabs fill the top) the page may lift the island, never further than the HUD's top
-     reaching the app's sticky header, and a real open scrolls by that much (open = true; never back up, never
-     on a redraw). Measured on every draw, a resize, the 3D stage's first frame, the here row and the fonts */
-  var FIT_GAP = 10, openFit = false, fitWas = null;
+     reaching the app's sticky header, and a real open (open = true) or a row that comes above the stage (the here
+     row, QA#8) scrolls by that much (never back up, never on a plain redraw). Measured on every draw, a resize,
+     the 3D stage's first frame, the here row and the fonts */
+  var FIT_GAP = 10, openFit = false, fitWas = null, fitTop = null;
   function fitStage(open) {
     var stage = root && $('#slwStage', root), vh = window.innerHeight || 0, cs = window.getComputedStyle;
     if (!stage || !vh || !stage.getBoundingClientRect || !cs) return;
@@ -932,7 +933,10 @@
     var min = is3d ? parseFloat(cs(stage).minHeight) || 0 : phone ? 340 : 260;
     var r = stageFit(vh, top, lift, min), v = Math.round(r.fit) + 'px';
     if (v !== fitWas) { fitWas = v; try { root.style.setProperty('--slw-fit', v); } catch (e) {} }
-    if (open && r.scroll > y + 4) try { window.scrollTo({ top: r.scroll, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
+    /* QA#8: a row that comes above the stage (a sky island's here row, a HUD row) pushes it down: the page follows
+       as an open does, only as far as the whole stage (its recentre button too) needs, never past the HUD's lift */
+    var pushed = fitTop != null && top > fitTop + 1; fitTop = top;
+    if ((open || pushed) && r.scroll > y + 4) try { window.scrollTo({ top: r.scroll, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
   }
   /* → {fit, scroll}: the stage's cap and the page scroll that shows all of it — none when it fits at its minimum
      below where it is, else lifted by at most `lift` */
