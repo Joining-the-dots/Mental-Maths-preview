@@ -31,8 +31,9 @@
      toast(text)   the island's toast · sfx(name) / sound(name, petId): SLSound NAMES, only after a tap
      reduced, trial  booleans or functions (defaults: the media query, window.SL_WORLD_TRIAL === true)
      openShop(o)   the Pet Shop (P3.2 openPetShop through the host's lazy load) with {filter: 'food' |
-                   'adopt', news, id}; openMemories() P3.2's Memory Book; openGear() the Island Shop's
-                   Crew aisle; goLearn() back to the learning games. A missing one hides its button.
+                   'adopt' | 'home', news, id}; openMemories() P3.2's Memory Book; openGear() the Island
+                   Shop's pet clothes (Home's Pets shelf); goLearn() back to the learning games. A missing
+                   one hides its button.
      document, setTimeout, clearTimeout  test seams
 
    API (every sheet resolves when it closes, and after any sheet it opened has closed, so the
@@ -47,19 +48,24 @@
      dayCard(ctx, {events}) → Promise<action | null>   queue 'care.day' (prio 40): the most important card
                    of tick's events (SLPetCare.cardOf; else today's status card), its main button going to
                    the right place; dayToast(ctx, events) → the peckish / hungry toast text or null
-     openCorner(ctx, {petId, tab, feed, visit, dress}) → Promise   the Pet Corner (the 🐾 Pets button): tabs
-                   At home · Pantry · Pet Hotel (n) · Pet Rescue · Memory Book (each only when it has
-                   something, KU4: with 'total' the Hotel only while it has guests). With a petId and no
-                   tab it opens where that pet is (C.petWhere: home, Hotel, Rescue, a star's Memory Book);
-                   feed opens its food tray (a visit's at the Rescue), dress its wear tray
+     openCorner(ctx, {petId, tab, feed, visit, dress}) → Promise   My pets (the 🐾 button; wave 3 §8: ONE list,
+                   no tabs): '{n} of 3 pets' ('{n} of 3 at home' with cap 'home'), the sitter, the promise,
+                   then the groups At home (always) · At the Pet Hotel (only with guests) · Safe at the
+                   Pet Rescue (only with a pet there; 'At the Pet Rescue' while the farewell switch is on),
+                   then the footer: 'Pantry: {n} meals' and Adopt a pet · Pet food · Pet clothes · Memory
+                   Book (each only when it can work). tab (contract 7, the options are unchanged) scrolls to
+                   that group; 'pantry' opens the Pet Shop's food instead; 'memories' (a star, or a host
+                   without the Memory Book sheet) shows the memories as a group at the end. With a petId
+                   and no tab it scrolls to that pet where it is (C.petWhere); feed opens its food tray (a
+                   visit's at the Rescue), dress its wear tray
      openFeed(ctx, petId) · openHotel(ctx) · openRescue(ctx) · openPicker = picker · welcome = newsCard
      feedingStrip(ctx, petId, foodId, {res, kind, ov}) → Promise   the sheet slides down to a strip with
                    the tummy row while the stage plays the moment; a false stage → the 2D moment on the
                    portrait (pets U13: bowl, three bits, nods at 1.5 Hz, two hearts); a tap or Esc skips;
                    reduced motion shows the end state
      cardFor(ctx, id) → the home card's HTML · ready(ctx)
-     view-models (pure): tabsOf(status, room, memories) · newsVM(ctx) · dayVM(ctx, events) ·
-                   foodTiles(ctx, petId) · TABS · TAB_KEY · FOOD_KEY · MOMENT
+     view-models (pure): groupsOf(status) · capLine(ctx) · newsVM(ctx) · dayVM(ctx, events) ·
+                   foodTiles(ctx, petId) · GROUPS · GROUP_KEY · FOOD_KEY · MOMENT
    ================================================================ */
 (function (root, factory) {
   var node = typeof module === 'object' && !!module.exports;
@@ -85,8 +91,11 @@
   function SHOP() { return sib('SLIslandShop', './island-shop.js'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
-  var TABS = ['home', 'pantry', 'hotel', 'rescue', 'memories'];
-  var TAB_KEY = { home: 'care.shop.atHome', pantry: 'care.pantry', hotel: 'care.hotel.title', rescue: 'care.rescue.title', memories: 'care.memories' };
+  /* My pets' groups, in order (wave 3 §8), and their headings: the Rescue's says 'Safe' only while the grown-up's
+     farewell switch is off (KU40: with it on, 'At the Pet Rescue'); 'memories' is the fallback group (no Memory Book
+     sheet, or a star asked for) */
+  var GROUPS = ['home', 'hotel', 'rescue'];
+  var GROUP_KEY = { home: 'care.shop.atHome', hotel: 'care.shop.atHotel', rescue: 'care.shop.atRescueSafe', rescueFarewell: 'care.shop.atRescue', memories: 'care.memories' };
   /* a refusal of feed / canFeed / rescueVisit as a world-copy key (others show SLPetCare's reason) */
   var FOOD_KEY = { diet: 'care.diet', full: 'care.full', none: 'care.none' };
   var SOUND = { feed: 'munch', pat: 'pop', play: 'boing', wear: 'chip', home: 'tada', pick: 'click' };
@@ -185,7 +194,7 @@
     if (!A || typeof A[fn] !== 'function') return '';
     try { return A[fn].apply(A, Array.prototype.slice.call(arguments, 1)) || ''; } catch (e) { return ''; }
   }
-  /* the Memory Book's tab: its gold memory star on a night plate (the small white badge reads as a plus at 20 px) */
+  /* the Memory Book's button: its gold memory star on a night plate (the small white badge reads as a plus at 20 px) */
   function starIcon() { var s = care2d('star'); return s ? '<span class="slw-pcc-tstar" aria-hidden="true">' + s + '</span>' : ''; }
   function tummyWord(E, p) { return E.t(E.P.tummyKey(p.level) || 'care.tummy.full'); }
   function happyWord(E, p) { return E.t('care.happy.' + Math.max(0, Math.min(4, p.happy | 0))); }
@@ -200,8 +209,8 @@
     o = o || {};
     return '<button type="button" class="slw-btn' + (o.cls ? ' ' + o.cls : '') + '" data-a="' + a + '"' + (o.id ? ' data-id="' + esc(o.id) + '"' : '') +
       (o.v ? ' data-v="' + esc(o.v) + '"' : '') + ' data-fk="' + esc(o.fk || (a + ':' + (o.id || '') + ':' + (o.v || ''))) + '"' +
-      (o.expanded != null ? ' aria-expanded="' + !!o.expanded + '"' : '') +
-      (o.label ? ' aria-label="' + esc(o.label) + '"' : '') + (o.off ? ' disabled' : '') + '>' + esc(label) + '</button>';
+      (o.expanded != null ? ' aria-expanded="' + !!o.expanded + '"' : '') + (o.describedby ? ' aria-describedby="' + esc(o.describedby) + '"' : '') +
+      (o.label ? ' aria-label="' + esc(o.label) + '"' : '') + (o.off ? ' disabled' : '') + '>' + (o.icon || '') + esc(label) + '</button>';
   }
   function line(text, cls) { return text ? '<p class="slw-pcc-line' + (cls ? ' ' + cls : '') + '">' + text + '</p>' : ''; }
   function petName(E, id) { var p = E.C.crewPet(E.w(), id); return p ? p.name : ''; }
@@ -226,16 +235,21 @@
   /* ================================================================
      VIEW-MODELS (pure)
      ================================================================ */
-  /* the Corner's tabs: At home and the Pantry always; the Hotel with 'home' always, with 'total' only while it
-     has guests (KU4); the Rescue while someone is there; the Memory Book once there is a memory */
-  function tabsOf(status, room, memories) {
+  /* My pets' groups (wave 3 §8): At home always; the Pet Hotel only while it has guests (either cap mode: with 'home'
+     a pet still checks in from its card's 'Move to the Pet Hotel'); the Rescue only while a pet is there */
+  function groupsOf(status) {
     var n = function (where) { return status.pets.filter(function (p) { return p.where === where; }).length; };
-    var out = [{ key: 'home', n: n('home') }, { key: 'pantry', n: null }];
-    var guests = n('hotel');
-    if ((room && room.mode === 'home') || guests > 0) out.push({ key: 'hotel', n: guests });
+    var out = [{ key: 'home', n: n('home') }];
+    if (n('hotel') > 0) out.push({ key: 'hotel', n: n('hotel') });
     if (n('rescue') > 0) out.push({ key: 'rescue', n: n('rescue') });
-    if (memories && memories.length) out.push({ key: 'memories', n: memories.length });
     return out;
+  }
+  /* the list's first line: '{n} of 3 pets' (cap 'total', C.petRoom's count; an old save above the cap 'Full: you have
+     {n} pets'), '{n} of 3 at home' with cap 'home' (a pet at the Rescue keeps its home spot) */
+  function capLine(ctx) {
+    var E = env(ctx), room = E.room(), st = E.status();
+    if (room.mode === 'home') return E.t('care.pick.count', { n: st.pets.filter(function (p) { return p.where === 'home' || p.where === 'rescue'; }).length });
+    return room.count > room.max && E.has('care.shop.capKeep') ? E.t('care.shop.capKeep', { n: room.count }) : E.t('care.shop.capFull', { n: room.count });
   }
   /* 'News from the Pet Shop' (KU13): the cap line of the mode, the new animals, and the shop button's truth table */
   function newsVM(ctx) {
@@ -532,67 +546,54 @@
   }
 
   /* ================================================================
-     THE PET CORNER (U5–U7, U9–U11)
+     MY PETS (U5–U7, U9–U11; wave 3 §8: one list, no tabs)
      ================================================================ */
-  /* opened on one pet with no tab named (the Pet Shop's 'Pet Corner' button, a toast, the hungry reminder): the tab
-     where that pet really is (C.petWhere), and the tray that fits it there: feeding at home is a visit at the Rescue,
-     a Hotel guest needs no meal, Dress opens where the pet can be dressed */
-  var TAB_OF = { home: 'home', hotel: 'hotel', rescue: 'rescue', star: 'memories' };
+  /* where the list opens (contract 7: openCorner's options are unchanged, a tab now names a place in the list):
+     a named group is scrolled to; 'pantry' is the footer; 'memories' shows the memories as the last group. Opened on
+     one pet with no tab (the Pet Shop's 'My pets' button, a toast, the hungry reminder, the next-step card): the
+     group where that pet really is (C.petWhere; a star's memory), and the tray that fits it there: feeding at home is
+     a visit at the Rescue, a Hotel guest needs no meal, Dress opens where the pet can be dressed */
+  var GROUP_OF = { home: 'home', hotel: 'hotel', rescue: 'rescue', star: 'memories', memories: 'memories', pantry: 'pantry' };
   function startOf(E, o) {
-    var where = o.petId ? E.C.petWhere(E.w(), o.petId) : null, tab = o.tab || (own(TAB_OF, where) ? TAB_OF[where] : 'home'), kind = null;
+    var where = o.petId ? E.C.petWhere(E.w(), o.petId) : null, kind = null;
+    var group = o.tab ? (own(GROUP_OF, o.tab) ? GROUP_OF[o.tab] : 'home') : own(GROUP_OF, where) ? GROUP_OF[where] : 'home';
     if (o.petId && (o.feed || o.visit)) kind = where === 'rescue' ? 'visit' : where === 'hotel' || where === 'star' ? null : o.feed ? 'feed' : 'visit';
     else if (o.petId && o.dress && (where === 'home' || where === 'hotel')) kind = 'dress';
-    return { tab: tab, tray: kind ? { kind: kind, id: o.petId } : null };
+    return { group: group, mem: group === 'memories', tray: kind ? { kind: kind, id: o.petId } : null };
   }
   function openCorner(ctx, o) {
     o = o || {};
     if (!ready(ctx)) return Promise.resolve(false);
     var E = env(ctx);
     if (!E.status().started) return newsCard(ctx).then(function () { return true; });
+    /* the Pantry is the Pet Shop's food now (wave 3 §8: no Pantry tab; the list's footer counts the meals) */
+    if (o.tab === 'pantry' && typeof ctx.openShop === 'function') return Promise.resolve(ctx.openShop({ filter: 'food' })).then(function () { return true; }, function () { return true; });
     return new Promise(function (resolve) {
       var first = startOf(E, o);
-      var S = { tab: first.tab, tray: first.tray, msg: {}, busy: false, after: null };
-      var ov = sheet(E, '<h2>' + esc(E.t('care.corner.title')) + '</h2><div class="slw-pcc-tabs" role="tablist"></div><div class="slw-pcc-panel" role="tabpanel" id="slwPccPanel"></div>' +
+      var S = { uid: 'slwPcc' + (++seq), mem: first.mem, tray: first.tray, msg: {}, busy: false, after: null };
+      var ov = sheet(E, '<h2>' + esc(E.t('care.corner.title')) + '</h2><div class="slw-pcc-panel"></div>' +
         '<div class="slw-vh slw-pcc-live" role="status" aria-live="polite"></div>', {
         cls: 'slw-pcc',
-        /* a sheet the Corner opened (the Pet Shop, the Crew aisle) closes first */
+        /* a sheet the list opened (the Pet Shop, the pet clothes, the Memory Book) closes first */
         onClose: function () { if (S.after) S.after.then(function () { resolve(true); }, function () { resolve(true); }); else resolve(true); }
       });
-      var tabsEl = ov.querySelector('.slw-pcc-tabs'), panel = ov.querySelector('.slw-pcc-panel');
+      var panel = ov.querySelector('.slw-pcc-panel');
       function say(text) { var r = ov.querySelector('.slw-pcc-live'); if (r) { r.textContent = ''; r.textContent = text; } }
       function paint(fk) {
-        var st = E.status(), room = E.room(), mem = E.P.memories(E.w()), tabs = tabsOf(st, room, mem);
-        if (!tabs.some(function (t) { return t.key === S.tab; })) S.tab = 'home';
-        var keep = fk || focusKey(E);
-        tabsEl.innerHTML = tabs.map(function (t) {
-          var on = t.key === S.tab, label = E.t(TAB_KEY[t.key]) + (t.key === 'hotel' ? ' (' + t.n + ')' : '');
-          return '<button type="button" class="slw-btn slw-pcc-tab" role="tab" data-a="tab" data-v="' + t.key + '" data-fk="tab:' + t.key + '" aria-selected="' + on +
-            '" aria-controls="slwPccPanel" tabindex="' + (on ? 0 : -1) + '">' + (t.key === 'rescue' ? care2d('badge', 'rescue') : t.key === 'memories' ? starIcon() : '') + esc(label) + '</button>';
-        }).join('');
-        panel.setAttribute('aria-label', E.t(TAB_KEY[S.tab]));
-        panel.innerHTML = PANELS[S.tab](E, S, st, room, mem);
+        var st = E.status(), room = E.room(), mem = E.P.memories(E.w()), keep = fk || focusKey(E);
+        if (!mem.length) S.mem = false;
+        panel.innerHTML = listHtml(E, S, st, room, mem);
         photo(E, panel);
-        bind(tabsEl, on); bind(panel, on);
-        tabKeys();
+        bind(panel, on);
         panel.querySelectorAll('[data-name]').forEach(function (inp) {
           inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { if (e.preventDefault) e.preventDefault(); on.name(inp.getAttribute('data-name')); } });
         });
         refocus(ov, keep);
-        var pressed = tabsEl.querySelector('[aria-selected="true"]');
-        try { if (pressed && pressed.scrollIntoView) pressed.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) { /* ignore */ }
       }
-      /* the tab row: arrows, Home and End move along it (the WAI tabs pattern) */
-      function tabKeys() {
-        var list = tabsEl.querySelectorAll('[role="tab"]');
-        list.forEach(function (b, i) {
-          b.addEventListener('keydown', function (e) {
-            var to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: list.length - 1 }[e.key];
-            if (to == null) return;
-            if (e.preventDefault) e.preventDefault();
-            to = (to + list.length) % list.length;
-            S.tab = list[to].getAttribute('data-v'); S.tray = null; paint('tab:' + S.tab);
-          });
-        });
+      /* a place in the list into view (under the sheet's sticky header: scroll-margin-top in pet-care.css), focus on
+         its first button */
+      function show(el, focusEl) {
+        try { if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); if (focusEl) focusEl.focus(); } catch (e) { /* ignore */ }
       }
       /* one change at a time; then the sheet redraws with focus kept (the host redraws the island) */
       function act(fn, after) {
@@ -642,16 +643,19 @@
             var end = visit ? (res.home ? E.t('care.rescue.home', { name: name }) : E.t('care.rescue.progress', { n: res.visits }))
               : basic ? E.t('care.basic.done', { name: name })
               : res.treat && !res.counted ? E.t('care.treatMax', { name: name }) : res.fav ? E.t('care.fav', { name: name }) : E.t('care.fed', { name: name });
-            if (visit && res.home) { sound(E, SOUND.home); S.tab = 'home'; }
+            var home = visit && res.home;
+            if (home) sound(E, SOUND.home);
             S.msg[id] = end; say(end); toast(E, end);
-            if (ov.isConnected) paint((visit ? 'visit:' : 'feed:') + id + ':');
+            if (!ov.isConnected) return;
+            /* home from the Rescue: its card is now in At home, and focus goes with it */
+            paint((visit && !home ? 'visit:' : 'feed:') + id + ':');
+            if (home) show(panel.querySelector('[data-pet="' + id + '"]'), null);
           });
         });
       }
       /* leave for another sheet: the Corner closes, and resolves once that sheet has closed too */
       function leave(open) { S.after = Promise.resolve().then(open); ov._close(); }
       var on = {
-        tab: function (id, v) { S.tab = v; S.tray = null; paint('tab:' + v); },
         feed: function (id) { toggle('feed', id); },
         visit: function (id) { toggle('visit', id); },
         food: function (id, v) { feed(id, v, !!(S.tray && S.tray.kind === 'visit')); },
@@ -675,27 +679,66 @@
         swap: function (id) { toggle('swap', id); },
         swapWith: function (id, v) { act(function (u) { return E.P.swap(u, v, id, E.now()); }, function (res) { if (res && res.ok) S.tray = null; S.msg[id] = res && res.ok ? '' : refusal(E, res); }); },
         pick: function () { picker(E.ctx).then(function () { if (ov.isConnected) paint('pick::'); }); },
+        /* the tray's 'Visit the Pet Shop' and the footer's 'Pet food': the food; a memory's 'Adopt a {species} again' */
         shop: function (id, v) { leave(function () { return E.ctx.openShop(v ? { filter: 'adopt', id: v } : { filter: 'food' }); }); },
-        memories: function () { leave(function () { return E.ctx.openMemories(); }); }
+        /* 'Adopt a pet': the pets the child can adopt now, else the Home Pet Shop (its short cards say how to earn more) */
+        adopt: function () { var f = adoptable(E) ? 'adopt' : 'home'; leave(function () { return E.ctx.openShop({ filter: f }); }); },
+        /* 'Memory Book': its own sheet (P3.2); a host without it shows the memories here, as the last group */
+        memories: function () {
+          if (typeof E.ctx.openMemories === 'function') { leave(function () { return E.ctx.openMemories(); }); return; }
+          S.mem = !S.mem; paint('foot:memories');
+          if (S.mem) show(panel.querySelector('[data-g="memories"]'), null);
+        }
       };
       paint();
       /* opened on one pet (a day card's Feed or Visit, Dress): its block comes into view, focus on its first food, the
-         piece it wears (else its first piece) when its wear tray is open, else its first button */
-      if (o.petId) E.later(function () {
-        var b = panel.querySelector('[data-pet="' + o.petId + '"]'), f = b && (b.querySelector('[data-a="basic"]') || Array.prototype.filter.call(b.querySelectorAll('[data-a="food"]'), function (x) { return !x.getAttribute('aria-disabled'); })[0] ||
-          b.querySelector('[data-a="acc"][aria-pressed="true"]') || b.querySelector('[data-a="acc"]') || b.querySelector('[data-a]'));
-        try { if (b && b.scrollIntoView) b.scrollIntoView({ block: 'start' }); if (f) f.focus(); } catch (e) { /* ignore */ }
+         piece it wears (else its first piece) when its wear tray is open, else its first button; opened on a group
+         (contract 7's tab): that group comes into view, focus on its first button */
+      E.later(function () {
+        var b = o.petId ? panel.querySelector('[data-pet="' + o.petId + '"]') : null;
+        var g = panel.querySelector(first.group === 'pantry' ? '.slw-pcc-foot' : '[data-g="' + first.group + '"]');
+        /* the pet, unless a named group it is not in wins (as a named tab did): its group's heading comes into view first
+           (it says where the pet is: seen in the browser, a Hotel guest's card alone hid 'At the Pet Hotel'), then the
+           card itself if it is still out of sight */
+        if (b && (!o.tab || !g || g.contains(b))) {
+          var pg = groupEl(b);
+          if (pg && pg.getAttribute('data-g') !== 'home') show(pg, null);
+          if (!inSight(ov, b)) show(b, null);
+          show(null, b.querySelector('[data-a="basic"]') || Array.prototype.filter.call(b.querySelectorAll('[data-a="food"]'), function (x) { return !x.getAttribute('aria-disabled'); })[0] ||
+            b.querySelector('[data-a="acc"][aria-pressed="true"]') || b.querySelector('[data-a="acc"]') || b.querySelector('[data-a]'));
+          return;
+        }
+        /* At home is the top of the list: nothing to scroll */
+        if (g && first.group !== 'home') show(g, g.querySelector('[data-a]'));
       }, 60);
     });
   }
+  /* the list group an element is in (a walk up: older engines have no closest()) */
+  function groupEl(el) { for (var n = el; n && n.getAttribute; n = n.parentNode) if (n.getAttribute('data-g')) return n; return null; }
+  /* is the whole element inside the sheet's scrolled view, below its sticky header? (no layout: yes) */
+  function inSight(ov, el) {
+    try {
+      var sc = ov.querySelector('.slw-sheet'), hd = ov.querySelector('.slw-sheethd');
+      if (!sc || !sc.getBoundingClientRect || !el.getBoundingClientRect) return true;
+      var s = sc.getBoundingClientRect(), r = el.getBoundingClientRect(), top = s.top + (hd && hd.offsetHeight ? hd.offsetHeight : 0);
+      return r.top >= top - 1 && (r.bottom <= s.bottom + 1 || r.height > s.bottom - top);
+    } catch (e) { return true; }
+  }
+  /* can the child adopt a pet right now (the Pet Shop's 'I can adopt now' would not be empty)? A read */
+  function adoptable(E) {
+    var SH = SHOP(), u = E.u();
+    if (!SH || typeof SH.petShop !== 'function' || !u) return false;
+    try { return SH.petShop(E.C, u, { filter: 'adopt', trial: E.trial() }).some(function (g) { return g.items && g.items.length; }); } catch (e) { return false; }
+  }
 
-  /* ---------------- the panels (pure markup) ---------------- */
+  /* ---------------- the list (pure markup) ---------------- */
   function msgOf(S, id) { return S.msg[id] ? '<p class="slw-pcc-msg">' + esc(S.msg[id]) + '</p>' : ''; }
+  /* a pet's head: its name is an h4 under its group's h3 (the sheet's h2 is 'My pets') */
   function head(E, p) {
     var badge = p.where === 'home' && (p.level === 'hungry' || p.level === 'warn' || p.level === 'last') ? care2d('badge', 'hungry') : p.where === 'home' && p.level === 'peckish' ? care2d('badge', 'peckish') : '';
     var d = E.P.dietOf(p.id), fav = d.fav ? foodOf(E, d.fav) : null;
     return '<div class="slw-pcc-top"><div class="slw-pcc-pic" data-pic="' + esc(p.id) + '">' + petPic(E, p.id) + '</div><div class="slw-pcc-info">' +
-      '<h3 class="slw-pcc-name">' + esc(p.name) + (p.runner ? ' <span class="slw-pcc-medal" role="img" aria-label="' + esc(E.t('crew.runner')) + '">🏅</span>' : '') + '</h3>' +
+      '<h4 class="slw-pcc-name">' + esc(p.name) + (p.runner ? ' <span class="slw-pcc-medal" role="img" aria-label="' + esc(E.t('crew.runner')) + '">🏅</span>' : '') + '</h4>' +
       '<p class="slw-pcc-sp">' + (badge ? '<span class="slw-pcc-badge">' + badge + '</span>' : '') + esc(species(E, p.id)) + '</p>' +
       (fav ? '<p class="slw-pcc-fav"><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon(fav.id) + '</span>' + esc(E.t('care.shop.loves', { food: fav.name })) + '</p>' : '') + '</div></div>';
   }
@@ -748,42 +791,46 @@
   }
   function open(S, id, k) { return !!(S.tray && S.tray.id === id && S.tray.kind === k); }
   /* a home card (U5): the portrait in its outfit, name, species, runner medal, both rows, Feed · Pat · Play,
-     then Dress (W5b.1's wear tray) · Rename · Make runner · Move to the Pet Hotel (only while the Hotel is open) */
-  /* Feed is the sun button only while the pet wants a meal (peckish or hungrier, SLPetCare.ALERT_LV ≥ 1): a fed
-     or full pet's Feed is a plain button, so the bright one always means 'this pet is hungry' */
+     then Dress (W5b.1's wear tray) · Rename · Make my runner · Move to the Pet Hotel (only while the Hotel is open) */
+  /* Feed is the sun button only while the pet wants a meal (peckish or hungrier, SLPetCare.ALERT_LV ≥ 1); a fed or
+     full pet's Feed is a quiet one (KU-QA 12: a just-adopted pet is full, and its first Feed used to look like the thing
+     to do), so the bright one always means 'this pet is hungry'. It still opens the tray (a treat is still a snack) */
   var WANTS = { peckish: 1, hungry: 1, warn: 1, last: 1 };
   function wantsMeal(E, p) { var A = E.P && E.P.ALERT_LV; return A && own(A, p.level) ? A[p.level] >= 1 : own(WANTS, p.level); }
-  function petCard(E, S, p, room) {
-    var id = p.id;
-    var care = btn('feed', E.t('care.feed'), { id: id, cls: 'slw-pcc-do slw-pcc-feed' + (wantsMeal(E, p) ? ' slw-pcc-due' : ''), expanded: open(S, id, 'feed') }) +
+  /* o.hint: this card carries the one line that says what a runner is (KU-QA 12: under the first 'Make my runner';
+     every 'Make my runner' button points at it with aria-describedby) */
+  function petCard(E, S, p, room, o) {
+    o = o || {};
+    var id = p.id, want = wantsMeal(E, p), hintId = (S.uid || 'slwPcc') + 'Run';
+    var care = btn('feed', E.t('care.feed'), { id: id, cls: 'slw-pcc-do slw-pcc-feed' + (want ? ' slw-pcc-due' : ' slw-pcc-quiet'), expanded: open(S, id, 'feed') }) +
       btn('pat', E.t('care.pat'), { id: id, cls: 'slw-pcc-do' }) + btn('play', E.t('care.play'), { id: id, cls: 'slw-pcc-do' });
     var more = btn('dress', E.t('care.dress'), { id: id, expanded: open(S, id, 'dress') }) + btn('rename', E.t('care.rename'), { id: id, expanded: open(S, id, 'rename') }) +
-      (p.runner ? '' : btn('runner', E.t('care.makeRunner'), { id: id })) + (room.hotelOpen ? btn('toHotel', E.t('care.hotel.toHotel'), { id: id }) : '');
+      (p.runner ? '' : btn('runner', E.t('care.makeRunner'), { id: id, describedby: S.hasHint ? hintId : null })) + (room.hotelOpen ? btn('toHotel', E.t('care.hotel.toHotel'), { id: id }) : '');
+    var hint = o.hint ? '<p class="slw-pcc-hint" id="' + hintId + '">' + esc(E.t('crew.runner')) + '</p>' : '';
     return '<section class="slw-pcc-card" data-pet="' + esc(id) + '">' + head(E, p) + meters(E, p) + '<div class="slw-pcc-acts">' + care + '</div>' +
-      msgOf(S, id) + trayHtml(E, S, p, 'feed') + '<div class="slw-pcc-more">' + more + '</div>' + trayHtml(E, S, p, 'dress') + trayHtml(E, S, p, 'rename') + '</section>';
+      msgOf(S, id) + trayHtml(E, S, p, 'feed') + '<div class="slw-pcc-more">' + more + '</div>' + hint + trayHtml(E, S, p, 'dress') + trayHtml(E, S, p, 'rename') + '</section>';
   }
-  var PANELS = {
+  /* each group's heading: its words, how many pets are in it, and (Hotel, Rescue, memories) its little picture */
+  function groupHtml(E, S, key, n, inner, farewell) {
+    var title = E.t(key === 'rescue' && farewell ? GROUP_KEY.rescueFarewell : GROUP_KEY[key]), hid = (S.uid || 'slwPcc') + 'G' + key;
+    var art = key === 'home' ? '' : '<span class="slw-pcc-gart" aria-hidden="true">' + care2d('header', key) + '</span>';
+    return '<section class="slw-pcc-group" data-g="' + key + '" aria-labelledby="' + hid + '"><div class="slw-pcc-ghead">' + art +
+      '<h3 class="slw-pcc-gh" id="' + hid + '">' + esc(title) + ' <span class="slw-pcc-gn">' + n + '</span></h3></div>' + inner + '</section>';
+  }
+  var GROUP_HTML = {
     home: function (E, S, st, room) {
-      var sit = st.sitter ? line(esc(st.sitterUntil ? E.t('care.sitterUntil', { date: dayWords(st.sitterUntil) }) : E.t('care.sitter')), 'slw-pcc-sitter') : '';
-      return sit + line(esc(E.t('care.promise')), 'slw-pcc-note') + '<div class="slw-pcc-list">' +
-        st.pets.filter(function (p) { return p.where === 'home'; }).map(function (p) { return petCard(E, S, p, room); }).join('') + '</div>';
-    },
-    pantry: function (E, S, st) {
-      var meals = 0, K = E.C.CARE, trial = E.trial();
-      st.pantry.forEach(function (f) { if (f.group !== 'treat') meals += f.n; });
-      var full = trial ? null : st.pantry.filter(function (f) { return f.n >= K.pantryMax; })[0];
-      return (trial ? line(esc(E.t('care.trialPantry', { n: K.trialPantryMax })), 'slw-pcc-note') : '') +
-        (full ? line(esc(E.t('care.pantryFull', { food: inSentence(foodName(E, full.id)) })), 'slw-pcc-note') : '') +
-        '<ul class="slw-pcc-foods slw-pcc-shelf" aria-label="' + esc(E.t('care.pantry')) + '">' + st.pantry.map(function (f) {
-          return '<li class="slw-pcc-food' + (f.n ? '' : ' off') + '"><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon(f.id) + '</span><span class="slw-pcc-fnm">' + esc(foodName(E, f.id)) +
-            '</span><span class="slw-pcc-n">× ' + f.n + '</span></li>';
-        }).join('') + '</ul>' + (E.ctx.openShop ? '<div class="slw-pcc-btns">' + btn('shop', E.t('care.welcome.shop'), { cls: meals ? 'big' : 'big on' }) + '</div>' : '');
+      var pets = st.pets.filter(function (p) { return p.where === 'home'; }), hinted = false;
+      S.hasHint = pets.some(function (p) { return !p.runner; });
+      return '<div class="slw-pcc-list">' + pets.map(function (p) {
+        var hint = !hinted && !p.runner;
+        if (hint) hinted = true;
+        return petCard(E, S, p, room, { hint: hint });
+      }).join('') + '</div>';
     },
     hotel: function (E, S, st) {
       var home = st.pets.filter(function (p) { return p.where === 'home' || p.where === 'rescue'; }).length, room = home < E.C.CARE.homeMax;
       var guests = st.pets.filter(function (p) { return p.where === 'hotel'; });
-      return '<div class="slw-pcc-art" aria-hidden="true">' + care2d('header', 'hotel') + '</div>' + line(esc(E.t('care.hotel.sub')), 'slw-pcc-note') +
-        (guests.length ? '<div class="slw-pcc-btns">' + btn('pick', E.t('care.pick.title')) + '</div>' : '') + '<div class="slw-pcc-list">' +
+      return line(esc(E.t('care.hotel.sub')), 'slw-pcc-note') + '<div class="slw-pcc-btns slw-pcc-gbtns">' + btn('pick', E.t('care.pick.title')) + '</div><div class="slw-pcc-list">' +
         guests.map(function (p) {
           var id = p.id, acts = (room ? btn('toHome', E.t('care.hotel.toHome'), { id: id, cls: 'slw-pcc-do' }) : btn('swap', E.t('care.hotel.swap'), { id: id, cls: 'slw-pcc-do', expanded: open(S, id, 'swap') })) +
             btn('dress', E.t('care.dress'), { id: id, expanded: open(S, id, 'dress') }) + btn('rename', E.t('care.rename'), { id: id, expanded: open(S, id, 'rename') });
@@ -794,8 +841,7 @@
     rescue: function (E, S, st) {
       var K = E.C.CARE;
       /* what the Rescue is and how a pet comes home, as the Hotel says what it is (care.hotel.sub); then the farewell rule */
-      return '<div class="slw-pcc-art" aria-hidden="true">' + care2d('header', 'rescue') + '</div>' +
-        (E.has('care.rescue.sub') ? line(esc(E.t('care.rescue.sub', { n: K.rescueVisits })), 'slw-pcc-note') : '') +
+      return (E.has('care.rescue.sub') ? line(esc(E.t('care.rescue.sub', { n: K.rescueVisits })), 'slw-pcc-note') : '') +
         (st.farewell ? line(esc(E.t('care.rescue.rule', { n: K.starAfter })), 'slw-pcc-rule') : '') +
         '<div class="slw-pcc-list">' + st.pets.filter(function (p) { return p.where === 'rescue' && p.rescue; }).map(function (p) {
           var r = p.rescue, id = p.id, prog = E.t('care.rescue.progress', { n: r.visits });
@@ -808,16 +854,40 @@
             msgOf(S, id) + trayHtml(E, S, p, 'visit') + '</section>';
         }).join('') + '</div>';
     },
+    /* the fallback (a star asked for, or no Memory Book sheet): the memories, newest first */
     memories: function (E, S, st, room, mem) {
-      return '<div class="slw-pcc-art" aria-hidden="true">' + care2d('header', 'memories') + '</div><div class="slw-pcc-list">' + mem.slice().reverse().map(function (m, i) {
+      return '<div class="slw-pcc-list">' + mem.slice().reverse().map(function (m, i) {
         var again = !m.returned && room.canAdopt && E.ctx.openShop && E.C.petWhere(E.w(), m.id) === 'star';
-        return '<section class="slw-pcc-card slw-pcc-memory"><div class="slw-pcc-mem" aria-hidden="true">' + care2d('memory', m.id, { acc: m.acc || {} }) + '</div><div class="slw-pcc-info">' +
-          '<h3 class="slw-pcc-name">' + esc(m.name) + '</h3><p class="slw-pcc-sp">' + esc(species(E, m.id)) + '</p>' +
+        return '<section class="slw-pcc-card slw-pcc-memory" data-memory="' + esc(m.id) + '"><div class="slw-pcc-mem" aria-hidden="true">' + care2d('memory', m.id, { acc: m.acc || {} }) + '</div><div class="slw-pcc-info">' +
+          '<h4 class="slw-pcc-name">' + esc(m.name) + '</h4><p class="slw-pcc-sp">' + esc(species(E, m.id)) + '</p>' +
           line(esc(E.t('care.memory.days', { n: m.days }))) + (m.returned ? line(esc(E.t('care.star.back', { name: m.name }))) : '') + '</div>' +
           (again ? '<div class="slw-pcc-more">' + btn('shop', E.t(againKey(E, species(E, m.id)), { species: inSentence(species(E, m.id)) }), { v: m.id, fk: 'again:' + i }) + '</div>' : '') + '</section>';
       }).join('') + '</div>';
     }
   };
+  /* the footer (wave 3 §8): what the pantry holds, then where to go for more. Adopt a pet only while the cap lets a
+     pet come (C.petRoom.canAdopt); Pet food and Adopt need the Pet Shop, Pet clothes the Island Shop's pet clothes;
+     Memory Book only once there is a memory */
+  function footHtml(E, S, st, room, mem) {
+    var c = E.ctx, meals = 0, b = '';
+    st.pantry.forEach(function (f) { if (f.group !== 'treat') meals += f.n; });
+    if (typeof c.openShop === 'function') {
+      if (room.canAdopt) b += btn('adopt', E.t('care.adoptPet'), { fk: 'foot:adopt' });
+      b += btn('shop', E.t('care.shop.food'), { fk: 'foot:food' });
+    }
+    if (typeof c.openGear === 'function') b += btn('gear', E.t('care.petClothes'), { fk: 'foot:gear' });
+    if (mem.length) b += btn('memories', E.t('care.memories'), { fk: 'foot:memories', icon: starIcon(), expanded: typeof c.openMemories === 'function' ? null : !!S.mem });
+    return '<div class="slw-pcc-foot"><p class="slw-pcc-pantry"><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon('food_biscuits') + '</span>' +
+      esc(E.t('care.pantryMeals', { n: meals })) + '</p>' + (b ? '<div class="slw-pcc-btns slw-pcc-fbtns">' + b + '</div>' : '') + '</div>';
+  }
+  /* the whole list: the cap line, the sitter, the promise, the groups, the footer */
+  function listHtml(E, S, st, room, mem) {
+    var sit = st.sitter ? line(esc(st.sitterUntil ? E.t('care.sitterUntil', { date: dayWords(st.sitterUntil) }) : E.t('care.sitter')), 'slw-pcc-sitter') : '';
+    var top = line(esc(capLine(E.ctx)), 'slw-pcc-cap') + sit + line(esc(E.t('care.promise')), 'slw-pcc-note');
+    var body = groupsOf(st).map(function (g) { return groupHtml(E, S, g.key, g.n, GROUP_HTML[g.key](E, S, st, room, mem), st.farewell); }).join('');
+    if (S.mem && mem.length) body += groupHtml(E, S, 'memories', mem.length, GROUP_HTML.memories(E, S, st, room, mem), st.farewell);
+    return top + body + footHtml(E, S, st, room, mem);
+  }
   /* one home card's markup (pets.json's cardFor), for a host that draws a single pet */
   function cardFor(ctx, id) {
     var E = env(ctx), st = E.status(), p = st && st.pets.filter(function (x) { return x.id === id; })[0];
@@ -917,8 +987,8 @@
   function openRescue(ctx) { return openCorner(ctx, { tab: 'rescue' }); }
 
   return {
-    VERSION: 1, TABS: TABS, TAB_KEY: TAB_KEY, FOOD_KEY: FOOD_KEY, SOUND: SOUND, MOMENT: MOMENT,
-    ready: ready, tabsOf: tabsOf, newsVM: newsVM, dayVM: dayVM, foodTiles: foodTiles,
+    VERSION: 1, GROUPS: GROUPS, GROUP_KEY: GROUP_KEY, FOOD_KEY: FOOD_KEY, SOUND: SOUND, MOMENT: MOMENT,
+    ready: ready, groupsOf: groupsOf, capLine: capLine, newsVM: newsVM, dayVM: dayVM, foodTiles: foodTiles,
     newsCard: newsCard, welcome: newsCard, picker: picker, openPicker: picker, ruleCard: ruleCard, dayCard: dayCard, dayToast: dayToast,
     openCorner: openCorner, openFeed: openFeed, openHotel: openHotel, openRescue: openRescue, cardFor: cardFor, feedingStrip: feedingStrip
   };

@@ -419,6 +419,12 @@ html body button.slw-goal:active {
   transform: translateY(3px);
   box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring, 0 0 0 0 transparent);
 }
+/* the Next step card (wave 3) in the goal's place: a small label, the picture, one sentence, its button, the meter
+   while saving. Not itself a button (its button is), so it never presses in */
+html body .slw-goal.slw-next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; cursor: default; }
+html body .slw-next .gi { width: 40px; height: 40px; flex: 0 0 40px; }
+html body .slw-next .lb { color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 11.5px; line-height: 1.2; }
+html body .slw-next .gt { font-size: 14px; line-height: 1.3; }
 
 /* ---------------- the island bar: chips, the here row ---------------- */
 html body .slw-isles {
@@ -773,8 +779,71 @@ html body .slw-hdpts {
 }
 html body .slw-cats { gap: 8px; margin: 10px 0 14px; }
 html body .slw-cats .slw-btn { border-radius: var(--px-r-btn); padding: 8px 14px; font-size: 14px; }
+/* the Island Shop's land chips (wave 3, 'Shop at'): ONE sticky band on every size, right under the sheet's sticky
+   header (--slw-hdh; the − 18px undoes the sheet's top padding), white out to the sheet's edges (a 44px row, room for
+   its 4px lip and a focus ring: 56px), one sideways strip; the land on show is pressed in (aria-pressed) */
+html body .slw-sheet .slw-shopland {
+  position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) - 18px); z-index: 6;
+  display: flex; flex-wrap: nowrap; gap: 8px; margin: 4px -18px 12px; padding: 6px 18px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 18px;
+  scrollbar-width: none; background: var(--px-panel); box-shadow: 0 2px 0 0 var(--px-white-lip);
+}
+html body .slw-shopland .slw-btn {
+  flex: 0 0 auto; scroll-snap-align: start; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 14px;
+}
+html body .slw-shopland .slw-btn svg { flex: none; width: 22px; height: 22px; shape-rendering: crispEdges; }
+html body .slw-shopland .slw-btn.locked:not([aria-pressed="true"]) { border-style: dashed; }
+/* keyboard focus never hides under the bands (WCAG 2.4.11): a Tab or Shift+Tab that scrolls the Island Shop leaves
+   room at the top for the sticky header (--slw-hdh), the 56px land band and the 56px band under it (the I can buy +
+   Jump to row; on a phone's Wardrobe page its slot chips), plus 8px for the focus ring (as the shelves'
+   scroll-margin-top: 120px) */
+html body .slw-sheet.slw-shopsheet { scroll-padding-top: calc(var(--slw-hdh, 0px) + 120px); }
+/* one sideways row under a land's heading: 'I can buy' (a toggle: pressed in while on) and the 'Jump to' chips (well
+   chips that scroll to a shelf, never pressed). It sticks right under the land band (top = that band's 56px, as the
+   Wardrobe's chips on phones), so the Jump to chips stay in reach all the way down a long land: an opaque white band
+   out to the sheet's edges, under the land band (z 5 < 6) */
+html body .slw-sheet .slw-shopfilter {
+  position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) + 38px); z-index: 5;
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 -18px 12px; padding: 6px 18px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 18px;
+  scrollbar-width: none; background: var(--px-panel); box-shadow: 0 2px 0 0 var(--px-white-lip);
+}
+html body .slw-shopfilter > * { flex: 0 0 auto; scroll-snap-align: start; }
+html body .slw-shopfilter .lb { margin-left: 6px; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13px; }
+html body .slw-shopfilter .slw-jump { --sle-a: var(--px-well); --sle-b: var(--px-well); padding: 6px 12px; font-size: 14px; }
+/* 'I can buy' with nothing here: the line, what is next and 📚 Learn, centred in a well */
+html body .slw-shopempty {
+  padding: 14px 12px; background: var(--px-well); border: 2px solid var(--px-white-lip); border-radius: var(--px-r-card);
+  color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 15px;
+}
+/* 📚 Learn on a short card, 'Learn and come back' on the item sheet, the Next step card's button: violet blocks
+   standing up (a selected toggle is violet AND pressed in: the shapes differ) */
+html body .slw-learnbtn, html body .slw-nextbtn {
+  --sle-a: var(--sle-deep-a); --sle-b: var(--sle-deep-b); --sle-fg: var(--sle-deep-fg); --sle-lip: var(--sle-deep-lip);
+  --sle-ring: 0 0 0 0 transparent; --px-lift: 4px;
+  min-height: 44px; min-width: 44px; padding: 8px 12px; border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn);
+  background: var(--sle-a); color: var(--sle-fg); box-shadow: 0 var(--px-lift) 0 0 var(--sle-lip), var(--sle-ring);
+  font-family: var(--sle-ui); font-weight: 800; font-size: 14px; line-height: 1.15; cursor: pointer; white-space: nowrap;
+  transition: transform var(--px-press) ease-out, box-shadow var(--px-press) ease-out;
+}
+html body .slw-learnbtn:active, html body .slw-nextbtn:active {
+  --px-lift: 1px; transform: translateY(3px); box-shadow: 0 1px 0 0 var(--sle-lip), var(--sle-ring);
+}
+/* on a card, 📚 Learn keeps its words: it never shrinks below them (its 44px floor replaces a flex item's own
+   minimum, so a card row could squeeze it to '📚 Lea'); it fills its row as Buy does. A row it shares with a long
+   button (a character card's '🎯 Save up for it') wraps, so that button moves below it, both full width */
+html body .slw-card .row > .slw-learnbtn { flex: 1 0 auto; }
+html body .slw-card .row.slw-learnrow { flex-wrap: wrap; }
+html body .slw-card.ppl .row.slw-learnrow > .slw-goalbtn { flex: 1 1 auto; }
+html body .slw-learnbtn:focus-visible, html body .slw-nextbtn:focus-visible {
+  outline: 3px solid var(--px-ink); outline-offset: 3px; --sle-ring: 0 0 0 8px var(--px-panel);
+}
+html body .slw-learntime { flex: 1 0 100%; color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 700; font-size: 13.5px; }
+html body .slw-shopback { margin: 0 0 12px; }
 html body .slw-err { color: var(--px-err); font-family: var(--sle-ui); font-weight: 700; }
 html body .slw-need { color: var(--px-gold-ink); font-family: var(--sle-ui); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* w3-int: an at-cap pet's 'You can have up to 3 pets.' is information, not a shortfall (as the Pet Shop's capline) */
+html body .slw-need.slw-capline { color: var(--px-ink-2); }
 html body .slw-unlocks {
   background: var(--px-well); border: 2px solid var(--px-white-lip); border-radius: var(--px-r-card);
   box-shadow: none; color: var(--px-ink); font-family: var(--sle-body); font-weight: 500;
@@ -889,6 +958,11 @@ html body .slw-grid > .slw-card.isle {
 }
 html body .slw-grid > .slw-card.isle .ic::after { content: none; }
 html body .slw-grid > .slw-card.isle .pr { display: none; }
+/* a door card (wave 3: My pets, the Pet Shop, your home, the Wardrobe) is a way in, not a thing to buy: the same doorway look */
+html body .slw-grid > .slw-card.door {
+  border: 3px solid var(--px-line); background: var(--px-well); box-shadow: 0 4px 0 0 var(--px-blue-lip);
+}
+html body .slw-grid > .slw-card.door .ic::after { content: none; }
 /* a land shop's lead row: one or two cards fill it (side by side, or stacked on a phone), never one card and a
    gap. They are wide cards, as tall as their words (no 3:4 card shape): a fixed 120px picture well pinned left
    in the card's own padding, the words beside it. [class] outranks the shine and card-shape rules */
@@ -917,6 +991,12 @@ html body .slw-shopisle h3 {
   font-weight: 700; font-size: 20px; line-height: 1.2; letter-spacing: 0.01em; color: var(--px-ink);
 }
 html body .slw-shopisle h3 svg { flex: none; width: 24px; height: 24px; shape-rendering: crispEdges; }
+/* the Wardrobe page's title (wave 3): the land heading's look, the person icon of the door's button */
+html body .slw-wardpage h3 {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; font-family: var(--px-display);
+  font-weight: 700; font-size: 20px; line-height: 1.2; letter-spacing: 0.01em; color: var(--px-ink);
+}
+html body .slw-wardpage h3 svg { flex: none; width: 24px; height: 24px; }
 html body .slw-islefilter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
 
 /* ---------------- the land shops: shelves, island headers, the Crew aisle, wear rows ---------------- */
@@ -925,7 +1005,7 @@ html body .slw-islefilter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 
 html body .slw-shelfhd {
   display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; padding: 0 0 6px;
   border-bottom: 2px solid var(--px-white-lip); color: var(--px-ink); font-family: var(--sle-ui);
-  font-weight: 800; font-size: 17px; line-height: 1.2; scroll-margin-top: 8px;
+  font-weight: 800; font-size: 17px; line-height: 1.2; scroll-margin-top: 120px;   /* under the shop's land band and Jump to row (56px each, wave 3) */
 }
 html body .slw-shelfhd .n {
   padding: 1px 8px; background: var(--px-well); color: var(--px-ink-2); border: 2px solid currentColor;
@@ -1189,18 +1269,35 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
 /* ---------------- phones ---------------- */
 @media (max-width: 640px) {
   html body .slw { padding: 8px 6px 14px; border-radius: 18px; }
-  /* HUD: row 1 Back · ⭐ · goal (the goal takes the rest); row 2 the actions as one
-     sideways strip, Island Shop first */
+  /* HUD: row 1 📚 Learn · 🪙 · goal (the goal takes the rest; the Next step card a whole row of its own). Then the
+     buttons (QA#6: never a sideways strip that hides My pets off the edge): a 6-column grid, icon above word, the
+     places first — Island Shop, My pets, My character, two columns each — then Games, Edit and the light, music,
+     sound and ❓ toggles, one column each (without My character, Games and Edit join the first row) */
   html body .slw-hud { padding: 6px; gap: 6px; border-radius: 12px; }
   html body .slw-learn,
   html body .slw-pts { flex: 0 0 auto; }
   html body .slw-goal { flex: 1 1 140px; min-width: 0; }
+  html body .slw-goal.slw-next { flex: 1 1 100%; }
   html body .slw-acts {
-    flex: 1 0 100%; flex-wrap: nowrap; min-width: 0; margin: 0 -6px -6px; padding: 6px 6px 10px;
-    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
+    flex: 1 0 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: row dense;
+    gap: 8px 6px; min-width: 0; margin: 0; padding: 0 0 4px;
   }
-  html body .slw-acts > .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+  html body .slw-acts > .slw-btn[class] {
+    grid-column: span 1; order: 6; min-width: 0; flex-direction: column; justify-content: center; gap: 2px;
+    padding: 4px 2px; font-size: 13px; line-height: 1.1; white-space: nowrap; overflow: hidden;
+  }
+  html body .slw-acts > .slw-btn[class][data-act="shop"] { grid-column: span 2; order: 1; }
+  html body .slw-acts > .slw-btn[class][data-act="pets"] { grid-column: span 2; order: 2; }
+  html body .slw-acts > .slw-btn[class][data-act="char"] { grid-column: span 2; order: 3; }
+  html body .slw-acts > .slw-btn[class][data-act="games"] { order: 4; }
+  html body .slw-acts > .slw-btn[class][data-act="edit"] { order: 5; }
+  /* the light toggle's word never fits a column: its moon or sun alone (its aria-label names it, as at 380px) */
+  html body .slw-acts > .slw-btn[class][data-act="showtime"] { font-size: 0; }
+  html body .slw-acts > .slw-btn[class][data-act="showtime"] .slw-ico { width: 24px; height: 24px; }
+  /* QA#6: the 3D camera buttons lie down along the stage's top edge (the sky), clear of the island signs at its sides */
+  html body .slw-camctl { top: 8px; bottom: auto; right: 8px; flex-direction: row; }
+  html body .slw-camctl button[data-cam="in"],
+  html body .slw-camctl button[data-cam="reset"] { margin-top: 0; margin-left: 6px; }
   /* the app's header and tabs fill the top of a phone: the island's own rows sit closer, so once the open lifts
      the island the 3D stage keeps its whole minimum on screen (E2); the test-mode note keeps two short lines */
   html body .slw-hud { margin-bottom: 6px; }
@@ -1219,11 +1316,11 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-here .slw-btn,
   html body .slw-here .slw-buy { flex: 1 1 auto; }
 }
-/* the shop's tab row on phones, upright or sideways (D99): it sticks to the top of the shop
-   sheet as one sideways strip while the list scrolls beneath it. The band is 56px: the 44px
-   row, room for its 4px lip and for a focus ring, white out to the sheet's edges (the sheet
-   pads 18px). Sticky rows exist only inside .slw-sheet; wider screens keep the rows in the
-   flow, where the tabs may wrap. */
+/* the Pet Shop's chip row on phones, upright or sideways (D99; since wave 3 the Island Shop has
+   land chips instead, sticky on every size): it sticks to the top of the sheet as one sideways
+   strip while the list scrolls beneath it. The band is 56px: the 44px row, room for its 4px lip
+   and for a focus ring, white out to the sheet's edges (the sheet pads 18px). Sticky rows exist
+   only inside .slw-sheet. */
 @media (max-width: 600px), (orientation: landscape) and (max-height: 540px) {
   html body .slw-sheet .slw-cats {
     position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) - 18px); z-index: 6; flex-wrap: nowrap;
@@ -1248,14 +1345,14 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
     overscroll-behavior-x: contain; scroll-snap-type: x proximity;
   }
   html body .slw-islefilter > .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
-  /* in the shop it sticks under the tab row (top = that band's 56px): an opaque white band
-     out to the sheet's edges, so the cards scroll away beneath both rows */
+  /* the shop's Wardrobe page (wave 3): its slot chips stick under the land chips (top = that band's 56px): an opaque
+     white band out to the sheet's edges, so the cards scroll away beneath both rows */
   html body .slw-sheet .slw-islefilter.sticky {
     position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) + 38px); z-index: 5; margin: 0 -18px 14px;
     padding: 6px 18px; scrollbar-width: none; background: var(--px-panel);
     box-shadow: 0 2px 0 0 var(--px-white-lip);
   }
-  /* a shelf the jump chips scroll to lands under both bands, not behind them */
+  /* a shelf the jump chips scroll to lands under the land band and the Jump to row, not behind them */
   html body .slw-shelfhd { scroll-margin-top: 120px; }
   /* the shelf jump chips are one sideways strip too */
   html body .slw-shelfjump {
@@ -1272,6 +1369,12 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
     width: 44px; min-width: 44px; padding: 0 0 0 9px; justify-content: flex-start; gap: 40px;
     word-spacing: 40px; white-space: nowrap; overflow: hidden;
   }
+  /* inside the phone HUD grid (the ≤ 640px rules centre each column's words, which pushed the speaker out past the
+     left edge: a blank square) the sound toggle has no drawn icon to stand in for its words: its speaker leads from
+     the left, the word moves past the clipped edge, like the squares above (QA#6) */
+  html body .slw-acts > .slw-btn[class][data-act="sound"] {
+    flex-direction: row; justify-content: flex-start; align-items: center; padding: 0 0 0 8px; font-size: 18px;
+  }
   html body .slw-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); gap: 10px; }
 }
 /* phones held sideways: chips and the here row share one line (no status words), and the
@@ -1284,8 +1387,10 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-stagewrap.slw-is3d .slw-stage {
     height: calc(100vh - 124px); height: calc(100dvh - 124px);
   }
-  /* a sideways phone is short: only the shop's tab row sticks, the island row scrolls away */
+  /* a sideways phone is short: only the shop's land chips stick; the island row and the Jump to row scroll away */
   html body .slw-sheet .slw-islefilter.sticky { position: static; box-shadow: none; }
+  html body .slw-sheet .slw-shopfilter { position: static; box-shadow: none; }
+  html body .slw-sheet.slw-shopsheet { scroll-padding-top: calc(var(--slw-hdh, 0px) + 64px); }
   html body .slw-shelfhd { scroll-margin-top: 64px; }
 }
 
@@ -1322,7 +1427,7 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-buy:active:not(:disabled), html body .slw-goalbtn:active:not(:disabled),
   html body .slw-toast button:active, html body button.slw-goal:active,
   html body .slw-islechip:active:not([aria-disabled="true"]), html body .slw-trayitem:active,
-  html body .slw-x:active,
+  html body .slw-x:active, html body .slw-learnbtn:active, html body .slw-nextbtn:active,
   html body .slw-camctl button:active:not(:disabled) { transform: none; }
   html body .slw-btn.on:active:not(:disabled),
   html body .slw-btn[aria-pressed="true"]:active:not(:disabled),

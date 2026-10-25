@@ -141,11 +141,9 @@
   var skyMapOn = false;                  /* 3D only: the Sky map pose is showing */
   var travelSeq = 0;                     /* a newer trip supersedes an older one's continuation */
   var lmBusy = {};                       /* uid -> ms until a landmark act may run again */
-  var shopIsle = 'all';                  /* the Sky islands tab's island (this page session only) */
-  /* the land shops' folds (D99, D114), memory only: the one island open under 'All five' (this page session),
-     the one land group open in the Crew tab (each shop opens on the island you are on), and whose Wear rows
-     are open in the crew sheet (one member at a time; the runner first) */
-  var shopAcc = null, crewAcc = null, wearOpen = null;
+  /* whose Wear rows are open in the crew sheet, memory only (one member at a time; the runner first). The shop's own
+     memory (the land on show, 'I can buy', the Wardrobe page) is with openShop (wave 3) */
+  var wearOpen = null;
   var introDone = false, keepIsle = false, freshPets = {};   /* the Sky tour once per page session (D83); pets adopted this session (D112) */
   /* the crew out on the 2D island (D97, D112), memory only: Home shows the runner, this session's new pets,
      then the rest in turn (one step per My Island open); a land shows the runner and its own mascots */
@@ -273,7 +271,7 @@
       '.slw-buy[disabled]{background:#e4e0ee;color:#4f4870;cursor:not-allowed;}',
       '.slw-goalbtn{border:2px solid #ffd166;background:#fffaf0;border-radius:12px;padding:6px 9px;font:inherit;font-weight:800;cursor:pointer;min-height:42px;}',
       '.slw-goalbtn.on{background:#ffd166;}',
-      '.slw-need{font-size:12px;font-weight:800;color:#8a6100;}',
+      '.slw-need{font-size:12px;font-weight:800;color:#8a6100;}.slw-need.slw-capline{color:#4a3f75;}',
       '.slw-detail{display:flex;gap:16px;flex-wrap:wrap;}',
       '.slw-detail .big{flex:1 1 260px;min-height:200px;background:linear-gradient(180deg,#eef9ff,#f7fff2);border-radius:16px;display:flex;align-items:center;justify-content:center;padding:10px;position:relative;overflow:hidden;}',
       '.slw-detail .big svg{max-width:100%;max-height:240px;}',
@@ -328,9 +326,13 @@
       '.slw-crewlands{margin-top:22px;}.slw-crewland{margin:0 0 10px;}',
       /* 'All five': folded headers sit close together (no dotted rule between them); the open one's shop follows it */
       '.slw-shopisle.fold{margin:0 0 10px;padding:0;border-bottom:0;}.slw-isleopen{margin:14px 0 22px;}',
-      /* the shop's rows stick on phones right under the sheet's sticky header (--slw-hdh, its measured height; the
-         − 18px undoes the sheet's top padding, else cards show between them) */
-      '@media (max-width:600px),(orientation:landscape) and (max-height:540px){#slwCats{top:calc(var(--slw-hdh, 0px) - 18px);}}',
+      /* the shop's land chips stick on every size right under the sheet's sticky header (--slw-hdh, its measured height;
+         the − 18px undoes the sheet's top padding, else cards show between them); on phones the Wardrobe page's slot
+         chips stick under them (wave 3) */
+      '#slwShopLand{top:calc(var(--slw-hdh, 0px) - 18px);}',
+      /* a card that takes keyboard focus scrolls clear of the sticky header and land band (WCAG 2.4.11; island-pixel.css
+         adds its sticky Jump to row's band) */
+      '.slw-sheet.slw-shopsheet{scroll-padding-top:calc(var(--slw-hdh, 0px) + 64px);}',
       '@media (max-width:600px){#slwShopBody .slw-islefilter.sticky{top:calc(var(--slw-hdh, 0px) + 38px);}}',
       /* phones held sideways are short: the island row is one sideways strip there too (it scrolls away, the tabs stick) */
       '@media (orientation:landscape) and (max-height:540px){#slwShopBody .slw-islefilter{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;padding-bottom:6px;}#slwShopBody .slw-islefilter>.slw-btn{flex:0 0 auto;}}',
@@ -389,6 +391,24 @@
       '.slw-star2d{width:44px;height:44px;padding:4px;border:none;background:none;cursor:pointer;}.slw-star2d svg{display:block;width:100%;height:100%;}',
       '.slw-star2d:focus-visible{outline:3px solid #ffd23f;outline-offset:2px;border-radius:50%;}',
       '.slw-petshoprow{display:flex;margin:4px 0 10px;}.slw-intro .hero .slw-carehero{display:inline-flex;align-items:flex-end;gap:4px;height:84px;}.slw-carehero svg{height:100%;width:auto;}.slw-carehero svg+svg{height:52%;}',
+      /* wave 3 (WAVE3-PLAN §3, §5; island-pixel.css draws the real look, these keep them usable without it): the Next step
+         card in the HUD's goal slot, the shop's sticky land chips, its 'I can buy' + 'Jump to' row, door cards, Learn buttons */
+      '.slw-goal.slw-next{cursor:default;flex-wrap:wrap;}.slw-next .nx{flex:1 1 160px;min-width:0;display:flex;flex-direction:column;gap:2px;}',
+      '.slw-next .lb{font-size:11px;font-weight:800;color:#6b6390;text-transform:none;}.slw-next .gt{font-size:13.5px;line-height:1.3;}',
+      '.slw-nextbtn,.slw-learnbtn{border:none;border-radius:12px;padding:8px 12px;min-height:44px;font:inherit;font-weight:800;font-size:14px;cursor:pointer;background:linear-gradient(135deg,#6c5ce7,#a86ff0);color:#fff;}',
+      '.slw-nextbtn{flex:0 0 auto;}',
+      /* a card's 📚 Learn keeps its words (never squeezed under them); a row it shares with a long button wraps */
+      '.slw-learnbtn{white-space:nowrap;}.slw-card .row>.slw-learnbtn{flex:1 0 auto;}.slw-card .row.slw-learnrow{flex-wrap:wrap;}.slw-card.ppl .row.slw-learnrow>.slw-goalbtn{flex:1 1 auto;}',
+      '.slw-shopland{position:-webkit-sticky;position:sticky;top:calc(var(--slw-hdh, 0px) - 18px);z-index:6;display:flex;gap:8px;flex-wrap:nowrap;margin:10px -16px 8px;padding:6px 16px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;background:#fff;}',
+      '.slw-shopland>.slw-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;}.slw-shopland .slw-btn svg{width:22px;height:22px;flex:none;}',
+      '.slw-shopfilter{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;margin:0 0 12px;padding:2px 2px 8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;}.slw-shopfilter>*{flex:0 0 auto;}.slw-shopfilter .lb{font-size:13px;font-weight:700;margin-left:4px;}',
+      '.slw-card.door{background:#f7f4ff;border-color:#d9d2ee;}.slw-card.door .ic{cursor:pointer;}',
+      '.slw-shopempty{text-align:center;font-weight:800;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;}.slw-shopempty p{margin:0;}',
+      '.slw-learntime{flex:1 0 100%;font-size:13px;font-weight:700;color:#4a3f75;}.slw-shopback{margin:0 0 10px;}',
+      '.slw-wardpage h3{display:flex;align-items:center;gap:8px;margin:4px 0 10px;}.slw-wardpage h3 svg{width:24px;height:24px;}',
+      '.slw-game .what{margin:0;font-size:14px;font-weight:700;opacity:.95;}',
+      /* phones: the HUD's buttons wrap (no sideways strip that hides My pets, QA#6) and the Next step card takes a whole row */
+      '@media (max-width:640px){.slw-goal.slw-next{flex:1 1 100%;}}',
       '@media (prefers-reduced-motion: reduce){.slw-pet.slw-eat,.slw-pet.slw-eat>svg,.slw-feed2d .bit,.slw-feed2d .love i{animation:none !important;}}',
       '@media (prefers-reduced-motion: reduce){.slw-wave,.slw-spin,.slw-flag,.slw-twinkle,.slw-smoke,.slw-tag.play,.slw-new{animation:none !important;}.slw-pet{transition-duration:0s !important;}.slw-cele.pop .ic{animation:none;}}'
     ].join('\n');
@@ -931,7 +951,9 @@
     var is3d = /\bslw-is3d\b/.test((stage.parentNode && stage.parentNode.className) || '');
     var phone = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 700px)').matches);
     var min = is3d ? parseFloat(cs(stage).minHeight) || 0 : phone ? 340 : 260;
-    var r = stageFit(vh, top, lift, min), v = Math.round(r.fit) + 'px';
+    /* placing a thing (QA#3): the stage leaves room under it for the placement bar (Put it here / Keep it for later) */
+    var bar = mode === 'place' ? $('#slwBar', root) : null, room = bar && bar.offsetHeight ? bar.offsetHeight + 16 : 0;
+    var r = stageFit(vh - room, top, lift, min), v = Math.round(r.fit) + 'px';
     if (v !== fitWas) { fitWas = v; try { root.style.setProperty('--slw-fit', v); } catch (e) {} }
     /* QA#8: a row that comes above the stage (a sky island's here row, a HUD row) pushes it down: the page follows
        as an open does, only as far as the whole stage (its recentre button too) needs, never past the HUD's lift */
@@ -953,12 +975,29 @@
     var UI = window.SLIslesUI, k = isleNow();
     var target = UI ? UI.placeTarget(C, W(), it.id, k) : (C.isV3(it) ? it.isle : 'home');
     if (!target) return;
-    if (target === k) { if (!quiet) toast(it.name + ' is yours. Pick a spot.'); startPlacement(it.id, null, true, k); return; }
+    /* QA#3: the shop (and an item sheet over it) close, so the placement bar is what the child sees; 'Placed.' then
+       offers Back to the shop, on the same land, scroll and card (shopSnap; a goal's card stays up) */
+    var back = shopSnap ? shopSnap() : shopLast;
+    closeSheets();
+    var place = function (at) { startPlacement(it.id, null, true, at); if (placing && placing.id === it.id && !placing.uid) placing.back = back; };
+    if (target === k) { if (!quiet) toast(it.name + ' is yours. Pick a spot.'); place(k); return; }
     toast(C.isV3(it) ? tx('isle.wrongIsle', { island: isleName(target) }) : tx('isle.homeOnly'));
     goIsle(target, { force: true }).then(function (ok) {
-      if (ok && isleNow() === target) startPlacement(it.id, null, true, target);
+      if (ok && isleNow() === target) place(target);
       else toast(tx('edit.stored'));                    /* it waits in the bag; nothing is lost */
     });
+  }
+  /* the sheets only (a celebration card stays up); the stage is uncovered once nothing covers it */
+  function closeSheets() {
+    document.querySelectorAll('.slw-ov').forEach(function (o) { if (o._close) o._close(); else o.remove(); });
+    if (!document.querySelector('.slw-ov, .slw-cele')) { coverCount = 0; s3('setCovered', false); }
+  }
+  /* QA#3: a just-bought thing's placement bar comes into view (the 3D stage already left room for it, fitStage) */
+  function showPlaceBar() {
+    var bar = root && $('#slwBar .slw-bar', root), vh = window.innerHeight || 0;
+    if (!bar || !vh || typeof window.scrollTo !== 'function' || !bar.getBoundingClientRect) return;
+    var r = bar.getBoundingClientRect();
+    if (r.height && r.bottom > vh - 8) try { window.scrollTo({ top: (window.pageYOffset || 0) + r.bottom - vh + 12, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
   }
   /* 'Take to another island' (D20): two commits — into the bag, then fly and place */
   function openTake(uid) {
@@ -1017,6 +1056,7 @@
     if (!again && !keep) { resetIsle(); petTurn++; }       /* the Home crew's rotation steps once per open (D97) */
     if (!again && !keep) openPending = true;              /* the island-open queue runs once per real open (KU13) */
     if (!again && !keep) careOpen = kidDue = true;        /* and the pets' island day (P4.1) */
+    loadNextStep();                                       /* the Next step card's rules (wave 3; the goal bar until they are in) */
     var u = me();
     if (!u) { root.innerHTML = '<div class="slw-loading">' + esc(tx('player.pick')) + '</div>'; return; }
     var w = C.ensureWorld(u);
@@ -1070,9 +1110,9 @@
     root.innerHTML =
       '<div class="slw' + (mode !== 'play' ? ' slw-edit' : '') + (showtimeOn || (!is3d && Date.now() < encoreUntil) ? ' showtime' : '') + '">' +
         '<div class="slw-hud">' +
-          '<button class="slw-learn" type="button" data-act="learn" data-fk="hud:learn">Back to learning</button>' +
+          '<button class="slw-learn" type="button" data-act="learn" data-fk="hud:learn">' + esc(tx('learn.go')) + '</button>' +
           '<div class="slw-pts" title="' + esc(balTitle()) + '">' + SYM() + ' <span id="slwPts">' + fmt(balOf(u)) + '</span></div>' +
-          goalHtml(u) +
+          nextHtml(u) +
           '<div class="slw-acts">' +
             '<button class="slw-btn big" type="button" data-act="shop" data-fk="hud:shop">' + lbl('shop', 'Island Shop') + '</button>' +
             '<button class="slw-btn big" type="button" data-act="games" data-fk="hud:games">' + lbl('games', 'Games') + '</button>' +
@@ -1103,7 +1143,7 @@
     root.querySelectorAll('.slw-hud [data-act]').forEach(function (b) { b.addEventListener('click', onHudAction); });
     var nav = root.querySelector('.slw-isles'); if (nav) wireIsleBar(nav);
     syncEdit();
-    var g = root.querySelector('.slw-goal'); if (g) g.addEventListener('click', goalTap);
+    wireGoal(root.querySelector('.slw-goal'));
     if (fk) refocus(root, fk);
     fitStage();                          /* the HUD may have changed its rows (Edit / Done, the goal) */
   }
@@ -1495,9 +1535,10 @@
   /* ---------------- HUD actions ---------------- */
   function onHudAction(e) {
     var a = e.currentTarget.dataset.act;
-    if (a === 'learn') { closeAllOverlays(); if (typeof setActiveApp === 'function') setActiveApp('maths'); return; }
-    /* on a sky island (owned or a preview) the shop opens on that island's own section; on Home as V4.54 (D16, D99) */
-    if (a === 'shop') return isleNow() === 'home' ? openShop() : openShop('sky', { isle: isleNow() });
+    /* 📚 Learn (wave 3): with a savings goal still short, a learn-and-come-back trip for it; else the last subject */
+    if (a === 'learn') { var sg = shortGoal(); if (sg) startTrip(sg, 'hud'); else { closeAllOverlays(); goLearn(); } return; }
+    /* the shop opens on the land the child is standing on (Home, or a sky island owned or a preview; WAVE3-PLAN §5) */
+    if (a === 'shop') return openShop({ isle: isleNow() });
     if (a === 'isle-home') return goIsle('home');
     if (a === 'isle-unlock') return openItem(e.currentTarget.getAttribute('data-land'));
     if (a === 'games') return openGames();
@@ -1768,6 +1809,7 @@
     document.addEventListener('keydown', placeKeys);
     draw();
     if (!spot) { var m = $('#slwPlaceMsg', root); if (m) m.textContent = k === 'home' ? 'Your island is full. Put something away first, or keep it for later.' : tx('isle.full', { island: isleName(k) }); }
+    if (fromBuy) showPlaceBar();                                /* QA#3: Put it here / Keep it for later in view */
   }
   function placeAtCell(nx, ny) {
     if (!placing) return;
@@ -1839,7 +1881,9 @@
       if (!pl.uid) { window._slwNew = window._slwNew || {}; window._slwNew[res.uid] = 1; }
       anim3d.dropUid = pl.uid || res.uid;              /* the 3D drop-in plays on the next sync */
       endPlacement(pl.fromBuy ? 'play' : 'edit');
-      toast(tx(pl.uid ? 'edit.moved' : 'edit.placed'), { label: '↩ Undo', fn: undo });
+      /* just bought from the shop: 'Placed.' also goes back to the shop, on the same land, scroll and card (WAVE3-PLAN §5) */
+      var back = !pl.uid && pl.back ? pl.back : null;
+      toast(tx(pl.uid ? 'edit.moved' : 'edit.placed'), [{ label: '↩ Undo', fn: undo }, back ? { label: tx('shop.back'), fn: function () { openShop(back); } } : null]);
     });
   }
   function cancelPlacement() {
@@ -1890,21 +1934,26 @@
     var opener = document.activeElement;
     var h2 = ov.querySelector('h2'); if (h2) { h2.id = h2.id || ('slwH' + (++ovSeq)); ov.setAttribute('aria-labelledby', h2.id); }
     document.body.appendChild(ov);
+    var behind = shutBehind(ov);              /* QA#10: the island and the page behind are out of reach while it is up */
     cover(+1);
-    var closed = false;
+    var closed = false, done = [];
     measureHead(ov);
     function onResize() { measureHead(ov); }
     try { window.addEventListener('resize', onResize); } catch (e) {}
     function close() {
-      if (!closed) { closed = true; cover(-1); }
+      var first = !closed;
+      if (first) { closed = true; cover(-1); openBehind(behind); behind = []; }
       ov.remove(); document.removeEventListener('keydown', onKey); if (opts.onClose) opts.onClose();
       try { window.removeEventListener('resize', onResize); } catch (e) {}
       try { if (opener && document.body.contains(opener) && opener.focus) opener.focus(); } catch (e) {}
+      if (first) done.splice(0).forEach(function (f) { try { f(); } catch (e) {} });
     }
     function onKey(e) {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
       var all = document.querySelectorAll('.slw-ov');
-      if (all[all.length - 1] === ov && !document.querySelector('.slw-cele')) close();   /* one Esc = one dialog */
+      if (all[all.length - 1] !== ov || document.querySelector('.slw-cele')) return;   /* only the top sheet answers */
+      if (e.key === 'Tab') { keepTab(ov, e); return; }                                   /* Tab goes round inside it (QA#10) */
+      close();                                                                           /* one Esc = one dialog */
     }
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
     $('.slw-x', ov).addEventListener('click', close);
@@ -1912,9 +1961,51 @@
     var focusable = ov.querySelector('button:not(.slw-x), input');
     setTimeout(function () { try { (focusable || $('.slw-x', ov)).focus(); } catch (e) {} }, 30);
     ov._close = close;
+    ov._whenClosed = function (f) { if (typeof f !== 'function') return; if (closed) f(); else done.push(f); };   /* wave 3: the queue and go() wait on it */
     return ov;
   }
   var ovSeq = 0;
+  /* QA#10 (as the game shell's E5): while a sheet is up, what is behind it is inert (no Tab stops) and hidden from screen
+     readers (aria-hidden too, for an iPad without inert). Toasts and the live region stay reachable: the island's own
+     (.slw-toast, #slwLive) and the app's toast host (#slToasts, above every sheet: 'You’re signed out … Log back in'
+     keeps its button). Only what this changed is put back */
+  var NOT_SHUT = /^(script|style|link|meta|template|noscript)$/i;
+  function shutBehind(ov) {
+    var out = [], kids = ov && ov.parentNode ? ov.parentNode.children : [];
+    for (var i = 0; i < kids.length; i++) {
+      var n = kids[i];
+      if (!n || n === ov || NOT_SHUT.test(n.localName || '') || n.id === 'slwLive' || n.id === 'slToasts' || /\bslw-toast\b/.test(String(n.className || ''))) continue;
+      var rec = { n: n, inert: n.hasAttribute('inert'), hid: n.getAttribute('aria-hidden') };
+      if (!rec.inert) { n.setAttribute('inert', ''); try { n.inert = true; } catch (e) {} }
+      if (rec.hid == null) n.setAttribute('aria-hidden', 'true');
+      out.push(rec);
+    }
+    return out;
+  }
+  function openBehind(list) {
+    (list || []).forEach(function (r) {
+      try {
+        if (!r.inert) { r.n.removeAttribute('inert'); try { r.n.inert = false; } catch (e) {} }
+        if (r.hid == null) r.n.removeAttribute('aria-hidden');
+      } catch (e) {}
+    });
+  }
+  /* Tab and Shift+Tab go round the sheet's own buttons: from the last to the first and back, never out to the page */
+  function tabStops(scope) {
+    return Array.prototype.filter.call(scope.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), function (n) {
+      if (n.disabled || n.getAttribute('tabindex') === '-1' || n.getAttribute('aria-hidden') === 'true') return false;
+      return !n.getClientRects || n.getClientRects().length > 0;
+    });
+  }
+  function keepTab(ov, e) {
+    var list = tabStops(ov), a = document.activeElement, inside = !!a && ov.contains(a);
+    if (!list.length) return;
+    var first = list[0], last = list[list.length - 1];
+    if (!inside || (e.shiftKey ? a === first : a === last)) {
+      e.preventDefault();
+      try { (e.shiftKey ? last : first).focus(); } catch (x) {}
+    }
+  }
   /* the sheet's sticky header (A9): the sheet's own title (its leading h2) and, on a big sheet, the ⭐ balance
      join the ✕, so all three stay at the top while the sheet scrolls. A sheet that starts with something else
      (the welcome, a card) keeps a bare header: just the ✕, still always in reach */
@@ -1953,27 +2044,43 @@
   }
   function closePhoto() { var PU = window.SLPhotoCartoonUI; try { if (PU && typeof PU.closeAll === 'function') PU.closeAll(); } catch (e) {} }
   /* o.ms: how long it stays (a 'Loading…' toast stays until its game starts or gives up); → the toast element */
+  /* action: {label, fn}, or a list of them (wave 3: 'Placed.' has ↩ Undo and Back to the shop) */
   function toast(msg, action, o) {
     var old = document.querySelector('.slw-toast'); if (old) old.remove();
+    var acts = !action ? [] : Array.isArray(action) ? action.filter(Boolean) : [action];
     var t = document.createElement('div'); t.className = 'slw-toast' + (o && o.over ? ' over' : ''); t.setAttribute('role', 'status');   /* over: above a game */
-    t.innerHTML = '<span>' + esc(msg) + '</span>' + (action ? '<button type="button">' + esc(action.label) + '</button>' : '');
+    t.innerHTML = '<span>' + esc(msg) + '</span>' + acts.map(function (a) { return '<button type="button">' + esc(a.label) + '</button>'; }).join('');
     document.body.appendChild(t);
-    if (action) $('button', t).addEventListener('click', function () { t.remove(); action.fn(); });
-    setTimeout(function () { if (t.parentNode) t.remove(); }, (o && o.ms) || (action ? 6000 : 3200));
+    t.querySelectorAll('button').forEach(function (b, i) { b.addEventListener('click', function () { t.remove(); acts[i].fn(); }); });
+    setTimeout(function () { if (t.parentNode) t.remove(); }, (o && o.ms) || (acts.length ? 6000 : 3200));
     return t;
   }
 
-  /* ---------------- shop ---------------- */
-  function shopCats() {
-    var cats = [['all', coinsOn() ? 'All' : '⭐ All'], ['afford', 'I can buy'], ['garden', 'Garden'], ['paths', 'Paths'], ['fun', 'Fun'],
-      ['city', lbl('city', tx('shop.tab.city', null, 'City'))], ['home', lbl('home', 'Home')], ['pets', lbl('crew', tx('label.crew', null, 'Crew'))]];
-    if (wardrobeOn()) cats.push(['wardrobe', esc(tx('wardrobe.tab'))]);      /* the characters and their wear (KU-CH17) */
-    return cats.concat([['land', 'Land'], ['sky', lbl('isles', tx('shop.tab.sky'))], ['games', lbl('games', 'Games')]]);
+  /* ---------------- shop (wave 3: one land and a few shelves; WAVE3-PLAN §5, SLIslandShop.landShop, W3-2) ----------------
+     The Island Shop is ONE land: a row of land chips (sticky on every size, 'Shop at') picks it, and it opens on the
+     land the child is standing on. Home's things sit on six shelves, with door cards for what has its own page (My
+     pets, the Pet Shop, your home's styles, the Wardrobe); a sky land keeps its own shelves. 'I can buy' filters the
+     land on show. Memory only: nothing here is stored. The old tab names still open the right place (SHOP_OLD) */
+  var shopLand = 'home', shopFilter = 'all', shopWard = false, shopSnap = null, shopFocus = null;
+  /* an old tab name → [land, shelf to jump to, filter, the Wardrobe page]: people-ui's 'Shop more', the crew sheet, index.html */
+  var SHOP_OLD = { all: ['home'], afford: ['home', null, 'afford'], garden: ['home', 'decor'], city: ['home', 'decor'], paths: ['home', 'fun'],
+    fun: ['home', 'fun'], home: ['home', 'more'], pets: ['home', 'pets'], games: ['home', 'games'], land: ['home', 'lands'], wardrobe: ['home', null, null, true] };
+  /* where openShop(cat, o) / openShop(o) opens: {isle, shelf, filter, ward}. A land asked for wins; 'sky' alone is the sky
+     island the child is on, else the first one; nothing asked for is the land the child is standing on */
+  function shopTarget(cat, o) {
+    var k = typeof o.isle === 'string' && C.ISLES[o.isle] ? o.isle : null;
+    var old = typeof cat === 'string' && Object.prototype.hasOwnProperty.call(SHOP_OLD, cat) ? SHOP_OLD[cat] : null;
+    var at = { isle: old ? old[0] : k || isleNow(), shelf: old ? old[1] : null, filter: old && old[2] ? old[2] : 'all', ward: !!(old && old[3]) };
+    if (cat === 'sky') at.isle = k && k !== 'home' ? k : isleNow() !== 'home' ? isleNow() : C.ISLE_ORDER.filter(function (x) { return x !== 'home'; })[0];
+    if (typeof o.shelf === 'string') at.shelf = o.shelf;
+    if (o.filter === 'afford' || o.filter === 'all') at.filter = o.filter;
+    if (o.ward === true) at.ward = true;
+    if (!C.ISLES[at.isle]) at.isle = 'home';
+    return at;
   }
-  var shopCat = 'all';
-  function catOf(it) {
-    if (it.cat === 'lights' || it.cat === 'flags') return 'garden';
-    return it.cat || 'garden';
+  /* '📚 Learn' on a card that is short (never in test mode): a learn-and-come-back trip for it */
+  function learnBtnHtml(id, cls) {
+    return '<button type="button" class="slw-learnbtn' + (cls ? ' ' + cls : '') + '" data-learn="' + esc(id) + '" data-fk="card:learn:' + esc(id) + '">' + esc(tx('learn.go')) + '</button>';
   }
   function cardHtml(u, it, lead) {
     if (isPeople(it)) return peopleCardHtml(u, it.id, lead);        /* a character or a piece: its own card */
@@ -1993,17 +2100,21 @@
     var goalBtn = (s.state === 'owned' || s.state === 'full' || trial()) ? '' : '<button type="button" class="slw-goalbtn' + (isGoal ? ' on' : '') + '" data-goal="' + it.id + '" data-fk="card:goal:' + it.id + '" aria-pressed="' + isGoal + '" title="' + (isGoal ? 'This is your goal' : 'Make this my savings goal') + '">🎯</button>';
     var shine = (window.SLIslandLook && SLIslandLook.shineLevel) ? ' shine-' + SLIslandLook.shineLevel(it.price) : '';
     /* an owned sky land is a way there; a locked land's things are a preview: a look, never a Buy (D99) */
+    /* wave 3: no dead Buy. A locked thing is a look (its sheet says what it needs); one the child is short of keeps
+       F-KU5's 'Need N more 🪙' as a line and gets '📚 Learn' (a learn-and-come-back trip) */
     var act = s.state === 'owned' && isleOfLand(it) && canTravel() ? '<button type="button" class="slw-buy" data-goisle="' + it.isle + '" data-fk="card:go:' + it.id + '">' + esc(tx('isle.goThere')) + '</button>'
-      : s.state === 'locked' && it.isle ? '<button type="button" class="slw-btn" data-open="' + it.id + '" data-fk="card:see:' + it.id + '">' + esc(tx('shop.seeIt')) + '</button>'
+      : s.state === 'locked' ? '<button type="button" class="slw-btn" data-open="' + it.id + '" data-fk="card:see:' + it.id + '">' + esc(tx('shop.seeIt')) + '</button>'
       /* the pet cap (itemState 'full', A4): the pets the child has, in the Pet Corner, never a Buy that does nothing */
       : s.state === 'full' ? '<button type="button" class="slw-btn" data-corner="" data-ctab="home" data-fk="card:corner:' + it.id + '">' + esc(tx('care.corner.title')) + '</button>'
+      : s.state === 'short' ? learnBtnHtml(it.id)
       : '<button type="button" class="slw-buy" data-buy="' + it.id + '" data-fk="card:buy:' + it.id + '"' + (disabled ? ' disabled' : '') + '>' + buyLabel + '</button>';
+    var need = s.state === 'short' ? '<div class="slw-need">' + esc(buyLabel) + '</div>' : '';
     var game = gameOf(it);
     return '<div class="slw-card' + shine + '"><button type="button" class="ic" data-open="' + it.id + '" aria-label="See ' + esc(it.name) + '">' + iconHtml(it.id, artState(w)) + '</button>' +
       '<div class="nm">' + esc(it.name) + '</div><div class="ds">' + esc(dsc(it)) + '</div>' + (game ? '<div class="slw-plays">🎮 ' + esc(game.name + ': ' + game.what) + '</div>' : '') + chip +
       (trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">' + money(priceOf(it)) + '</s> <span class="slw-free">FREE</span></div>'
         : '<div class="pr">' + money(priceOf(it)) + (rep ? ' <span style="font-size:11px;color:#8a84a3;">each</span>' : '') + '</div>') +
-      '<div class="row">' + act + goalBtn + '</div></div>';
+      need + '<div class="row' + (s.state === 'short' ? ' slw-learnrow' : '') + '">' + act + goalBtn + '</div></div>';
   }
   /* a pet the child has, or one the cap shuts out (F-KU3: SLIslandShop.shopPet): where it is (At home, At the Pet
      Hotel, Safe at the Pet Rescue) or '3 of 3 pets', and the Pet Corner instead of a Buy that would do nothing.
@@ -2018,11 +2129,16 @@
     var w = C.ensureWorld(u), shine = (window.SLIslandLook && SLIslandLook.shineLevel) ? ' shine-' + SLIslandLook.shineLevel(it.price) : '';
     var chip = c.chip ? '<span class="chip ' + c.chip.cls + '">' + (c.owned ? '✓ ' : '') + esc(tx(c.chip.key, c.chip.params || undefined)) + '</span>' : '';
     var act = c.act === 'corner' ? '<button type="button" class="slw-btn" data-corner="' + esc(c.corner.petId || '') + '" data-ctab="' + c.corner.tab + '" data-fk="corner:' + it.id + '">' + esc(tx(c.actKey)) + '</button>'
-      : '<button type="button" class="slw-buy" data-buy="' + it.id + '"' + (c.enabled ? '' : ' disabled') + '>' + esc(tx(c.actKey)) + '</button>';
+      /* Make room the price does not allow yet: '📚 Learn' instead of a dead button (wave 3) */
+      : c.enabled || trial() ? '<button type="button" class="slw-buy" data-buy="' + it.id + '"' + (c.enabled ? '' : ' disabled') + '>' + esc(tx(c.actKey)) + '</button>' : learnBtnHtml(it.id);
     return '<div class="slw-card' + shine + '"><button type="button" class="ic" data-open="' + it.id + '" aria-label="See ' + esc(it.name) + '">' + iconHtml(it.id, artState(w)) + '</button>' +
       '<div class="nm">' + esc(it.name) + '</div><div class="ds">' + esc(dsc(it)) + '</div>' + chip +
       (c.owned ? '' : trial() ? '<div class="pr"><s style="color:#9a94b5;font-weight:700;">' + money(c.price) + '</s> <span class="slw-free">FREE</span></div>' : '<div class="pr">' + money(c.price) + '</div>') +
-      '<div class="row">' + act + '</div></div>';
+      /* w3-int (W3-4's QA#12 hand-over): a pet the cap shuts out says why, in the Pet Shop's words, so it never reads
+         like one of the child's own pets (owned cards say where the pet is instead) */
+      (c.state === 'ownFull' ? '<div class="slw-need slw-capline">' + esc(tx('care.welcome.capTotal')) + '</div>'
+        : c.state === 'homeFull' && c.line ? '<div class="slw-need slw-capline">' + esc(tx(c.line.key, c.line.params || undefined)) + '</div>' : '') +
+      '<div class="row' + (c.act === 'room' && !c.enabled && !trial() ? ' slw-learnrow' : '') + '">' + act + '</div></div>';
   }
   /* the sky island a land opens, or null (Meadow Hill and Beach Cove are Home's own land) */
   function isleOfLand(it) { return it && it.kind === 'land' && it.isle && C.ISLES[it.isle] ? it.isle : null; }
@@ -2040,124 +2156,91 @@
       (s.owned ? '<span class="chip own">✓ ' + esc(tx('shop.onIsland')) + '</span>' : '<span class="chip uni">' + esc(tx('shop.comesWithLand', { land: s.name })) + '</span>') +
       '<div class="row"><button type="button" class="slw-btn" data-open="' + it.id + '">' + esc(tx('shop.seeIt')) + '</button></div></div>';
   }
-  /* the Sky islands tab (D99; SLIslandShop.sections): the island chips ('All five', then each land) in a row that
-     sticks under the tab row on phones, then one island's own shop: its heading, a status row (with 'Go there' /
-     'Fly over for a look' unless you are there), its lead cards (the land while locked, then the landmark), the
-     shelf jump chips, the shelves. Under 'All five' each land is a folded header and one opens at a time */
-  function skyTabHtml(u) {
-    var SH = window.SLIslandShop, w = C.ensureWorld(u);
-    if (!SH) return '';
-    var one = shopIsle !== 'home' && C.ISLES[shopIsle] ? shopIsle : null;
-    var html = '<div class="slw-islefilter sticky" role="group" aria-label="' + esc(tx('isle.nav')) + '">' +
-      '<button type="button" class="slw-btn' + (one ? '' : ' on') + '" data-sisle="all" data-fk="sisle:all" aria-pressed="' + !one + '">' + esc(tx('shop.isles.all')) + '</button>';
-    C.ISLE_ORDER.forEach(function (k) {
-      if (k === 'home') return;
-      var own = C.isleUnlocked(w, k);
-      html += '<button type="button" class="slw-btn' + (one === k ? ' on' : '') + '" data-sisle="' + k + '" data-fk="sisle:' + k + '" aria-pressed="' + (one === k) + '" aria-label="' + esc(isleName(k) + (own ? ', ' + tx('shop.unlocked').toLowerCase() : '')) + '">' +
-        (typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !own }) + ' ' : '') + esc(tx('isle.short.' + k, null, isleName(k))) + (own ? ' ✓' : '') + '</button>';
-    });
-    html += '</div>';
-    SH.sections(C, u, { trial: trial(), isle: one }).forEach(function (s) { html += isleSectionHtml(u, s, !!one); });
-    return html;
-  }
-  /* a land's status (Unlocked ✓ / ⭐ price / FREE), what its shop has, and the way there unless you are there */
+  /* a land's status (Unlocked ✓ / 🪙 price / FREE), what its shop has, and the way there unless you are there (Home has
+     no status chip: it is always yours) */
   function isleStatusHtml(s, here) {
     var k = s.isle;
-    return (s.status === 'open' ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (s.status === 'free' ? 'FREE' : money(s.price)) + '</span>') +
+    return (k === 'home' ? '' : s.status === 'open' ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (s.status === 'free' ? 'FREE' : money(s.price)) + '</span>') +
       '<span class="ct">' + esc(tx('shop.isleCount', { n: s.counts.things })) + '</span>' +
       (here || !canTravel() ? '' : '<button type="button" class="slw-btn" data-goisle="' + k + '" data-fk="go:' + k + '">' + esc(tx(s.owned ? 'isle.goThere' : 'isle.visit')) + '</button>');
   }
-  function isleSectionHtml(u, s, single) {
-    var k = s.isle, here = isleNow() === k && !skyMapOn, open = single || shopAcc === k;
-    var icon = typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !s.owned }) : '';
-    var html = '<section class="slw-shopisle' + (single ? '' : ' fold') + '" data-isle="' + k + '" aria-labelledby="slwSI-' + k + '">';
-    if (single) {
-      html += '<h3 id="slwSI-' + k + '">' + icon + esc(tx('shop.isleShop', { island: s.name })) + '</h3>';
-      if (!s.owned) html += '<p class="slw-isleline">' + esc(tx('shop.isleLocked', { land: s.name })) + '</p>';
-      else if (here) html += '<p class="slw-isleline">' + esc(tx('shop.isleHere', { island: s.name })) + '</p>';
-      /* the status chip is styled inside an .slw-isleacc row (a plain row here: no toggle) */
-      html += '<div class="slw-isleacc">' + isleStatusHtml(s, here) + '</div>';
-    } else {
-      /* 'All five' (D99): a folded header per land (a heading holding its toggle, then the status, the count and the
-         way there); only the open one shows its shop, so the longest list is one island's shelves */
-      html += '<div class="slw-isleacc' + (open ? ' open' : '') + '"><h3 class="slw-acch"><button type="button" class="tg" id="slwSI-' + k + '" data-isleacc="' + k + '" data-fk="acc:' + k + '" aria-expanded="' + open + '"' +
-        (open ? ' aria-controls="slwSB-' + k + '"' : '') + '><span class="ic">' + icon + '</span><span class="nm">' + esc(s.name) + '</span></button></h3>' + isleStatusHtml(s, here) + '</div>';
-      if (!open) return html + '</section>';
-      html += '<div class="slw-isleopen" id="slwSB-' + k + '">' + (s.owned ? '' : '<p class="slw-isleline">' + esc(tx('shop.isleLocked', { land: s.name })) + '</p>');
-    }
-    /* the lead cards (the land while locked, then the landmark) share one row that they fill, side by side as wide
-       cards, so a landmark never sits alone beside an empty gap (QA 13) */
-    html += '<div class="slw-grid slw-leadrow">' + s.lead.map(function (id) { return id === s.landmarkId ? landmarkCardHtml(u, s) : cardHtml(u, C.item(id)); }).join('') + '</div>';
-    if (s.shelves.length > 1) html += '<div class="slw-shelfjump"><span class="lb">' + esc(tx('shop.jump')) + '</span>' +
-      s.shelves.map(function (sh) { return '<button type="button" class="slw-btn" data-jump="slwSh-' + k + '-' + sh.key + '">' + esc(tx(sh.labelKey)) + '</button>'; }).join('') + '</div>';
-    s.shelves.forEach(function (sh) {
-      html += '<h4 class="slw-shelfhd" id="slwSh-' + k + '-' + sh.key + '" tabindex="-1">' + esc(tx(sh.labelKey)) + ' <span class="n">' + sh.ids.length + '</span></h4>' +
-        '<div class="slw-grid">' + sh.ids.map(function (id) { return cardHtml(u, C.item(id), id === sh.lead); }).join('') + '</div>';
-    });
-    return html + (single ? '' : '</div>') + '</section>';
-  }
-  /* ⭐ All (D99): the V4.54 things and the five lands (never a land's own things), and for each owned land
-     one doorway card into its shop */
-  function allTabHtml(u) {
-    var SH = window.SLIslandShop, w = C.ensureWorld(u), cards = '';
-    if (!SH) return null;
-    var tab = SH.allTab(C, u, TO());
-    tab.isleCards.forEach(function (c) {
-      var name = isleName(c.isle), land = C.ISLES[c.isle].unlock;
-      cards += '<div class="slw-card isle" data-isle="' + c.isle + '"><button type="button" class="ic" data-isleshop="' + c.isle + '" aria-label="' + esc(tx('shop.isleOpen', { island: name })) + '">' + iconHtml(land, artState(w)) + '</button>' +
-        '<div class="nm">' + esc(tx('shop.isleOpen', { island: name })) + '</div><div class="ds">' + esc(tx('shop.isleCount', { n: c.things })) + '</div>' +
-        '<div class="row"><button type="button" class="slw-btn" data-isleshop="' + c.isle + '">' + lbl('shop', tx('isle.openShop')) + '</button></div></div>';
-    });
-    /* the characters and their wear: one doorway card into the 👕 Wardrobe tab (KU-CH15's allTab.wardrobe) */
-    if (tab.wardrobe && wardrobeOn()) {
-      var face = (SH.wardrobeTab(C, u, TO())[0] || { ids: [] }).ids[0];
-      cards += '<div class="slw-card isle ward"><button type="button" class="ic" data-wardshop="1" aria-label="' + esc(tx('wardrobe.tab')) + '">' + (face ? peopleIconHtml(face) : '') + '</button>' +
-        '<div class="nm">' + esc(tx('wardrobe.tab')) + '</div><div class="ds">' + esc(tx('shop.isleCount', { n: tab.wardrobe.left })) + '</div>' +
-        '<div class="row"><button type="button" class="slw-btn" data-wardshop="1">' + ME_ICO + ' ' + esc(tx('wardrobe.title')) + '</button></div></div>';
-    }
-    return cards + tab.ids.map(function (id) { return cardHtml(u, C.item(id)); }).join('');
-  }
-  /* a list's sub-heading with an island's pixel icon and a count (the 'I can buy' groups) */
-  function isleHeadHtml(k, n) {
-    return '<h4 class="slw-shelfhd" data-isle="' + k + '"><span class="ic">' + (typeof ART.isleIcon === 'function' ? ART.isleIcon(k, {}) : '') + '</span>' + esc(isleName(k)) + ' <span class="n">' + n + '</span></h4>';
-  }
-  /* 'I can buy' (D99; SLIslandShop.afford): what can be had now, cheapest first. Home's things first (as V4.54, no
-     heading), then each land's under its own heading; on a sky island that island's group leads, and Home's then
-     has a heading too. null = nothing to buy yet (the V4.54 'Next up' line) */
-  function affordHtml(u) {
-    var SH = window.SLIslandShop;
-    if (!SH) return null;
-    var groups = SH.afford(C, u, { trial: trial(), isle: isleNow() });
-    if (!groups.length) return null;
-    return groups.map(function (g, i) {
-      if (g.key === 'wardrobe') return wardFoldHtml(u, g);       /* the characters and wear: one folded group */
-      return (g.isle || i > 0 ? isleHeadHtml(g.isle || 'home', g.ids.length) : '') +
-        '<div class="slw-grid">' + g.ids.map(function (id) { return cardHtml(u, C.item(id)); }).join('') + '</div>';
+  /* the land chips ('Shop at'; landShop's picker): Home first, then the sky lands by their short names; an owned sky land
+     says ' ✓', a locked one wears the lock on its icon; the land on show is pressed in */
+  function shopPickerHtml(v) {
+    return v.picker.map(function (p) {
+      var k = p.isle, open = !!p.owned, sky = k !== 'home';
+      return '<button type="button" class="slw-btn' + (p.on ? ' on' : '') + (p.here ? ' here' : '') + (open ? '' : ' locked') + '" data-shopland="' + k + '" data-fk="shopland:' + k + '" aria-pressed="' + !!p.on + '" aria-label="' +
+        esc(isleName(k) + (sky && open ? ', ' + tx('shop.unlocked').toLowerCase() : '')) + '">' + (typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !open }) : '') +
+        '<span>' + esc(tx('isle.short.' + k, null, isleName(k)) + (sky && open ? ' ✓' : '')) + '</span></button>';
     }).join('');
   }
-  /* the Crew tab (D99, D114; SLIslandShop.crewAisle): Crew, Gear, then a folded group per land with its two mascots and
-     four pieces of gear (the same six cards as that land's 'Mascots & gear' shelf). The header is the button: the
-     land's name (the short one on phones), its status and how many are still to get; one group opens at a time,
-     and each shop opens with the island you are on open */
-  function crewTabHtml(u) {
-    var SH = window.SLIslandShop, w = C.ensureWorld(u), top = '', lands = '';
-    if (!SH) return null;
-    /* pet care (pets U8): the way into the Pet Shop, where the food is and every animal can be adopted */
-    if (care()) top = '<div class="slw-petshoprow"><button type="button" class="slw-btn big" data-petshop="1" data-fk="petshop">' + lbl('crew', tx('care.welcome.shop')) + '</button></div>';
-    var grid = function (ids, id) { return '<div class="slw-grid"' + (id ? ' id="' + id + '"' : '') + '>' + ids.map(function (x) { return cardHtml(u, C.item(x)); }).join('') + '</div>'; };
-    SH.crewAisle(C, u, { isle: crewAcc, trial: trial() }).forEach(function (g) {
-      if (g.key === 'pets' || g.key === 'gear') { top += '<h4 class="slw-shelfhd">' + esc(tx(g.labelKey)) + ' <span class="n">' + g.ids.length + '</span></h4>' + grid(g.ids); return; }
-      var k = g.key, open = !g.collapsed, left = g.ids.filter(function (id) { return !C.owns(w, id); }).length;
-      lands += '<div class="slw-crewland" data-isle="' + k + '"><h4 class="slw-acch"><button type="button" class="slw-crewacc' + (open ? ' open' : '') + '" data-crewacc="' + k + '" data-fk="crew:' + k + '" aria-expanded="' + open + '"' +
-        (open ? ' aria-controls="slwCL-' + k + '"' : '') + '><span class="ic">' + (typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !g.owned }) : '') + '</span>' +
-        '<span class="nm"><span class="fl">' + esc(tx(g.labelKey, { island: g.name })) + '</span><span class="sh">' + esc(tx(g.labelKey, { island: tx('isle.short.' + k, null, g.name) })) + '</span></span>' +
-        (g.owned ? '<span class="chip own">✓ ' + esc(tx('shop.unlocked')) + '</span>' : '<span class="chip lock">' + (g.status === 'free' ? 'FREE' : money(g.price)) + '</span>') +
-        (left ? '<span class="ct">' + esc(tx('shop.isleCount', { n: left })) + '</span>' : '') + '</button></h4>' + (open ? grid(g.ids, 'slwCL-' + k) : '') + '</div>';
-    });
-    return top + '<div class="slw-crewlands">' + lands + '</div>';
+  /* a door card (landShop's doors): the way into what has its own page (My pets, the Pet Shop, your home's styles, the
+     Wardrobe), never a thing to buy here. The picture is a look only; the button is the one tab stop */
+  function doorHtml(u, d) {
+    var w = C.ensureWorld(u), pic = '', run = runnerId(w), sp;
+    if (d.key === 'pets') pic = run && C.item(run) ? iconHtml(run, { acc: C.wornBy(w, run) }) : '';
+    else if (d.key === 'house') { sp = ART.sprite('house_cottage', artState(w)); pic = sp ? '<span class="slw-pc">' + sp.svg + '</span>' : ''; }
+    else if (d.key === 'clothes') { var face = d.ids.filter(function (id) { var it = C.item(id); return !!it && it.kind === 'char'; })[0] || d.ids[0]; pic = face ? peopleIconHtml(face) : ''; }
+    else if (d.ids.length && C.item(d.ids[0])) pic = iconHtml(d.ids[0], artState(w));
+    return '<div class="slw-card door" data-door="' + d.key + '"><button type="button" class="ic" data-door="' + d.key + '" tabindex="-1" aria-hidden="true">' + pic + '</button>' +
+      '<div class="nm">' + esc(tx(d.titleKey)) + '</div><div class="ds">' + esc(tx(d.lineKey, d.lineParams || undefined)) + '</div>' +
+      '<div class="row"><button type="button" class="slw-btn" data-door="' + d.key + '" data-fk="door:' + d.key + '">' + (d.key === 'clothes' ? ME_ICO + ' ' : '') + esc(tx(d.btnKey)) + '</button></div></div>';
   }
-  /* a shelf jump chip: the sheet scrolls to that shelf (under the sticky rows on phones) and the
-     heading takes focus, so the keyboard and a screen reader land there too */
+  /* 'I can buy' with nothing to buy on this land: say so, then the cheapest thing here still to save for and '📚 Learn' */
+  function shopEmptyHtml(v) {
+    var nx = v.next && C.item(v.next.id);
+    return '<div class="slw-shopempty" role="status"><p>' + esc(tx('shop.filter.none')) + '</p>' +
+      (nx ? '<p>' + esc(tx('shop.filter.next', { item: nx.name, n: fmt(v.next.need) })) + '</p>' + learnBtnHtml(nx.id) : '') + '</div>';
+  }
+  /* one land's shop (landShop's section): its heading, where you are, the status row, then ONE sideways row with 'I can
+     buy' (never in test mode) and the 'Jump to' chips, the lead cards (a sky land: the land while locked, then the
+     landmark), the shelves (door cards first; the order never changes after a buy), and the empty state */
+  function isleSectionHtml(u, v) {
+    var s = v.section, k = s.isle, here = isleNow() === k && !skyMapOn, on = v.filter === 'afford';
+    var icon = typeof ART.isleIcon === 'function' ? ART.isleIcon(k, { locked: !s.owned }) : '';
+    var html = '<section class="slw-shopisle" data-isle="' + k + '" aria-labelledby="slwSI-' + k + '"><h3 id="slwSI-' + k + '">' + icon + esc(tx('shop.isleShop', { island: s.name })) + '</h3>';
+    if (!s.owned) html += '<p class="slw-isleline">' + esc(tx('shop.isleLocked', { land: s.name })) + '</p>';
+    else if (here) html += '<p class="slw-isleline">' + esc(tx('shop.isleHere', { island: s.name })) + '</p>';
+    /* the status row (a sky land's status and count, and the way there); on Home, only when the child is elsewhere */
+    if (k !== 'home' || !here) html += '<div class="slw-isleacc">' + isleStatusHtml(s, here) + '</div>';
+    var row = (trial() ? '' : '<button type="button" class="slw-btn slw-afford' + (on ? ' on' : '') + '" data-shopfilter="afford" data-fk="shop:afford" aria-pressed="' + on + '">' + esc(tx('shop.filter.afford')) + '</button>') +
+      (s.shelves.length > 1 ? '<span class="lb">' + esc(tx('shop.jump')) + '</span>' + s.shelves.map(function (sh) {
+        return '<button type="button" class="slw-btn slw-jump" data-jump="slwSh-' + k + '-' + sh.key + '" data-fk="jump:' + sh.key + '">' + esc(tx(sh.labelKey)) + '</button>';
+      }).join('') : '');
+    if (row) html += '<div class="slw-shopfilter">' + row + '</div>';
+    /* the lead cards share one row that they fill, side by side as wide cards (QA 13) */
+    if (s.lead.length) html += '<div class="slw-grid slw-leadrow">' + s.lead.map(function (id) { return id === s.landmarkId ? landmarkCardHtml(u, s) : cardHtml(u, C.item(id)); }).join('') + '</div>';
+    s.shelves.forEach(function (sh) {
+      html += '<h4 class="slw-shelfhd" id="slwSh-' + k + '-' + sh.key + '" tabindex="-1">' + esc(tx(sh.labelKey)) + (sh.ids.length ? ' <span class="n">' + sh.ids.length + '</span>' : '') + '</h4>' +
+        '<div class="slw-grid">' + (sh.doors || []).map(function (d) { return doorHtml(u, d); }).join('') + sh.ids.map(function (id) { return cardHtml(u, C.item(id), id === sh.lead); }).join('') + '</div>';
+    });
+    if (on && !s.lead.length && !s.shelves.length) html += shopEmptyHtml(v);
+    return html + '</section>';
+  }
+  /* the 👕 Wardrobe (Home's clothes door): a page of its own inside the Island Shop, 'Back to the shop' first, then its
+     title (the door's button: the person icon and 'Wardrobe', so the child sees where they are; the land chips still
+     say Home), then its slot chips */
+  function wardPageHtml(u) {
+    return '<section class="slw-wardpage" aria-labelledby="slwWardT"><button type="button" class="slw-btn slw-shopback" data-shopback="1" data-fk="shop:back">' + esc(tx('shop.back')) + '</button>' +
+      '<h3 id="slwWardT">' + ME_ICO + ' ' + esc(tx('wardrobe.title')) + '</h3>' + wardrobeTabHtml(u) + '</section>';
+  }
+  /* the shop's view-model call (SLIslandShop.landShop, W3-2): the land on show, where the child stands, test mode, the
+     island's wallet, 'I can buy', the Pet Shop door only with pet care, the Wardrobe door only with the people plug-in */
+  function shopView(u) {
+    var SH = window.SLIslandShop;
+    if (!SH || typeof SH.landShop !== 'function') return null;
+    var o = { isle: shopLand, here: isleNow(), trial: trial(), filter: shopFilter, petShop: !!care(), people: wardrobeOn() };
+    if (typeof C.walletOf === 'function') o.wallet = C.walletOf();
+    try { return SH.landShop(C, u, o); } catch (e) { return null; }
+  }
+  /* without the shop view-model: the V4.54 things and the lands, cheapest first in one grid */
+  function shopListHtml(u) {
+    var items = C.shopItems().filter(function (it) { return !(it.isle && it.kind !== 'land'); })
+      .sort(function (a, b) { return (priceOf(a) - priceOf(b)) || (a.price - b.price); });
+    return '<div class="slw-grid" id="slwShopGrid">' + items.map(function (it) { return cardHtml(u, it); }).join('') + '</div>';
+  }
+  /* a shelf jump chip: the sheet scrolls to that shelf (under the sticky rows) and the heading takes focus, so the
+     keyboard and a screen reader land there too */
   function jumpTo(ov, id) {
     var h = ov.querySelector('#' + id), sheet = ov.querySelector('.slw-sheet');
     if (!h || !sheet) return;
@@ -2166,60 +2249,56 @@
     try { sheet.scrollTo({ top: top, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) { sheet.scrollTop = top; }
     try { h.focus({ preventScroll: true }); } catch (e) {}
   }
-  function openShop(cat, o) {
-    /* from Home a plain open starts on ⭐ All, the whole shop at a glance; a tab asked for by name (the crew sheet's
-       More, the reveal's Shop this island) still opens there, and on a sky island the shop opens on that island */
-    if (cat) shopCat = cat;
-    else if (!(o && o.isle) && isleNow() === 'home') { shopCat = 'all'; shopIsle = 'all'; }
-    /* opened on a sky island, or from a land's reveal: the Sky islands tab shows that island's section only (D99) */
-    if (o && o.isle && o.isle !== 'home' && C.ISLES[o.isle]) { shopCat = 'sky'; shopIsle = o.isle; }
-    if (shopCat === 'wardrobe' && !wardrobeOn()) shopCat = 'all';
-    if (shopCat === 'wardrobe' && o && typeof o.slot === 'string') wardSlot = o.slot;   /* 'Shop more' names its slot */
-    crewAcc = isleNow() !== 'home' ? isleNow() : null;    /* the Crew tab opens on the island you are on (D114) */
+  /* the Island Shop → its sheet. openShop() and openShop({isle}) open on that land (the HUD: the land the child stands on);
+     openShop({isle, shelf, filter, ward, slot, scroll, focus}) also jumps to a shelf, turns 'I can buy' on, opens the
+     Wardrobe page, or comes back to where the child was (scroll, the card's button: 'Back to the shop'). An old tab name
+     still works: openShop('pets'), openShop('sky', {isle}), openShop('wardrobe', {slot}) (SHOP_OLD) */
+  var shopLast = null;
+  function openShop(a, b) {
+    var o = a && typeof a === 'object' ? a : b && typeof b === 'object' ? b : {}, at = shopTarget(typeof a === 'string' ? a : null, o);
     var u = me();
+    if (!u) return null;
+    shopLand = at.isle; shopFilter = trial() ? 'all' : at.filter; shopWard = at.ward && wardrobeOn(); shopFocus = null;
+    if (shopWard && typeof o.slot === 'string') wardSlot = o.slot;   /* 'Shop more' names its slot */
     islandMusic('shop');
-    /* the balance (🪙, F-KU5) is in the sheet's sticky header; a buy that can't go ahead says why on its own card, never at the top.
-       The line under the title says which money the island uses, and that the ⭐ for My rewards are never spent here */
-    var moneyLine = coinsOn() ? esc(tx(trial() ? 'coins.shop.trialLine' : 'coins.shop.line')) : trial() ? 'Your ⭐ are saved for My rewards (not used here).' : 'Learning earns more ⭐. It’s the same balance as My rewards.';
-    var ov = overlay('<h2>' + lbl('shop', 'Island Shop') + '</h2><div class="slw-moneyline" style="font-weight:800;color:#6b5a22;">' + moneyLine + '</div>' + (trial() ? '<div class="slw-trialbar">Test mode: everything in this shop is <b>free</b>' + (coinsOn() ? ', so try anything.' : '. Your points aren’t used, so try anything.') + '</div>' : '') + '<div class="slw-cats" id="slwCats"></div><div id="slwShopBody"></div>', { onClose: function () { islandMusic(showtimeOn ? 'island_showtime' : 'island_day'); } });
-    var cats = $('#slwCats', ov), body = $('#slwShopBody', ov), sheet = $('.slw-sheet', ov);
-    /* a new tab or island starts at its top: under the tab row where that row sticks (phones), else with the row;
-       either way below the sticky header */
+    /* the balance (🪙, F-KU5) is in the sheet's sticky header. Under the title ONE line (QA#15): with real prices, which
+       money the island uses (the ⭐ for My rewards are never spent here); in test mode, only the green test-mode bar */
+    var line = trial() ? '<div class="slw-trialbar">Test mode: everything in this shop is <b>free</b>' + (coinsOn() ? ', so try anything.' : '. Your points aren’t used, so try anything.') + '</div>'
+      : '<div class="slw-moneyline" style="font-weight:800;color:#6b5a22;">' + (coinsOn() ? esc(tx('coins.shop.line')) : 'Learning earns more ⭐. It’s the same balance as My rewards.') + '</div>';
+    var ov = overlay('<h2>' + lbl('shop', 'Island Shop') + '</h2>' + line + '<div class="slw-shopland" id="slwShopLand" role="group" aria-label="' + esc(tx('shop.at')) + '"></div><div id="slwShopBody"></div>',
+      { onClose: function () { if (shopSnap === snap) shopSnap = null; islandMusic(showtimeOn ? 'island_showtime' : 'island_day'); } });
+    var land = $('#slwShopLand', ov), body = $('#slwShopBody', ov), sheet = $('.slw-sheet', ov);
+    sheet.className += ' slw-shopsheet';      /* its scroll-padding keeps a focused card clear of the sticky bands */
+    /* where the child is in this shop, for 'Back to the shop' after a placement (QA#3) */
+    function snap() { return { isle: shopLand, filter: shopFilter, ward: shopWard, scroll: sheet.scrollTop || 0, focus: shopFocus }; }
+    shopSnap = snap;
+    /* a new land or page starts at its top, just under the sticky land chips */
     function toTop() {
-      var band = window.getComputedStyle && getComputedStyle(cats).position === 'sticky' ? cats.offsetHeight : 0;
-      var top = (band ? body : cats).getBoundingClientRect().top - sheet.getBoundingClientRect().top - band - headH(ov);
+      var band = window.getComputedStyle && getComputedStyle(land).position === 'sticky' ? land.offsetHeight : 0;
+      var top = body.getBoundingClientRect().top - sheet.getBoundingClientRect().top - band - headH(ov);
       if (top < 0) sheet.scrollTop += top - 8;
     }
-    /* how far below the sheet's content edge the rows that stick reach once stuck: the header, and on phones the
-       tab and island rows under it (0 where nothing sticks) */
-    function bands() {
-      var b = 0;
-      if (!window.getComputedStyle) return 0;
-      [$('.slw-sheethd', ov), cats, $('.slw-islefilter', body)].forEach(function (el) {
-        var cs = el && getComputedStyle(el);
-        if (cs && cs.position === 'sticky') b = Math.max(b, (parseFloat(cs.top) || 0) + (el.offsetHeight || 0));
-      });
-      return b;
-    }
-    /* a fold opened or shut (D99, D114): an opened header rises to just under the sticky rows with its cards below
-       it; a shut one stays where it was under the finger, even when the open fold above it closed */
-    function refold(fk, opened) {
-      var row = function () { var b = ov.querySelector('[data-fk="' + fk + '"]'); return b && /\btg\b/.test(b.className) ? b.parentNode.parentNode : b; };
-      var r0 = row(), y0 = r0 ? r0.getBoundingClientRect().top : 0;
-      paint();
-      var r1 = row();
-      if (!r1) return;
-      var pad = window.getComputedStyle ? parseFloat(getComputedStyle(sheet).paddingTop) || 0 : 0;
-      var to = opened ? sheet.getBoundingClientRect().top + (sheet.clientTop || 0) + pad + bands() + 8 : y0;
-      sheet.scrollTop = (sheet.scrollTop || 0) + r1.getBoundingClientRect().top - to;
+    /* a door: the Wardrobe is a page here; My pets, the Pet Shop and your home are sheets of their own */
+    function door(key) {
+      if (key === 'clothes') {
+        if (!wardrobeOn()) return;
+        shopWard = true; cardErr = null; paint(); toTop();
+        var bk = $('[data-shopback]', body); if (bk) try { bk.focus({ preventScroll: true }); } catch (e) {}
+        return;
+      }
+      ov._close();
+      if (key === 'pets') { if (careUI()) openCareCorner({}); else openPets(); }
+      else if (key === 'petShop') openPetShop({ filter: 'all' });
+      else if (key === 'house') openHome();
     }
     /* a buy that couldn't go ahead says why on its own card, next to its button ({id, msg}); it stays through a
-       repaint and goes when the child tries again or moves to another tab or island */
+       repaint and goes when the child tries again or moves to another land */
     var cardErr = null;
     function showCardErr() {
       body.querySelectorAll('.slw-carderr').forEach(function (e) { e.remove(); });
       if (!cardErr) return;
-      var b = body.querySelector('[data-buy="' + cardErr.id + '"]'), card = b;
+      /* the card by its Buy, or by its 📚 Learn when the refusal left the child short (wave 3) */
+      var b = body.querySelector('[data-buy="' + cardErr.id + '"]') || body.querySelector('[data-learn="' + cardErr.id + '"]'), card = b;
       while (card && !/\bslw-card\b/.test(card.className || '')) card = card.parentNode;
       if (!card) { toast('⚠️ ' + cardErr.msg); cardErr = null; return; }     /* the card isn't on this tab: a toast instead */
       var e = document.createElement('div');
@@ -2236,67 +2315,60 @@
       return el;
     }
     function paint() {
-      var u2 = me(), fk = focusKey(ov), sl = cats.scrollLeft, fl0 = $('.slw-islefilter', body), fsl = fl0 ? fl0.scrollLeft : 0;
+      var u2 = me(), fk = focusKey(ov), sl = land.scrollLeft, r0 = $('.slw-shopfilter', body), rsl = r0 ? r0.scrollLeft : 0;
+      if (!u2) return;
       var pn = $('.slw-hdpts .n', ov); if (pn) pn.textContent = fmt(balOf(u2));
-      cats.innerHTML = shopCats().map(function (c) { return '<button type="button" class="slw-btn' + (shopCat === c[0] ? ' on' : '') + '" data-cat="' + c[0] + '" data-fk="cat:' + c[0] + '" aria-pressed="' + (shopCat === c[0]) + '">' + c[1] + '</button>'; }).join('');
-      var all = shopCat === 'all' ? allTabHtml(u2) : null;
-      /* 'I can buy' and the Crew tab come grouped from the shop view-model (null: nothing to buy yet, or no view-model) */
-      var grouped = shopCat === 'afford' ? affordHtml(u2) : shopCat === 'pets' ? crewTabHtml(u2) : shopCat === 'wardrobe' ? wardrobeTabHtml(u2) : null;
-      var items = shopCat === 'sky' || all !== null || grouped !== null ? [] : C.shopItems().filter(function (it) {
-        if (shopCat === 'afford') return iState(u2, it.id).state === 'affordable';
-        /* ⭐ All without the shop view-model: a land's own things wait in the Sky islands tab */
-        return shopCat === 'all' ? !(it.isle && it.kind !== 'land') : catOf(it) === shopCat;
-      });
-      /* affordable & useful first, owned uniques last */
-      items.sort(function (a, b) {
-        var sa = iState(u2, a.id).state, sb = iState(u2, b.id).state;
-        var rank = { affordable: 0, short: 1, locked: 2, capped: 3, owned: 3, full: 3 };   /* full: a pet the cap shuts out (F-KU4), with what cannot be bought now */
-        return ((rank[sa] == null ? 9 : rank[sa]) - (rank[sb] == null ? 9 : rank[sb])) || (priceOf(a) - priceOf(b)) || (a.price - b.price);   /* cheapest first in 🪙 (F-KU5) */
-      });
-      var next = null;
-      if (!items.length && shopCat === 'afford') {
-        C.shopItems().forEach(function (it) { if (iState(u2, it.id).state === 'short' && (!next || priceOf(it) < priceOf(next))) next = it; });
-      }
-      body.innerHTML = shopCat === 'sky' ? skyTabHtml(u2) : grouped !== null ? grouped : '<div class="slw-grid" id="slwShopGrid">' + (all || (items.length ? items.map(function (it) { return cardHtml(u2, it); }).join('')
-        : trial() ? '<p style="grid-column:1/-1;font-weight:800;text-align:center;color:#1d8a4c;padding:18px;">You’ve got everything there is. Thanks for testing.</p>'
-        : '<p style="grid-column:1/-1;font-weight:800;text-align:center;color:#6b6390;padding:18px;">Nothing to buy just yet — every bit of learning earns ' + SYM() + '!' +
-          (next ? '<br>Next up: <b>' + esc(next.name) + '</b> — just ' + fmt(priceOf(next) - balOf(u2)) + ' more ' + SYM() + '.' : '') + '</p>')) + '</div>';
+      var v = shopView(u2);
+      if (v) { shopLand = v.isle; shopFilter = v.filter; }
+      land.innerHTML = v ? shopPickerHtml(v) : '';
+      body.innerHTML = shopWard ? wardPageHtml(u2) : v ? isleSectionHtml(u2, v) : shopListHtml(u2);
       fillPhotocards(ov);
-      /* phones: the tab row and the island chips are sideways strips; the pressed ones come into view */
-      cats.scrollLeft = sl; showChip(cats, $('.on', cats));
-      var fl = $('.slw-islefilter', body);
-      if (fl) { fl.scrollLeft = fsl; showChip(fl, $('[aria-pressed="true"]', fl)); }
-      ov.querySelectorAll('[data-cat]').forEach(function (b) { b.addEventListener('click', function () { shopCat = b.dataset.cat; cardErr = null; paint(); toTop(); }); });
-      body.querySelectorAll('[data-sisle]').forEach(function (b) { b.addEventListener('click', function () { shopIsle = b.dataset.sisle; cardErr = null; paint(); toTop(); }); });
-      body.querySelectorAll('[data-isleshop]').forEach(function (b) { b.addEventListener('click', function () { shopCat = 'sky'; shopIsle = b.dataset.isleshop; cardErr = null; paint(); toTop(); }); });
-      body.querySelectorAll('[data-jump]').forEach(function (b) { b.addEventListener('click', function () { jumpTo(ov, b.dataset.jump); }); });
-      /* one fold open at a time: tapping the open one shuts it, tapping another moves the opening there */
-      body.querySelectorAll('[data-isleacc]').forEach(function (b) { b.addEventListener('click', function () { var k = b.dataset.isleacc; shopAcc = shopAcc === k ? null : k; refold('acc:' + k, shopAcc === k); }); });
-      body.querySelectorAll('[data-crewacc]').forEach(function (b) { b.addEventListener('click', function () { var k = b.dataset.crewacc; crewAcc = crewAcc === k ? null : k; refold('crew:' + k, crewAcc === k); }); });
-      body.querySelectorAll('[data-goisle]').forEach(function (b) { b.addEventListener('click', function () { var k = b.dataset.goisle; ov._close(); goIsle(k); }); });
-      /* the characters and their wear (KU-CH17): the Wardrobe tab's slot chips, its doorway, the folded group, Play as and Wear */
-      body.querySelectorAll('[data-wslot]').forEach(function (b) { b.addEventListener('click', function () { wardSlot = b.dataset.wslot; paint(); toTop(); }); });
-      body.querySelectorAll('[data-wardshop]').forEach(function (b) { b.addEventListener('click', function () { shopCat = 'wardrobe'; paint(); toTop(); }); });
-      body.querySelectorAll('[data-wardacc]').forEach(function (b) { b.addEventListener('click', function () { wardAcc = !wardAcc; refold('ward:acc', wardAcc); }); });
-      body.querySelectorAll('[data-pplay]').forEach(function (b) { b.addEventListener('click', function () { setActiveChar(b.dataset.pplay).then(paint); }); });
-      body.querySelectorAll('[data-pwear]').forEach(function (b) { b.addEventListener('click', function () { wearPiece(b.dataset.pwear).then(paint); }); });
-      body.querySelectorAll('[data-pmake]').forEach(function (b) { b.addEventListener('click', function () { ov._close(); openMyChar(); }); });
-      body.querySelectorAll('[data-petshop]').forEach(function (b) { b.addEventListener('click', function () { ov._close(); openPetShop({ filter: 'all' }); }); });
-      /* a pet card's Pet Corner (F-KU3): on that pet's tab, or At home at the cap */
-      body.querySelectorAll('[data-corner]').forEach(function (b) { b.addEventListener('click', function () { var id = b.dataset.corner; ov._close(); openCareCorner(id ? { petId: id, tab: b.dataset.ctab } : { tab: b.dataset.ctab }); }); });
+      /* phones: the land chips, the 'I can buy' + 'Jump to' row and the Wardrobe chips are sideways strips; the pressed ones come into view */
+      land.scrollLeft = sl; showChip(land, $('.on', land));
+      var r1 = $('.slw-shopfilter', body); if (r1) { r1.scrollLeft = rsl; showChip(r1, $('[aria-pressed="true"]', r1)); }
+      var ws = $('.slw-islefilter', body); if (ws) showChip(ws, $('[aria-pressed="true"]', ws));
+      land.querySelectorAll('[data-shopland]').forEach(function (bt) { bt.addEventListener('click', function () { shopLand = bt.dataset.shopland; shopWard = false; cardErr = null; paint(); toTop(); }); });
+      body.querySelectorAll('[data-shopfilter]').forEach(function (bt) { bt.addEventListener('click', function () { shopFilter = shopFilter === 'afford' ? 'all' : 'afford'; cardErr = null; paint(); }); });
+      body.querySelectorAll('[data-jump]').forEach(function (bt) { bt.addEventListener('click', function () { jumpTo(ov, bt.dataset.jump); }); });
+      body.querySelectorAll('[data-goisle]').forEach(function (bt) { bt.addEventListener('click', function () { var k = bt.dataset.goisle; ov._close(); goIsle(k); }); });
+      body.querySelectorAll('[data-door]').forEach(function (bt) { bt.addEventListener('click', function () { door(bt.dataset.door); }); });
+      body.querySelectorAll('[data-shopback]').forEach(function (bt) { bt.addEventListener('click', function () { shopWard = false; paint(); jumpTo(ov, 'slwSh-home-more'); refocus(ov, 'door:clothes'); }); });
+      body.querySelectorAll('[data-learn]').forEach(function (bt) { bt.addEventListener('click', function () { startTrip(bt.dataset.learn, 'card'); }); });
+      /* the characters and their wear (KU-CH17): the Wardrobe's slot chips, Play as, Wear, Make me */
+      body.querySelectorAll('[data-wslot]').forEach(function (bt) { bt.addEventListener('click', function () { wardSlot = bt.dataset.wslot; paint(); toTop(); }); });
+      body.querySelectorAll('[data-pplay]').forEach(function (bt) { bt.addEventListener('click', function () { setActiveChar(bt.dataset.pplay).then(paint); }); });
+      body.querySelectorAll('[data-pwear]').forEach(function (bt) { bt.addEventListener('click', function () { wearPiece(bt.dataset.pwear).then(paint); }); });
+      body.querySelectorAll('[data-pmake]').forEach(function (bt) { bt.addEventListener('click', function () { ov._close(); openMyChar(); }); });
+      /* a pet card's My pets (F-KU3): on that pet's group, or At home at the cap */
+      body.querySelectorAll('[data-corner]').forEach(function (bt) { bt.addEventListener('click', function () { var id = bt.dataset.corner; ov._close(); openCareCorner(id ? { petId: id, tab: bt.dataset.ctab } : { tab: bt.dataset.ctab }); }); });
       if (fk) refocus(ov, fk);
-      body.querySelectorAll('[data-open]').forEach(function (b) { b.addEventListener('click', function () { openItem(b.dataset.open); }); });
-      ov.querySelectorAll('[data-goal]').forEach(function (b) { b.addEventListener('click', function () { toggleGoal(b.dataset.goal).then(paint); }); });
-      ov.querySelectorAll('[data-buy]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var it = C.item(b.dataset.buy);
+      body.querySelectorAll('[data-open]').forEach(function (bt) { bt.addEventListener('click', function () { shopFocus = 'card:buy:' + bt.dataset.open; openItem(bt.dataset.open); }); });
+      ov.querySelectorAll('[data-goal]').forEach(function (bt) { bt.addEventListener('click', function () { toggleGoal(bt.dataset.goal).then(paint); }); });
+      ov.querySelectorAll('[data-buy]').forEach(function (bt) {
+        bt.addEventListener('click', function () {
+          var it = C.item(bt.dataset.buy);
+          shopFocus = 'card:buy:' + it.id;
           if (iState(me(), it.id).state === 'owned') { useOwned(it); ov._close(); return; }
-          buyItem(it, b, cardErrFor(it.id), function (ok) { if (ok) { ov._close(); } else paint(); });
+          /* bought: the shop closes (where the child was is kept for 'Back to the shop' after a placement) */
+          buyItem(it, bt, cardErrFor(it.id), function (ok) { if (ok) { shopLast = snap(); ov._close(); } else paint(); });
         });
       });
       showCardErr();
     }
     paint();
+    /* come back to a shelf, a scroll position or a card (after the sheet's own first focus). The sheet first focuses
+       its first button, a sticky land chip, and in a browser that focus scrolls the sheet (w3-int: 'Back to the shop'
+       came back about 400px short, its card under the fold), so the scroll is set again once that focus is done */
+    var back = typeof o.scroll === 'number' && o.scroll > 0 ? o.scroll : 0;
+    if (back) sheet.scrollTop = back;
+    var shelf = at.shelf && !shopWard ? 'slwSh-' + shopLand + '-' + at.shelf : null;
+    if (shelf || o.focus || back) setTimeout(function () {
+      if (!ov.isConnected) return;
+      if (back) sheet.scrollTop = back;
+      if (shelf) jumpTo(ov, shelf);
+      if (typeof o.focus === 'string') refocus(ov, o.focus);
+    }, 40);
+    return ov;
   }
   /* set or clear the savings goal → Promise<bool> (did it change). Swapping one goal for a different one asks
      first ('Keep <goal>' / 'Yes, switch'); sure = already asked, so the land a locked thing needs takes the goal
@@ -2387,10 +2459,12 @@
     if (!(bal > 0)) return 'Nothing saved yet. Every bit of learning helps.';
     return 'You have ' + money(bal) + ' — ' + (need <= bal ? 'just ' : '') + fmt(need) + ' more to go!';
   }
-  function openItem(id) {
-    var it = C.item(id); if (!it) return;
-    if (it.kind === 'food') { openPetShop({ filter: 'food' }); return; }   /* food is the Pet Shop's (meals, never 'each one you buy…') */
-    var u = me(), w = C.ensureWorld(u), s = iState(u, id);
+  /* → the sheet (wave 3: o.onClose, and the queue and go() wait on it), or null */
+  function openItem(id, o) {
+    var it = C.item(id); if (!it) return null;
+    if (it.kind === 'food') { openPetShop({ filter: 'food', id: id }); return null; }   /* food is the Pet Shop's (meals, never 'each one you buy…') */
+    var u = me(); if (!u) return null;
+    var w = C.ensureWorld(u), s = iState(u, id);
     /* a pet the child has or one the cap shuts out (F-KU3): where it is or why, and the Pet Corner */
     var pc = it.kind === 'pet' ? shopPetOf(u, id) : null;
     if (pc && pc.act !== 'corner') pc = null;
@@ -2401,6 +2475,10 @@
     var lmOwned = lm && C.isleUnlocked(w, lm), there = isleNow() === (lm || ik) && !skyMapOn;
     var trip = !canTravel() ? '' : lm ? (lmOwned ? '<button class="slw-buy" type="button" id="slwIsleGo">' + esc(tx('isle.landmarkSee')) + '</button>' : '')
       : ik && !there ? '<button class="' + (s.state === 'owned' ? 'slw-buy' : 'slw-btn') + '" type="button" id="slwIsleGo">' + esc(tx(s.state === 'owned' ? 'isle.goThere' : 'isle.visit')) + '</button>' : '';
+    /* wave 3 (WAVE3-PLAN §6): short of it, '📚 Learn and come back' beside the goal button and how long that is ('That’s
+       about 10 minutes of learning.'); locked, a way to what it needs. Never a dead Buy */
+    var goalB = trial() ? '' : '<button class="slw-goalbtn' + (C.goalId(w) === id ? ' on' : '') + '" type="button" id="slwGoalNow">🎯 ' + (C.goalId(w) === id ? 'My goal ✓' : 'Make it my goal') + '</button>';
+    var learnAt = s.state === 'short' && !trial() ? learnTime(s.need) : '', needIt = s.state === 'locked' && s.needs && C.item(s.needs[0]);
     /* the name leads the sheet, so it rides in the sticky header with the ⭐ balance and the ✕ (A9) */
     var ov = overlay(
       '<h2>' + esc(it.name) + '</h2><div class="slw-detail"><div class="big" id="slwBig">' + iconHtml(id, artState(w)) + '</div>' +
@@ -2418,10 +2496,17 @@
           : s.state === 'owned'
           ? ((it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant') ? '<button class="slw-buy" type="button" id="slwUse">Use it</button>' : '') +
             (it.kind === 'attraction' && it.game ? '<button class="slw-buy" type="button" id="slwPlayNow">▶ Play</button>' : '')
+          /* the time line sits right under these two, before Watch a preview (a full-width line in the same row) */
+          : s.state === 'short' && !trial() ? '<button class="slw-learnbtn" type="button" id="slwLearnNow" data-fk="item:learn">' + esc(tx('learn.andBack')) + '</button>' + goalB +
+            (learnAt ? '<div class="slw-learntime">' + esc(learnAt) + '</div>' : '')
+          : needIt ? '<button class="slw-btn" type="button" id="slwSeeNeed">' + esc(tx('isle.seeLand', { land: needIt.name })) + '</button>' + goalB
           : '<button class="slw-buy" type="button" id="slwBuyNow"' + (s.state !== 'affordable' ? ' disabled' : '') + '>' + (s.state === 'affordable' ? (s.free ? '🎁 Get it free' : 'Buy for ' + money(priceOf(it))) : s.state === 'locked' ? '🔒 Locked' : s.state === 'capped' ? 'Plenty for testing ✓' : 'Not enough ' + SYM() + ' yet') + '</button>' +
-            (trial() ? '' : '<button class="slw-goalbtn' + (C.goalId(w) === id ? ' on' : '') + '" type="button" id="slwGoalNow">🎯 ' + (C.goalId(w) === id ? 'My goal ✓' : 'Make it my goal') + '</button>')) +
+            goalB) +
         trip + (demoGame ? '<button class="slw-btn" type="button" id="slwDemo">▶ Watch a preview</button>' : '') + peopleBtns(it, s) +
-      '</div></div></div>');
+      '</div></div></div>', { onClose: o && o.onClose });
+    ov.setAttribute('data-item', id);
+    var ln = $('#slwLearnNow', ov); if (ln) ln.addEventListener('click', function () { startTrip(id, 'item'); });
+    var sn = $('#slwSeeNeed', ov); if (sn) sn.addEventListener('click', function () { ov._close(); openItem(needIt.id); });
     fillPhotocards(ov);
     wirePeopleBtns(ov, it);
     var ig = $('#slwIsleGo', ov);
@@ -2449,6 +2534,7 @@
         setTimeout(function () { dm.disabled = false; }, 7500);
       }).catch(function () { dm.textContent = 'Preview unavailable offline'; });
     });
+    return ov;
   }
 
   /* the purchase flow: confirm (expensive only) → locked commit → celebrate. o.quiet (people-ui's buy, KU-CH13) and
@@ -2472,8 +2558,10 @@
         buying = false;
         if (res && res.ok) {
           delete pendingTx[it.id];
+          endTrip(it.id);                                 /* a learn-and-come-back trip for it is over (wave 3) */
           if (done) done(true);
           if (o && o.care) careBought(it); else if (quiet) peopleChanged(); else afterPurchase(it, res, wasGoal);
+          shopLast = null;                                /* only a placement started by this buy goes back to the shop */
         } else {
           /* definitive refusals free the tx; save failures keep it so a retry can't double-charge */
           if (!res || ['write_failed', 'not_saved', 'read_failed'].indexOf(res.code) < 0) delete pendingTx[it.id];
@@ -2772,7 +2860,7 @@
       body.querySelectorAll('[data-acc]').forEach(function (b) { b.addEventListener('click', function () { act(function (u) { return C.equipAccessory(u, b.dataset.pet, b.dataset.acc); }); }); });
       body.querySelectorAll('[data-more]').forEach(function (b) { b.addEventListener('click', more); });
     }
-    function more() { ov._close(); openShop('pets'); }
+    function more() { ov._close(); openShop({ isle: 'home', shelf: 'pets' }); }   /* Home's Pets shelf (wave 3) */
     $('#slwMorePets', ov).addEventListener('click', more);
     finish({});
     /* opened on one member ('Name them' after an adoption, the Crew button after new gear): after the sheet's own first
@@ -2945,6 +3033,7 @@
     if (!gp || !gp.ready || gp.full || w.goalNotified === gp.id) return;   /* full: a pet goal the pet cap shuts out (A4) */
     commit(function (fu) { var fw = C.ensureWorld(fu); if (fw.goalNotified === gp.id) return { ok: false }; fw.goalNotified = gp.id; return { ok: true }; });
     window._slwLastGoal = gp.id;
+    if (onOpen) goalShown = { id: gp.id, at: Date.now() };   /* wave 3: a trip for this goal does not open its sheet as well */
     if (onOpen) celebrate({ title: '🎯 Goal reached', sub: 'You’ve saved enough for ' + gp.name + '. Buy it now, or keep saving for something bigger.', icon: gp.id, sfx: 'fanfare', btns: [{ label: 'Go to it', fn: function () { openItem(gp.id); } }] });
   }
 
@@ -3131,6 +3220,8 @@
       commit: function (fn) { return commit(fn).then(function (res) { if (res && res.ok) peopleChanged(); return res; }); },
       buy: buyQuiet, trial: trial, cover: cover, reduced: reduced, color: userInfo().color,
       openShop: function (slot) { openShop('wardrobe', { slot: slot }); },
+      /* wave 3 (contract 5): a short character card's '📚 Learn': a learn-and-come-back trip that reopens it */
+      learnFor: function (id) { return startTrip(id, 'cast'); },
       use3D: on3D() && !document.documentElement.classList.contains('sl-low')
     };
     if (canFindMe()) ctx.findMe = findMe;
@@ -3188,7 +3279,7 @@
      The 👕 Wardrobe tab (its slot chips, then that slot's cards), a land's Dress-up shelf (its character the lead
      card), the folded Wardrobe group in 'I can buy' and the All tab's one doorway. Every word on a people card is a
      world-copy key or catalogue data (names, themes, descriptions, land names): no literal text */
-  var wardSlot = null, wardAcc = false;              /* the open chip (null: the view-model's default, Outfits; F-KU3) and the 'I can buy' fold: this page session only */
+  var wardSlot = null;                               /* the open chip (null: the view-model's default, Outfits; F-KU3): this page session only */
   function wardrobeOn() { var SH = window.SLIslandShop; return !!PC() && !!SH && typeof SH.wardrobeTab === 'function' && typeof SH.wardrobeCard === 'function'; }
   function peopleCardHtml(u, id, lead) {
     var SH = window.SLIslandShop, it = C.item(id), c = null;
@@ -3205,7 +3296,8 @@
       chip = '<span class="chip lock">🔒 ' + esc(line) + '</span>';
       act = '<button type="button" class="slw-btn" data-open="' + id + '">' + esc(tx('shop.seeIt')) + '</button>';
     } else if (c.state === 'short') {
-      act = '<span class="slw-need">' + esc(line) + '</span>' + (trial() ? '' : '<button type="button" class="slw-goalbtn' + (c.goal ? ' on' : '') + '" data-goal="' + id + '" aria-pressed="' + c.goal + '">🎯 ' + esc(tx('char.cast.save')) + '</button>');
+      /* wave 3: the need line, then '📚 Learn' (a learn-and-come-back trip) beside the goal button */
+      act = '<span class="slw-need">' + esc(line) + '</span>' + (trial() ? '' : '</div><div class="row slw-learnrow">' + learnBtnHtml(id) + '<button type="button" class="slw-goalbtn' + (c.goal ? ' on' : '') + '" data-goal="' + id + '" aria-pressed="' + c.goal + '">🎯 ' + esc(tx('char.cast.save')) + '</button>');
     } else if (c.can) {
       act = '<button type="button" class="slw-buy" data-buy="' + id + '" aria-label="' + esc(c.name + ', ' + (c.free ? tx('wardrobe.free') : price)) + '">' + (c.free ? esc(tx('isle.unlockFree')) : price) + '</button>';
     }
@@ -3237,12 +3329,6 @@
       var on = s === open;
       return '<button type="button" class="slw-btn' + (on ? ' on' : '') + '" data-wslot="' + s.key + '" data-fk="wslot:' + s.key + '" aria-pressed="' + on + '">' + esc(tx(s.labelKey)) + '</button>';
     }).join('') + '</div><div class="slw-grid">' + open.ids.map(function (id) { return peopleCardHtml(u, id); }).join('') + '</div>';
-  }
-  /* 'I can buy': the characters and pieces anyone can buy, folded like a Crew-tab land (59 cards at 500 ⭐) */
-  function wardFoldHtml(u, g) {
-    return '<div class="slw-crewland" data-ward="1"><h4 class="slw-acch"><button type="button" class="slw-crewacc' + (wardAcc ? ' open' : '') + '" data-wardacc="1" data-fk="ward:acc" aria-expanded="' + wardAcc + '"' +
-      (wardAcc ? ' aria-controls="slwWA"' : '') + '><span class="ic">' + ME_ICO + '</span><span class="nm">' + esc(tx(g.labelKey)) + '</span><span class="ct">' + esc(tx('shop.isleCount', { n: g.ids.length })) + '</span></button></h4>' +
-      (wardAcc ? '<div class="slw-grid" id="slwWA">' + g.ids.map(function (id) { return peopleCardHtml(u, id); }).join('') + '</div>' : '') + '</div>';
   }
   /* the detail sheet's people buttons: Try it on (a piece; preview only), Play as (an owned character), Wear / Take off */
   function peopleBtns(it, s) {
@@ -3434,6 +3520,7 @@
   function careChanged() {
     if (!root || running || renderedFor == null) return;
     if (on3D()) { s3('sync', islandView()); s3('setAnchors', anchors3D()); syncStars(); } else drawStage();
+    syncNext();                                  /* a pet fed or visited: the Next step card moves on (wave 3) */
   }
 
   /* ---------------- the island day (pets.json care.careStep, care.family) ---------------- */
@@ -3554,13 +3641,26 @@
     enqueueOpen({ id: 'care.day', prio: 40,
       when: function (w) {
         var n = careNews, P = care();
-        return !!P && !!n && n.who === state.activeUser && n.day === careDay() && careStarted(w) && C.careOf(w).days >= 2 && !!P.cardOf(n.events);
+        if (!P || !n || n.who !== state.activeUser || n.day !== careDay() || !careStarted(w) || C.careOf(w).days < 2) return false;
+        if (!P.cardOf(dayNews(w, n.events))) { careNews = null; return false; }
+        return true;
       },
       show: function () {
         var n = careNews; careNews = null;
-        return careUI().dayCard(careCtx(), { events: n.events }).then(function (r) { careChanged(); return r; });
+        return careUI().dayCard(careCtx(), { events: dayNews(W(), n.events) }).then(function (r) { careChanged(); return r; });
       } });
     return true;
+  }
+  /* the island day's news as it stands now: a 'very hungry' or 'last day' line is about a pet at home at that level; once
+     the pet has been fed since the day began (the Next step card's Feed, the reminder's Feed: both come before this card)
+     or has left home, it is old news, never shown. Read through careMoods (the care status list, as the stage reads it) */
+  function dayNews(w, events) {
+    var moods = careMoods(w);
+    return (events || []).filter(function (e) {
+      if (!e || (e.type !== 'warn' && e.type !== 'last')) return true;
+      var m = moods[e.id];
+      return !!m && (m.level === 'warn' || m.level === 'last');
+    });
   }
 
   /* ---------------- the ctx the Pet Corner (P3.1) and the Pet Shop (P3.2) work through ---------------- */
@@ -3574,8 +3674,10 @@
       stageFeed: stageFeed, buy: buyCare,
       openShop: openPetShop, openMemories: openMemories,
       openCorner: function (petId) { return openCareCorner(typeof petId === 'string' ? { petId: petId } : {}); },
-      openGear: function () { openShop('pets'); },
-      goLearn: function () { closeAllOverlays(); if (typeof setActiveApp === 'function') setActiveApp('maths'); },
+      openGear: function () { openShop({ isle: 'home', shelf: 'pets' }); },   /* Home's Pets shelf: the pet gear (wave 3) */
+      goLearn: function () { closeAllOverlays(); goLearn(); },
+      /* wave 3 (contract 5): a short pet or food card's '📚 Learn': a learn-and-come-back trip that reopens the Pet Shop on it */
+      learnFor: function (id) { return startTrip(id, 'petShop'); },
       document: document, setTimeout: function (f, t) { return setTimeout(f, t); }, clearTimeout: function (h) { clearTimeout(h); }
     };
     if (window.SLPhotocard) ctx.photocard = window.SLPhotocard;
@@ -3606,7 +3708,7 @@
   function openPetShop(o) {
     return loadPetShop().then(function (ok) {
       if (!root || renderedFor == null) return null;
-      if (!ok) { openShop('pets'); return null; }
+      if (!ok) { openShop({ isle: 'home', shelf: 'pets' }); return null; }   /* offline: Home's Pets shelf stands in (wave 3) */
       return window.SLPetShopUI.openPetShop(careCtx(), o || {});
     }).then(function (r) { careChanged(); return r; });
   }
@@ -3785,20 +3887,25 @@
     });
     return out.length ? '🏆 ' + out.join(' · ') : 'No best yet — set one!';
   }
-  function openGames() {
+  /* the Games sheet → the sheet. o.onClose: told when it closes (the top bar's Games, WAVE3-PLAN §1 / contract 3). Each
+     card says what the game is under its name ('An obstacle run with your pet', WAVE3-PLAN §4) */
+  function openGames(o) {
+    o = o || {};
     var w = W(), st = arcadeState();
     var html = '<h2>' + lbl('games', 'Island games') + '</h2>' + timeHtml(st) + '<p style="font-size:12.5px;font-weight:700;color:#7c8696;margin:0 0 8px;">' + esc(tx(coinsOn() ? 'games.noCoins' : 'games.noPoints')) + '</p><div class="slw-games">';
     Object.keys(GAMES).forEach(function (g) {
       var G = GAMES[g], own = C.owns(w, G.att);
       /* the card's colours go in --slw-g (the Pixel skin draws them as a band; the injected rule fills the card) */
-      html += '<div class="slw-game' + (own ? '' : ' locked') + '" style="--slw-g:' + G.grad + ';"><h3>' + esc(G.name) + '</h3>' +
+      html += '<div class="slw-game' + (own ? '' : ' locked') + '" style="--slw-g:' + G.grad + ';"><h3>' + esc(G.name) + '</h3><p class="what">' + esc(G.what.charAt(0).toUpperCase() + G.what.slice(1)) + '</p>' +
         '<div class="pb">' + (own ? esc(pbText(g)) : '🔒 Unlock with the ' + esc(C.item(G.att).name) + ' in the Island Shop') + '</div>' +
         '<button class="slw-btn big" type="button" data-play="' + g + '">' + (own ? '▶ Play' : '👀 See it in the Island Shop') + '</button></div>';
     });
     var ov = overlay(html + '</div>');
     /* [V4.55-BOARDS] optional leaderboards (world/games/boards.js); this sheet works without it */
     (window.SLBoards ? Promise.resolve() : loadScript('world/games/boards.js?v=' + (window.SL_WORLD_VER || '1'))).then(function () { if (window.SLBoards && SLBoards.attach) SLBoards.attach(ov, { overlay: overlay, day: st.day }); }).catch(function () {});
+    if (typeof o.onClose === 'function') ov._whenClosed(o.onClose);
     ov.querySelectorAll('[data-play]').forEach(function (b) { b.addEventListener('click', function () { ov._close(); launch(b.dataset.play); }); });
+    return ov;
   }
   var running = null;
   /* opts.challenge = {join: 'FROG'} (a family pop-up's Join, through joinChallenge): the game opens on its join sheet */
@@ -3813,7 +3920,7 @@
     var st = arcadeState();
     if (C.roundGate(st.status).allowed === false) {
       var ov = overlay('<h2>⏱️ That’s all the game time for today</h2><p style="font-weight:700;">Your grown-up set ' + Math.round(st.status.limitSec / 60) + ' minutes of island games a day. Your games are still yours — come back tomorrow!</p><button class="slw-btn big on" type="button" id="slwToLearn">📚 Learning is open — let’s go</button>', { small: true });
-      $('#slwToLearn', ov).addEventListener('click', function () { ov._close(); if (typeof setActiveApp === 'function') setActiveApp('maths'); });
+      $('#slwToLearn', ov).addEventListener('click', function () { ov._close(); goLearn(); });   /* the last subject (wave 3) */
       return;
     }
     var launchedFor = state.activeUser;
@@ -3910,6 +4017,182 @@
     loadScript('world/games/duel-core.js?v=' + (window.SL_WORLD_VER || '1')).then(show, function () {});
   }
 
+  /* ================================================================
+     WAVE 3 (WAVE3-PLAN §3, §7; contracts 1, 3, 4, 5): the Next step card in the HUD, the learn-and-come-back trip,
+     and SLWorld.go. Memory only: the trip is window.slLearnTrip (never saved, never sent), and the card is worked
+     out afresh from the save on each draw by SLNextStep (world/next-step.js, W3-2; loaded here like the Pet Shop,
+     precached in sw.js). Until it is in, or when no rule fits, the old savings-goal bar / test-mode note stands.
+     The host acts on the card's btn.go.to, never on its id alone.
+     ================================================================ */
+  var nextCard = null, goalShown = null, TRIP_MS = 3 * 60 * 60 * 1000;
+  var TRIP_FROM = { item: 1, card: 1, next: 1, hud: 1, petShop: 1, cast: 1 };
+  function loadNextStep() {
+    if (window.SLNextStep) return;
+    loadScript('world/next-step.js?v=' + (window.SL_WORLD_VER || '1')).then(function () { if (window.SLNextStep) syncNext(); }, function () {});
+  }
+  /* SLNextStep.island with the host's env (W3-2 as built): test mode, the island's wallet, the care rules once they are
+     ready and the island day, the trip, who is playing and whether today's game time has room for a ▶ Play */
+  function nextOf(u) {
+    var N = window.SLNextStep;
+    if (!N || typeof N.island !== 'function' || !u) return null;
+    try {
+      var env = { trial: trial(), care: care(), day: careDay(), now: Date.now(), trip: window.slLearnTrip || null, who: state.activeUser,
+        games: C.roundGate(arcadeState().status).allowed !== false };
+      if (typeof C.walletOf === 'function') env.wallet = C.walletOf();
+      var n = N.island(C, u, env);
+      return n && n.text && typeof n.text.key === 'string' ? n : null;
+    } catch (e) { return null; }
+  }
+  /* the card (keeps the .slw-goal classes, so it sits where the goal bar was; a whole row on phones): a small 'Next step'
+     label, the pet's portrait or the thing's picture, one sentence, at most one button, the bar while saving */
+  function nextHtml(u) {
+    var n = nextCard = nextOf(u);
+    if (!n) return goalHtml(u);
+    var w = C.ensureWorld(u), ic = n.icon || {}, pic = '', p = n.progress, label = esc(tx('next.label'));
+    if (ic.kind === 'pet' && C.item(ic.id)) pic = iconHtml(ic.id, { acc: C.wornBy(w, ic.id) });
+    else if (ic.id && C.item(ic.id)) pic = iconHtml(ic.id, artState(w));
+    return '<div class="slw-goal slw-next' + (n.id === 'enough' ? ' ready' : '') + '" role="group" aria-label="' + label + '" data-next="' + esc(n.id) + '">' +
+      (pic ? '<span class="gi" aria-hidden="true">' + pic + '</span>' : '') +
+      '<span class="nx"><span class="lb" aria-hidden="true">' + label + '</span><span class="gt">' + esc(tx(n.text.key, n.text.params || undefined)) + '</span>' +
+      (p ? '<span class="gb" role="progressbar" aria-valuemin="0" aria-valuemax="' + p.price + '" aria-valuenow="' + Math.min(p.have, p.price) + '" aria-label="' +
+        esc(tx(p.key || 'next.progress', { n: fmt(p.have), price: fmt(p.price) })) + '" style="display:block;"><i style="width:' + p.pct + '%"></i></span>' : '') + '</span>' +
+      (n.btn ? '<button type="button" class="slw-nextbtn" data-fk="hud:next">' + esc(tx(n.btn.key, n.btn.params || undefined)) + '</button>' : '') + '</div>';
+  }
+  /* the card answers a tap anywhere on it (its button is the keyboard's way in, and the tap stops there: one act per
+     tap); the old goal bar keeps goalTap */
+  function wireGoal(g) {
+    if (!g) return;
+    if (!/\bslw-next\b/.test(g.className || '')) { g.addEventListener('click', goalTap); return; }
+    var b = g.querySelector('.slw-nextbtn');
+    if (b) b.addEventListener('click', function (e) { if (e && e.stopPropagation) e.stopPropagation(); onNext(); });
+    g.addEventListener('click', function () { onNext(); });
+  }
+  /* the card again, in place (the wallet, a pet fed, the rules just loaded): focus stays on its button */
+  function syncNext() {
+    if (!root || renderedFor == null) return;
+    var g = root.querySelector('.slw-hud .slw-goal'), u = me();
+    if (!g || !u || !g.parentNode) return;
+    var fk = focusKey(g), box = document.createElement('div');
+    box.innerHTML = nextHtml(u);
+    var ng = box.firstChild; if (!ng) return;
+    g.parentNode.insertBefore(ng, g); g.remove();
+    wireGoal(ng); fillPhotocards(ng);
+    if (fk) refocus(ng, fk);
+    fitStage();
+  }
+  function onNext() {
+    var n = nextCard, g = n && n.btn && n.btn.go;
+    if (!g || typeof g.to !== 'string') return;
+    if (g.to === 'learn') { if (typeof g.id === 'string') startTrip(g.id, 'next'); return; }
+    goNow(g.to, g);
+  }
+  /* the savings goal while it is still short (real prices only): 📚 Learn in the HUD makes the trip for it */
+  function shortGoal() {
+    var u = me(); if (!u || trial()) return null;
+    var gp = C.goalProgress(u);
+    if (!gp || gp.ready || gp.full || gp.locked || !C.item(gp.id)) return null;
+    var s = iState(u, gp.id);
+    return s && s.state === 'short' ? gp.id : null;
+  }
+  /* 'That’s about 10 minutes of learning.' (SLNextStep.time); '' until the rules are in */
+  function learnTime(need) {
+    var N = window.SLNextStep, t = null;
+    try { t = N && typeof N.time === 'function' ? N.time(need, C) : null; } catch (e) { t = null; }
+    return t ? tx(t.key === 'days' ? 'learn.aboutDays' : 'learn.aboutMins', { n: t.n }) : '';
+  }
+  /* the learning screens: the last subject (index.html's slGoLearn, W3-1), else Maths */
+  function goLearn() {
+    if (typeof window.slGoLearn === 'function') { try { window.slGoLearn(); return; } catch (e) {} }
+    if (typeof setActiveApp === 'function') setActiveApp('maths');
+  }
+  /* the trip (contract 1): {v: 1, who, id, name, price, wallet, at (ms), from}, in memory only. Never in test mode (nothing
+     is short there): the Learn buttons only ever show with real prices */
+  function tripOn(t) {
+    var N = window.SLNextStep, now = Date.now();
+    if (N && typeof N.tripLive === 'function') return N.tripLive(t, state.activeUser, now);
+    return !!t && t.v === 1 && t.who === state.activeUser && typeof t.at === 'number' && now - t.at >= 0 && now - t.at <= TRIP_MS;
+  }
+  function startTrip(id, from) {
+    var it = C.item(id);
+    closeAllOverlays();
+    if (it && me() && !trial()) {
+      window.slLearnTrip = { v: 1, who: state.activeUser, id: id, name: it.name, price: priceOf(it), wallet: coinsOn() ? 'coins' : 'stars', at: Date.now(),
+        from: Object.prototype.hasOwnProperty.call(TRIP_FROM, from) ? from : 'item' };
+    }
+    goLearn();
+    return true;
+  }
+  function endTrip(id) { var t = window.slLearnTrip; if (t && (id == null || t.id === id)) window.slLearnTrip = null; }
+  /* a sheet's close as a promise (the island-open queue waits for it) */
+  function untilClosed(ov) { return new Promise(function (res) { if (ov && typeof ov._whenClosed === 'function') ov._whenClosed(res); else res(); }); }
+  /* 3: the trip's way back. When My Island opens again (any route), the thing's sheet opens first, once: a Pet Shop
+     trip opens the Pet Shop on that animal (or the food). Not when its 'Goal reached' card was just up, not for another
+     child (that trip ends), nor after 3 hours, nor once it is the child's (bought meanwhile) */
+  enqueueOpen({ id: 'learn.trip', prio: 3,
+    when: function () {
+      var t = window.slLearnTrip, u = me();
+      if (!t) return false;
+      var it = C.item(t.id);
+      if (!u || !it || !tripOn(t)) { window.slLearnTrip = null; return false; }
+      if (goalShown && goalShown.id === t.id && Date.now() - goalShown.at < 120000) { window.slLearnTrip = null; return false; }
+      if (iState(u, t.id).state === 'owned' && !C.isRepeatable(it)) { window.slLearnTrip = null; return false; }
+      return true;
+    },
+    show: function () {
+      var t = window.slLearnTrip, it = t && C.item(t.id);
+      window.slLearnTrip = null;                         /* once: the trip ends when the child is back */
+      if (!it) return Promise.resolve();
+      if (care() && (it.kind === 'food' || (it.kind === 'pet' && t.from === 'petShop'))) return openPetShop({ filter: it.kind === 'food' ? 'food' : 'all', id: t.id });
+      return untilClosed(openItem(t.id));
+    } });
+  /* SLWorld.go(to, o) (contract 3; the top bar, the goal toast, the Next step card): to = island | games | shop | item | pets
+     | play | learn | char. My Island comes up first when it is hidden (≤ 4 s, as joinChallenge); while the welcome is still
+     to come the place waits for it, first in the island-open queue. false with nobody signed in or while a game runs */
+  var GO_TO = { island: 1, games: 1, shop: 1, item: 1, pets: 1, play: 1, learn: 1, char: 1 };
+  function go(to, o) {
+    o = o && typeof o === 'object' ? o : {};
+    if (typeof to !== 'string' || !Object.prototype.hasOwnProperty.call(GO_TO, to) || !me() || running) return false;
+    if (to === 'learn') { if (typeof o.id === 'string' && C.item(o.id)) startTrip(o.id, o.from || 'next'); else { closeAllOverlays(); goLearn(); } return true; }
+    var who = state.activeUser;
+    var run = function () {
+      if (state.activeUser !== who || running || !root) return;
+      var w = W();
+      if (w && !w.introSeen) {
+        var at = Date.now();
+        enqueueOpen({ id: 'nav.go', prio: 1,
+          when: function () { return state.activeUser === who && Date.now() - at < OPEN_WAIT; },
+          show: function () { OPENQ = OPENQ.filter(function (e) { return e.id !== 'nav.go'; }); return goNow(to, o); } });
+        if (!openRun) startOpenQueue();
+        return;
+      }
+      goNow(to, o);
+    };
+    if (worldShown() && renderedFor != null) { run(); return true; }
+    if (typeof setActiveApp === 'function') try { setActiveApp('world'); } catch (e) {}
+    var tries = 0;
+    (function wait() { if (renderedFor != null || ++tries > 40) run(); else setTimeout(wait, 100); }());   /* the island draws first (≤ 4 s) */
+    return true;
+  }
+  /* the place itself, on a quiet island (every sheet closed first) → a promise that settles when its sheet closes */
+  function goNow(to, o) {
+    o = o || {};
+    if (running || !root) return Promise.resolve(false);
+    closeAllOverlays();
+    var ov = null;
+    if (to === 'games') ov = openGames({ onClose: o.onClose });
+    else if (to === 'shop') ov = openShop(o);
+    else if (to === 'item') { if (typeof o.id === 'string' && C.item(o.id)) { endTrip(o.id); ov = openItem(o.id); } }
+    else if (to === 'pets') {
+      var po = {};
+      ['petId', 'tab'].forEach(function (k) { if (typeof o[k] === 'string') po[k] = o[k]; });
+      ['feed', 'visit', 'dress'].forEach(function (k) { if (o[k] === true) po[k] = true; });
+      return Promise.resolve(openCareCorner(po));
+    }
+    else if (to === 'play') { if (GAMES[o.game]) launch(o.game); }
+    else if (to === 'char') return Promise.resolve(openMyChar({}));
+    return untilClosed(ov);
+  }
+
   /* ---------------- leaving the island tab ---------------- */
   function onHide() {
     try { if (window.SLMusic) SLMusic.stopAll(200); } catch (e) {}   /* never on learning screens */
@@ -3934,6 +4217,7 @@
 
   /* ---------------- profile switches / external changes ---------------- */
   function onUserChanged() {
+    var tp = window.slLearnTrip; if (tp && tp.who !== state.activeUser) window.slLearnTrip = null;   /* a trip ends with a profile change (wave 3) */
     if (running) { userChangedInGame = true; return; }       /* a game owns the screen: catch up when it ends */
     if (!root || !document.getElementById('worldView') || document.getElementById('worldView').classList.contains('hidden')) {
       renderedFor = null; lit = {}; freshPets = {}; resetIsle(); s3('setUser', userInfo());
@@ -3955,8 +4239,7 @@
     var el = document.getElementById('slwPts'); var u = me();
     if (el && u) el.textContent = fmt(balOf(u));
     syncHeadPts();
-    var g = root.querySelector('.slw-goal');
-    if (g && u) { var tmp = document.createElement('div'); tmp.innerHTML = goalHtml(u); g.replaceWith(tmp.firstChild); var ng = root.querySelector('.slw-goal'); if (ng) ng.addEventListener('click', goalTap); }
+    syncNext();                                  /* the Next step card (or the goal bar) follows the wallet (wave 3) */
   }
 
   window.SLWorld = {
@@ -3969,6 +4252,7 @@
     joinChallenge: joinChallenge,
     openShop: openShop,
     openItem: openItem,
+    go: go,                                       /* wave 3 (contract 3): the top bar, the goal toast, the Next step card */
     _qa: function () {
       try { if (localStorage.getItem('slQaMode') !== '1') return null; } catch (e) { return null; }
       return { C: C, commit: commit, commitPurchase: commitPurchase, arcadeState: arcadeState, arcadeTick: arcadeTick, stage: function () { return stage3d; }, state: function () { return { mode: mode, placing: placing, selectedUid: selectedUid, running: running, isle: isleNow(), skyMap: skyMapOn, use3D: use3D, booting3d: booting3d, late3d: late3d, stageShownAt: stageShownAt, drawn: islandDrawn() }; }, setServerOffset: function (ms) { timeAnchor = { at: Date.now() + ms, perf: perfNow(), server: true }; }, setArcadeCfg: function (cfg) { qaArcade = cfg || null; },
@@ -3977,7 +4261,9 @@
         /* the island-open queue (KU13): add an entry; what is queued and the run in progress */
         enqueueOpen: enqueueOpen, openQueue: function () { return { ids: OPENQ.map(function (e) { return e.id; }), run: openRun ? { shown: openRun.shown, done: Object.keys(openRun.done) } : null }; },
         /* pet care (P4.1): the island day, the ctx the Pet Corner and the Pet Shop get, and the feeding moment */
-        careDay: careDay, careCtx: careCtx, stageFeed: stageFeed };
+        careDay: careDay, careCtx: careCtx, stageFeed: stageFeed,
+        /* wave 3: the Next step card on show, and the trip */
+        next: function () { return nextCard; }, trip: function () { return window.slLearnTrip || null; } };
     }
   };
 })();

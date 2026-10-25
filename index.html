@@ -1762,10 +1762,48 @@
   }
   .app-tab:hover { background: var(--neutral); }
   .app-tab.active { background: var(--accent-2); color: white; border-color: var(--accent-2); }
-  /* phones: wrap the tab row instead of widening the whole page */
+  /* [W3-NAV] the four places (wave 3, WAVE3-PLAN §1): four equal buttons under the header (not sticky);
+     900px and wider: a subtitle line under each label; phones: the icon above the label. The subject row
+     (#appTabs) and the Maths row show only under Learn (html[data-sl-nav], set by slNavSync); the old
+     🏝️ My Island and 🎁 My rewards tabs stay in the markup (their wiring and tests), hidden. */
+  .sl-nav { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+    margin: 10px 0 0; padding: 0 4px; }
+  .sl-nav-btn { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 46px;
+    padding: 5px 10px; background: #fff; border: 2px solid #e1dcc9; border-radius: 16px; color: var(--ink);
+    font-family: 'Fredoka', sans-serif; font-weight: 700; font-size: 16px; line-height: 1.15; text-align: left; cursor: pointer; }
+  .sl-nav-btn:hover { background: var(--neutral); }
+  .sl-nav-btn:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
+  .sl-nav-ic { flex: none; font-size: 22px; line-height: 1; }
+  .sl-nav-txt { display: flex; flex-direction: column; min-width: 0; }
+  .sl-nav-lbl, .sl-nav-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sl-nav-sub { display: none; margin-top: 1px; font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+  .sl-nav-btn[aria-current="page"] { background: var(--accent-2); border-color: transparent; color: #fff; }
+  .sl-nav-btn[aria-current="page"] .sl-nav-sub { color: #fff; opacity: 0.92; }
+  @media (min-width: 900px) {
+    .sl-nav-btn { justify-content: flex-start; padding: 5px 14px; }
+    .sl-nav-sub { display: block; }
+  }
+  /* up to 1299px the longest subtitles (the three games' names) need a second line: they wrap, tightly,
+     rather than end in '…' */
+  @media (min-width: 900px) and (max-width: 1299px) {
+    .sl-nav-btn { padding: 4px 12px; }
+    .sl-nav-sub { white-space: normal; font-size: 11.5px; line-height: 1.12; }
+  }
+  .app-tab[data-app="world"], .app-tab[data-app="shop"] { display: none; }
+  html[data-sl-nav="island"] #appTabs, html[data-sl-nav="games"] #appTabs, html[data-sl-nav="rewards"] #appTabs,
+  html[data-sl-nav="island"] #mathsSubtabs, html[data-sl-nav="games"] #mathsSubtabs, html[data-sl-nav="rewards"] #mathsSubtabs { display: none; }
+  /* phones: the four places as a 4-column grid (icon above label); the subject row wraps (two short rows at
+     most); the Maths row is one sideways-scrolling line (below) instead of wrapping onto three or four */
   @media (max-width: 700px) {
-    .app-tabs { flex-wrap: wrap; gap: 6px; }
-    .app-tab { padding: 6px 12px; white-space: nowrap; }
+    .sl-nav { gap: 6px; margin-top: 8px; }
+    .sl-nav-btn { flex-direction: column; justify-content: center; gap: 2px; min-height: 50px; padding: 4px 2px;
+      border-radius: 14px; font-size: 13px; text-align: center; }
+    .sl-nav-ic { font-size: 20px; }
+    .sl-nav-txt { align-items: center; max-width: 100%; }
+    /* the five subjects all show, in two short rows at most (W3-1 review: a sideways subject row hid a whole
+       subject at 390px); the chips are a little tighter than on wider screens */
+    .app-tabs { flex-wrap: wrap; gap: 6px; padding: 2px 4px 4px; }
+    .app-tab { flex: none; padding: 6px 12px; white-space: nowrap; }
   }
   #flagsView { padding: 12px 4px; }
   #flagsView.hidden, #ttView.hidden, #problemsView.hidden, #shopView.hidden, #worldView.hidden, #mysteriesView.hidden, #mathTopicView.hidden, #peopleView.hidden, #storyView.hidden, #chessView.hidden, #spellView.hidden, #onepctView.hidden { display: none; }
@@ -1800,6 +1838,28 @@
     background: white;
     color: var(--accent-2);
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+  /* [W3-NAV] phones: the Maths row is one sideways line (after its own rules above, so it wins) */
+  @media (max-width: 700px) {
+    .maths-subtabs { position: relative; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; width: auto; margin-top: 8px; }
+    .maths-subtabs::-webkit-scrollbar { display: none; }
+    .maths-subtab { flex: none; white-space: nowrap; padding: 6px 13px; }
+    /* the end with more to see: a soft fade and an arrow, held at that edge while the line scrolls under it
+       (data-more l / r / lr, set by slNavEdges), so a child can tell the line goes on; a tap on the arrow slides the
+       line along (slNavEdges' click, instant: nothing moves by itself). Not read out (empty content: the topics
+       are the buttons). The negative margins cancel the arrow's own width and the row's 6px gap; the -4px insets
+       cover the row's own 4px padding too (a sticky box stops at the padding, which would leave a sliver of topic) */
+    .maths-subtabs[data-more]::before, .maths-subtabs[data-more]::after { content: ''; display: none; flex: none; align-self: stretch;
+      position: -webkit-sticky; position: sticky; z-index: 1; width: 44px; min-height: 30px; cursor: pointer; background-repeat: no-repeat; }
+    .maths-subtabs[data-more="r"]::after, .maths-subtabs[data-more="lr"]::after { display: block; right: -4px; margin-left: -50px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M2 2l6 6-6 6' fill='none' stroke='%236c5ce7' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+        linear-gradient(to right, rgba(241, 237, 251, 0), var(--neutral) 55%);
+      background-position: right 9px center, 0 0; background-size: 10px 16px, 100% 100%; }
+    .maths-subtabs[data-more="l"]::before, .maths-subtabs[data-more="lr"]::before { display: block; left: -4px; margin-right: -50px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M8 2L2 8l6 6' fill='none' stroke='%236c5ce7' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+        linear-gradient(to left, rgba(241, 237, 251, 0), var(--neutral) 55%);
+      background-position: left 9px center, 0 0; background-size: 10px 16px, 100% 100%; }
   }
 
   /* V31: points pill in the header */
@@ -3335,6 +3395,16 @@ function slLcMissing(code, where) {
     <div class="stat" title="Current streak of correct answers"><b id="stStreak">0</b>streak</div>
   </div>
 </header>
+
+<!-- [W3-NAV] the four places (wave 3, WAVE3-PLAN §1). Under the header, not sticky. Learn opens the last
+     subject; the subject row and the Maths row below show only under Learn. Games is My Island with the
+     Games sheet over it. My rewards is the 🎁 page as it always was. -->
+<nav class="sl-nav" id="slNav" aria-label="Main">
+  <button type="button" class="sl-nav-btn" data-nav="learn" title="Maths, spelling, flags and more"><span class="sl-nav-ic" aria-hidden="true">📚</span><span class="sl-nav-txt"><span class="sl-nav-lbl">Learn</span><span class="sl-nav-sub">Maths, spelling, flags and more</span></span></button>
+  <button type="button" class="sl-nav-btn" data-nav="island" title="Build, shop and look after your pets"><span class="sl-nav-ic" aria-hidden="true">🏝️</span><span class="sl-nav-txt"><span class="sl-nav-lbl">My Island</span><span class="sl-nav-sub">Build, shop and look after your pets</span></span></button>
+  <button type="button" class="sl-nav-btn" data-nav="games" title="Debut Run, Encore Shootout, Neon Grand Prix"><span class="sl-nav-ic" aria-hidden="true">🎮</span><span class="sl-nav-txt"><span class="sl-nav-lbl">Games</span><span class="sl-nav-sub">Debut Run, Encore Shootout, Neon Grand Prix</span></span></button>
+  <button type="button" class="sl-nav-btn" data-nav="rewards" title="Rewards from your grown-up"><span class="sl-nav-ic" aria-hidden="true">🎁</span><span class="sl-nav-txt"><span class="sl-nav-lbl">My rewards</span><span class="sl-nav-sub">Rewards from your grown-up</span></span></button>
+</nav>
 
 <div class="app-tabs" id="appTabs">
   <button class="app-tab active" data-app="maths">🔢 Maths</button>
@@ -9322,6 +9392,8 @@ function setActiveApp(name) {
   document.querySelectorAll('.app-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.app === name);
   });
+  /* [W3-NAV] the top bar follows, before anything is drawn (the island measures its stage without the subject row) */
+  if (typeof slNavSync === 'function') slNavSync(name);
   const isMaths = name === 'maths';
   const sub = document.getElementById('mathsSubtabs');
   if (sub) sub.classList.toggle('hidden', !isMaths);
@@ -9378,6 +9450,160 @@ document.querySelectorAll('.maths-subtab').forEach(t => {
    it synchronously here hits those consts in their temporal dead zone and
    throws, which would abort the rest of the script. */
 setTimeout(() => { try { setActiveApp(getActiveApp()); } catch (e) { console.error('setActiveApp init:', e); } }, 0);
+
+/* [W3-NAV] The top bar's four places (wave 3, WAVE3-PLAN §1 and contracts 1-3): 📚 Learn · 🏝️ My Island ·
+   🎮 Games · 🎁 My rewards (the #slNav markup under the header).
+     slNavOf(app)        the place an app is in: 'world' → island, 'shop' → rewards, every other app → learn
+     slNavSync(app, g)   marks that place (aria-current, and html[data-sl-nav], which the stylesheet uses to
+                         show the subject row and the Maths row only under Learn), remembers the last learning
+                         subject and refreshes the learning screens' line (window.slLearnStrip). g = true: Games,
+                         which is My Island with the Games sheet over it, until that sheet closes. The base
+                         setActiveApp calls it, before anything is drawn
+     slLastLearn()       the last learning subject (Maths the first time). Kept in this browser as ttq_lastLearn:
+                         a UI preference only, never in the save
+     window.slGoLearn(o)        the last learning subject (o.app: that subject instead) → the app opened
+     window.slIslandGo(to, o)   My Island, then SLWorld.go(to, o) once the island has loaded (the island's own,
+                                W3-3); without SLWorld.go, My Island alone → Promise<its answer, or false>
+     window.slIslandItem(id)    an item's sheet on My Island. A learn-and-come-back trip for that item brings
+                                its sheet back by itself when My Island opens, so then just My Island
+     window.slLearnTripNow()    window.slLearnTrip (contract 1: written by the island, in memory only) while it
+                                is this player's and at most 3 hours old, else null. One that is another
+                                player's or too old has ended, so it goes (WAVE3-PLAN §7)
+   Nothing here writes the save. */
+var SL_LEARN_APPS = ['maths', 'spell', 'flags', 'mysteries', 'onepct'];
+var SL_TRIP_MS = 3 * 60 * 60 * 1000;
+var slNavNow = null, slNavApp = null, slLastLearnMem = null, slGamesSeq = 0;
+/* the Games open still waiting for its sheet to close (its seq), else 0. While it waits, My Island coming up under it
+   keeps 'Games' current: the island's own SLWorld.go opens My Island again (setActiveApp('world')) when it has not
+   drawn yet, which on a fresh app open turned the top bar to 'My Island' under the Games sheet (w3-int) */
+var slGamesOpen = 0;
+function slNavOf(app) { return app === 'world' ? 'island' : app === 'shop' ? 'rewards' : 'learn'; }
+function slLastLearn() {
+  if (SL_LEARN_APPS.indexOf(slLastLearnMem) >= 0) return slLastLearnMem;
+  var a = null;
+  try { a = localStorage.getItem('ttq_lastLearn'); } catch (e) {}
+  return SL_LEARN_APPS.indexOf(a) >= 0 ? a : 'maths';
+}
+function slNavSync(app, games) {
+  if (app !== 'world') slGamesOpen = 0;                                   /* left My Island: that Games open is over */
+  else if (!games && slGamesOpen && slGamesOpen === slGamesSeq) games = true;
+  var nav = games ? 'games' : slNavOf(app);
+  slNavNow = nav; slNavApp = app;
+  if (SL_LEARN_APPS.indexOf(app) >= 0) {
+    slLastLearnMem = app;
+    try { localStorage.setItem('ttq_lastLearn', app); } catch (e) {}
+  }
+  try { document.documentElement.setAttribute('data-sl-nav', nav); } catch (e) {}
+  document.querySelectorAll('#slNav .sl-nav-btn').forEach(function (b) {
+    if (b.getAttribute('data-nav') === nav) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  if (nav === 'learn') setTimeout(slNavReveal, 0);
+  try { if (window.slLearnStrip) window.slLearnStrip.check(); } catch (e) {}
+  return nav;
+}
+/* phones: the open Maths topic (and subject) brought into view in its sideways line, and each line's ends marked
+   where there is more to see: data-more="l", "r" or "lr" (none when it all fits), where the stylesheet shows a soft
+   fade and an arrow, so a child can tell the line goes on. Kept up to date as the line scrolls, the window resizes
+   or the fonts land. A tap on an arrow (the line itself, not a topic, within its end) slides the line along: at once,
+   never animated. (The subject row wraps on phones, so it has no ends to mark: it is checked all the same) */
+var SL_NAV_ROWS = ['appTabs', 'mathsSubtabs'];
+function slNavEdges(row) {
+  if (!row) return '';
+  var max = (row.scrollWidth || 0) - (row.clientWidth || 0), x = row.scrollLeft || 0, m = '';
+  if (max > 1) m = (x > 1 ? 'l' : '') + (x < max - 1 ? 'r' : '');
+  if ((row.getAttribute('data-more') || '') !== m) { if (m) row.setAttribute('data-more', m); else row.removeAttribute('data-more'); }
+  return m;
+}
+function slNavReveal() {
+  SL_NAV_ROWS.forEach(function (id) {
+    var row = document.getElementById(id), on = row && row.querySelector('.active');
+    if (on && row.scrollWidth > row.clientWidth) {
+      var l = on.offsetLeft, r = l + on.offsetWidth;
+      if (l < row.scrollLeft || r > row.scrollLeft + row.clientWidth) row.scrollLeft = Math.max(0, l - 12);
+    }
+    slNavEdges(row);
+  });
+}
+function slNavSlide(row, e) {
+  var m = row.getAttribute('data-more') || '';
+  if (!m || e.target !== row || typeof row.getBoundingClientRect !== 'function') return 0;
+  var b = row.getBoundingClientRect(), x = e.clientX - b.left, end = 56;
+  var dir = x >= b.width - end && m.indexOf('r') >= 0 ? 1 : x <= end && m.indexOf('l') >= 0 ? -1 : 0;
+  if (dir) { row.scrollLeft = Math.max(0, (row.scrollLeft || 0) + dir * Math.round((row.clientWidth || 0) * 0.6)); slNavEdges(row); }
+  return dir;
+}
+SL_NAV_ROWS.forEach(function (id) {
+  var row = document.getElementById(id);
+  if (!row) return;
+  row.addEventListener('scroll', function () { slNavEdges(row); }, { passive: true });
+  row.addEventListener('click', function (e) { slNavSlide(row, e); });
+});
+function slNavEdgesAll() { SL_NAV_ROWS.forEach(function (id) { slNavEdges(document.getElementById(id)); }); }
+try { window.addEventListener('resize', slNavEdgesAll); } catch (e) {}
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(slNavEdgesAll, function () {}); } catch (e) {}
+window.slLearnTripNow = function () {
+  var t = window.slLearnTrip, p = null;
+  if (!t || typeof t !== 'object') return null;
+  try { p = state.activeUser || null; } catch (e) {}
+  if (!p || t.v !== 1 || typeof t.id !== 'string' || !t.id || typeof t.at !== 'number') return null;
+  var age = Date.now() - t.at;
+  if (t.who !== p || age > SL_TRIP_MS) { window.slLearnTrip = null; return null; }
+  return age >= 0 ? t : null;
+};
+window.slGoLearn = function (o) {
+  var app = o && SL_LEARN_APPS.indexOf(o.app) >= 0 ? o.app : slLastLearn();
+  if (slNavApp === app) slNavSync(app);       /* already there: the line under the subjects is refreshed */
+  else setActiveApp(app);
+  return app;
+};
+window.slIslandGo = function (to, o) {
+  if (slNavApp !== 'world') setActiveApp('world');
+  var load = null;
+  try { if (typeof window.slLoadWorld === 'function') load = window.slLoadWorld(); } catch (e) { load = Promise.reject(e); }
+  return Promise.resolve(load).then(function () {
+    var W = window.SLWorld;
+    return W && typeof W.go === 'function' ? W.go(to, o || {}) : false;
+  }).then(function (r) { return r; }, function () { return false; });
+};
+window.slIslandItem = function (id) {
+  var t = window.slLearnTripNow();
+  if (t && t.id === id) { if (slNavApp !== 'world') setActiveApp('world'); return Promise.resolve(true); }
+  return window.slIslandGo('item', { id: id });
+};
+/* Games: My Island with the Games sheet over it. 'Games' stays the current place until the sheet closes (its
+   onClose; and, in case a sheet closes without saying so, once the open sheet's .slw-games has gone), then
+   'My Island'. Without SLWorld.go (or when it says no: no player, a game running) just My Island */
+function slGoGames() {
+  var seq = ++slGamesSeq, seen = false, waits = 0;
+  if (slNavApp !== 'world') setActiveApp('world');
+  slGamesOpen = seq;
+  slNavSync('world', true);
+  function back() { if (seq !== slGamesSeq) return; slGamesOpen = 0; if (slNavNow === 'games') slNavSync(slNavApp); }
+  function watch() {
+    if (seq !== slGamesSeq || slNavNow !== 'games') return;
+    if (document.querySelector('.slw-games')) seen = true;
+    else if (seen || ++waits > 30) { back(); return; }
+    setTimeout(watch, 500);
+  }
+  return window.slIslandGo('games', { onClose: back }).then(function (r) {
+    if (r === false) back(); else setTimeout(watch, 500);
+    return r;
+  });
+}
+function slNavGo(to) {
+  if (to === 'learn') return window.slGoLearn();
+  if (to === 'games') return slGoGames();
+  slGamesOpen = 0;                                /* a tap on another place is the child's own choice */
+  var app = to === 'island' ? 'world' : to === 'rewards' ? 'shop' : null;
+  if (!app) return null;
+  if (slNavApp === app) return slNavSync(app);   /* already there: nothing to redraw */
+  return setActiveApp(app);
+}
+document.querySelectorAll('#slNav .sl-nav-btn').forEach(function (b) {
+  b.addEventListener('click', function () { slNavGo(b.getAttribute('data-nav')); });
+});
+slNavSync(getActiveApp());   /* the first paint already shows the right place (setActiveApp runs a moment later) */
+/* [/W3-NAV] */
 
 /* Migration: ensure u.flags exists */
 function ensureFlagsState(u) {
@@ -32488,6 +32714,17 @@ window.SL_WORLD_TRIAL = true;
     if (p) coinUsed = p;
     return p ? p.then(function () { if (!window.SLWorldCore) return load(); }) : load();
   }
+  /* [W3-LEARN] the learning screens' 'Saving for…' line needs the goal's island price, which only the core knows: on
+     a fresh app open with a goal set (before the first ⭐ of the session) the line asks for the core straight away,
+     through this same coins' load (one world-core.js a page session, shared with the island; never a second copy).
+     Settles with the core, or null (no core: a load that failed is tried again by the next award) */
+  window.slLoadCore = function () {
+    if (window.SLWorldCore) return Promise.resolve(window.SLWorldCore);
+    loadCoinCore();
+    var p = coinLoad || loading;
+    if (!p) return Promise.resolve(null);
+    return p.then(function () { return window.SLWorldCore || null; }, function () { return null; });
+  };
   window.slEarnCoins = function (u, n) {
     if (!u || typeof u !== 'object' || !(typeof n === 'number' && n > 0)) return null;
     try { coinAnchor(u, n); } catch (e) {}
@@ -32573,26 +32810,32 @@ window.SL_WORLD_TRIAL = true;
           var g = goalCheck(u, pts), w = u && u.world;
           if (g && typeof g.price === 'number' && typeof g.was === 'number' && g.bal >= g.price && g.was < g.price && w.goalNotified !== g.gid &&
               !document.querySelector('[data-sl-modal]')) {
-            slGoalToast(w.goalName || 'your goal');
+            slGoalToast(w.goalName || 'your goal', g.gid);
           }
         }
         var userChanged = lastShown.user !== null && lastShown.user !== name;
         lastShown.user = name; lastShown.pts = pts; lastShown.coins = coinsNow(u);
         if (window.SLWorld) { if (userChanged) window.SLWorld.onUserChanged(); else window.SLWorld.onPointsChanged(); }
         if (userChanged && window.slCareBanner) window.slCareBanner.check();   /* [KU-CARE] the new player's own pets */
+        if (window.slLearnStrip) window.slLearnStrip.check();   /* [W3-LEARN] the learning screens' line: the new balance, or the new player's own */
       } catch (e) {}
       return r;
     };
     window.updatePointsDisplay = wrappedUpd;
     updatePointsDisplay = wrappedUpd;
   } catch (e) {}
-  function slGoalToast(name) {
+  /* [W3-LEARN] its button opens that goal's item sheet on My Island (window.slIslandItem: SLWorld.go('item') once
+     the island has loaded; without it, My Island as before) */
+  function slGoalToast(name, id) {
     var t = document.createElement('div');
     t.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9600;background:#2c2550;color:#fff;border-radius:14px;padding:10px 14px;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center;max-width:92vw;';
     t.setAttribute('role', 'status');
     t.innerHTML = '<span>🎯 You’ve saved enough for <b></b>!</span><button type="button" style="border:none;border-radius:10px;background:#ffd23f;color:#4a3200;font:inherit;font-weight:800;padding:6px 10px;cursor:pointer;">🏝️ My Island</button>';
     t.querySelector('b').textContent = name;
-    t.querySelector('button').addEventListener('click', function () { t.remove(); setActiveApp('world'); });
+    t.querySelector('button').addEventListener('click', function () {
+      t.remove();
+      if (id && typeof window.slIslandItem === 'function') window.slIslandItem(id); else setActiveApp('world');
+    });
     document.body.appendChild(t);
     setTimeout(function () { if (t.parentNode) t.remove(); }, 7000);
   }
@@ -32758,6 +33001,226 @@ window.SL_WORLD_TRIAL = true;
   }
   window.slCareBanner = { check: check, hide: hide, lineFor: lineFor, goFor: goFor, TEXT: CARE_APP };
   setTimeout(check, 1500);
+})();
+</script>
+<style>
+  /* [W3-LEARN] the learning screens' quiet line (wave 3, WAVE3-PLAN §2): still (no animation, no sound), under
+     the subject row or under the hungry-pet reminder, never on My Island, Games or My rewards. The goal-only
+     line steps aside while the hungry-pet reminder shows (the reminder always comes first: it goes straight
+     under the subject row), so the two never stack */
+  #slLearnStrip { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+    margin: 8px 4px 0; padding: 4px 4px 4px 14px; background: #f4f1ff; border: 2px solid #d9d2ee; border-radius: 16px;
+    color: #2b2140; font-weight: 800; font-size: 15px; line-height: 1.3; }
+  #slLearnStrip .sl-ls-main { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 5px 0; }
+  #slLearnStrip .sl-ls-bar { display: block; width: 100%; max-width: 360px; height: 6px; border-radius: 999px; background: #e1dbf5; overflow: hidden; }
+  #slLearnStrip .sl-ls-fill { display: block; height: 100%; border-radius: 999px; background: #6c5ce7; }
+  #slLearnStrip button { font-family: inherit; font-weight: 800; font-size: 15px; border: none; border-radius: 999px; cursor: pointer;
+    min-height: 44px; min-width: 44px; flex: none; }
+  #slLearnStrip .sl-ls-go { background: #6c5ce7; color: #fff; padding: 0 18px; }
+  #slLearnStrip .sl-ls-x { background: transparent; color: #5b4f7a; font-size: 18px; }
+  #slLearnStrip button:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
+  #slCareBanner ~ #slLearnStrip[data-kind="goal"] { display: none; }
+  html[data-sl-nav="island"] #slLearnStrip, html[data-sl-nav="games"] #slLearnStrip, html[data-sl-nav="rewards"] #slLearnStrip { display: none; }
+  /* phones: the words and ✕ on the first row, the button under them */
+  @media (max-width: 560px) {
+    #slLearnStrip { font-size: 14px; padding-left: 12px; }
+    #slLearnStrip .sl-ls-main { flex-basis: calc(100% - 58px); }
+    #slLearnStrip .sl-ls-x { order: 1; }
+    #slLearnStrip .sl-ls-go { order: 2; font-size: 14px; margin-bottom: 2px; }
+  }
+</style>
+<script>
+/* [W3-LEARN] The learning screens' quiet line (wave 3, WAVE3-PLAN §2 and contract 1). One line under the
+   subject row (under the hungry-pet reminder when that shows) while a learn-and-come-back trip runs
+   (window.slLearnTrip, through window.slLearnTripNow: this player's, under 3 hours) or a savings goal is set:
+     saving   'Saving for {item}: {n} more {sym} to go.' and a thin bar ('{item}: {have} of {price} coins');
+              on a trip the button '🏝️ Back to my island' (the island brings the item's sheet back itself)
+     enough   '{item}: you have enough {sym} now.' and '🏝️ Get it' → that item's sheet on My Island
+   ✕ 'Not now' hides it for this app session (a trip started after that shows again) and ends the trip.
+   Never in free test mode (nothing there is short), never off the learning screens, nothing for a pet the pet
+   cap shuts out (as the goal toast). The goal-only line needs the world core for the goal's island price:
+   with a goal set and no core yet, the line asks for it as the learning screen opens (window.slLoadCore, the
+   coins' one load a page session; the core's arrival pays any coins owed, as it always has); a trip carries its
+   own name and price.
+   {sym} is 🪙 with the island's coin wallet, ⭐ with the stars wallet. Its words are its own table (the
+   learning screens run without the world scripts, like the reminder's). Built from DOM nodes and text only;
+   nothing here writes the save or any storage.
+   window.slLearnStrip = {check, hide, model, TEXT}: check() draws, updates or removes the line; hide() removes
+   it until the next check. */
+(function () {
+  'use strict';
+  var TEXT = Object.freeze({
+    saving: 'Saving for {item}: {n} more {sym} to go.',
+    enough: '{item}: you have enough {sym} now.',
+    back: '🏝️ Back to my island',
+    getIt: '🏝️ Get it',
+    later: 'Not now',
+    bar: '{item}: {have} of {price} coins',
+    barStars: '{item}: {have} of {price} stars'   /* [W3-1 fallback] not in the plan's table: the ⭐ wallet's bar */
+  });
+  var SYM = Object.freeze({ coins: '🪙', stars: '⭐' });
+  var dismissed = {};   /* player → when ✕ was tapped (memory only, this app session) */
+  var el = null;
+  function plain(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  function num(v) { return typeof v === 'number' && isFinite(v); }
+  function who() { try { return state.activeUser || null; } catch (e) { return null; } }
+  function user() { try { return typeof currentUser === 'function' ? currentUser() : null; } catch (e) { return null; } }
+  function core() { var C = window.SLWorldCore; return C && typeof C.priceOf === 'function' && typeof C.walletBalance === 'function' && typeof C.item === 'function' ? C : null; }
+  /* free test mode, as the island counts it (rewards-world trial()) */
+  function trial() {
+    if (window.SL_WORLD_TRIAL !== true) return false;
+    var until = +window.SL_WORLD_TRIAL_UNTIL || 0;
+    if (until && Date.now() >= until) return false;
+    var fams = window.SL_WORLD_TRIAL_FAMILIES;
+    if (fams && fams.length) {
+      var cs = window.cloudState, code = cs && cs.doc && cs.doc.familyCode;
+      if (!code || fams.indexOf(code) < 0) return false;
+    }
+    return true;
+  }
+  function onLearn() {
+    var nav = document.documentElement.getAttribute('data-sl-nav');
+    if (nav) return nav === 'learn';
+    try { var a = getActiveApp(); return a !== 'world' && a !== 'shop'; } catch (e) { return false; }
+  }
+  function fill(s, o) { return s.replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(o, k) ? String(o[k]) : m; }); }
+  function fmt(n) { try { return Number(n).toLocaleString('en-GB'); } catch (e) { return String(n); } }
+  /* a balance without the core: what coinBalance / walletBalance read from the save */
+  function balance(u, wallet, C) {
+    if (C) { try { var b = C.walletBalance(u, { wallet: wallet }); if (num(b)) return b; } catch (e) {} }
+    if (wallet === 'stars') return num(u.points) ? u.points : 0;
+    var c = plain(u.world) && plain(u.world.coins) ? u.world.coins : null, e = c && num(c.earned) ? c.earned : 0, s = c && num(c.spent) ? c.spent : 0;
+    return Math.max(0, e - s);
+  }
+  function make(kind, id, name, price, have, wallet) {
+    if (typeof name !== 'string' || !name.trim() || !num(price) || price < 0) return null;
+    have = Math.max(0, Math.floor(have));
+    var need = Math.max(0, price - have);
+    return { kind: kind, id: id, name: name.trim(), price: price, have: have, need: need, enough: need === 0, wallet: wallet,
+      sym: SYM[wallet], pct: price > 0 ? Math.min(100, Math.floor(have * 100 / price)) : 100 };
+  }
+  function tripModel(t, u, C) {
+    var wallet = t.wallet === 'stars' ? 'stars' : 'coins', price = num(t.price) ? t.price : null, name = t.name, it = null;
+    if (C) {
+      try { it = C.item(t.id); var p = C.priceOf(t.id, { wallet: wallet }); if (num(p)) price = p; } catch (e) {}
+      if ((typeof name !== 'string' || !name.trim()) && it) name = it.name;
+    }
+    return make('trip', t.id, name, price, balance(u, wallet, C), wallet);
+  }
+  function goalModel(u, C) {
+    var w = plain(u.world) ? u.world : null;
+    var gid = w ? (typeof C.goalId === 'function' ? C.goalId(w) : (w.goal || w.goal3 || w.goalK)) : null, it = gid ? C.item(gid) : null;
+    var wallet = typeof C.walletOf === 'function' && C.walletOf() === 'coins' ? 'coins' : 'stars';
+    /* a character or clothes (goalK) before the character list has loaded (it comes with the island): the name and
+       price the shop saved with the goal, as the goal toast does (their 🪙 price is never above their ⭐ one) */
+    if (!it && gid && gid === w.goalK && wallet === 'coins' && typeof w.goalPrice === 'number') return make('goal', gid, w.goalName, w.goalPrice, balance(u, wallet, C), wallet);
+    if (!it) return null;
+    /* a pet the pet cap shuts out: nothing to buy until a place is free (the goal toast's rule) */
+    if (it.kind === 'pet' && C.CARE && C.CARE.ownCap !== 'home' && typeof C.petRoom === 'function' && !C.petRoom(w).canAdopt) return null;
+    return make('goal', gid, it.name, C.priceOf(gid, { wallet: wallet }), balance(u, wallet, C), wallet);
+  }
+  /* what the line says now for this player, or null */
+  function model() {
+    var p = who(), u = user();
+    if (!p || !plain(u) || trial()) return null;
+    var C = core(), t = typeof window.slLearnTripNow === 'function' ? window.slLearnTripNow() : null, m = null;
+    try { m = t ? tripModel(t, u, C) : C ? goalModel(u, C) : null; } catch (e) { m = null; }
+    if (!m) return null;
+    if (dismissed[p] != null && !(t && t.at > dismissed[p])) return null;
+    return m;
+  }
+  /* a goal set and no world core yet (a fresh app open straight onto a learning screen, before the first ⭐): the
+     core is asked for at once (window.slLoadCore: the coins' own load, one a page session, shared with the island),
+     so the line comes a moment after the screen opens and not under the child's hand on the first answer. Asked
+     once a page session (a load that fails is tried again by the next award, and the line follows the points) */
+  var asked = false;
+  function needCore() {
+    if (asked || core() || window.SLWorldCore || typeof window.slLoadCore !== 'function') return;
+    var p = who(), u = user(), w = plain(u) && plain(u.world) ? u.world : null;
+    if (!p || !w || !(w.goal || w.goal3 || w.goalK) || trial() || dismissed[p] != null) return;
+    asked = true;
+    var r = null;
+    try { r = window.slLoadCore(); } catch (e) { r = null; }
+    if (r && typeof r.then === 'function') r.then(function () { if (core()) check(); }, function () {});
+  }
+  function hide() {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    el = null;
+  }
+  /* ✕: not again this session, and the trip ends. A keyboard or switch user keeps their place: the focus goes to the
+     open subject in the row above (else the top bar's Learn), not back to the top of the page */
+  function later() {
+    var p = who(), t = typeof window.slLearnTripNow === 'function' ? window.slLearnTripNow() : null;
+    var a = document.activeElement, had = !!(el && a && a !== document.body && el.contains(a));
+    if (p) dismissed[p] = Date.now();
+    if (t) window.slLearnTrip = null;
+    hide();
+    if (had) {
+      var to = [document.querySelector('#appTabs .app-tab.active'), document.querySelector('#slNav .sl-nav-btn[aria-current="page"]'),
+        document.querySelector('#slNav [data-nav="learn"]')];
+      for (var i = 0; i < to.length; i++) {
+        if (!to[i] || typeof to[i].focus !== 'function') continue;
+        try { to[i].focus(); } catch (e) {}
+        if (document.activeElement === to[i]) break;
+      }
+    }
+  }
+  function go(m) {
+    if (m.enough && typeof window.slIslandItem === 'function') { window.slIslandItem(m.id); return; }
+    if (typeof setActiveApp === 'function') setActiveApp('world');
+  }
+  function paint(m) {
+    el.querySelector('.sl-ls-text').textContent = fill(m.enough ? TEXT.enough : TEXT.saving, { item: m.name, n: fmt(m.need), sym: m.sym });
+    var bar = el.querySelector('.sl-ls-bar');
+    if (bar) {
+      bar.setAttribute('aria-label', fill(m.wallet === 'stars' ? TEXT.barStars : TEXT.bar, { item: m.name, have: fmt(m.have), price: fmt(m.price) }));
+      bar.querySelector('.sl-ls-fill').style.width = m.pct + '%';
+    }
+  }
+  function build(m, p) {
+    hide();
+    el = document.createElement('div');
+    el.id = 'slLearnStrip';
+    el.className = 'sl-ls';
+    el.setAttribute('data-kind', m.kind);
+    el.setAttribute('data-for', p);
+    el.setAttribute('data-sig', sig(m, p));
+    var main = document.createElement('div'); main.className = 'sl-ls-main';
+    var text = document.createElement('span'); text.className = 'sl-ls-text';
+    main.appendChild(text);
+    if (!m.enough) {
+      var bar = document.createElement('span'); bar.className = 'sl-ls-bar'; bar.setAttribute('role', 'img');
+      var f = document.createElement('span'); f.className = 'sl-ls-fill';
+      bar.appendChild(f); main.appendChild(bar);
+    }
+    el.appendChild(main);
+    if (m.enough || m.kind === 'trip') {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'sl-ls-go';
+      b.textContent = m.enough ? TEXT.getIt : TEXT.back;
+      b.addEventListener('click', function () { go(m); });
+      el.appendChild(b);
+    }
+    var x = document.createElement('button'); x.type = 'button'; x.className = 'sl-ls-x'; x.textContent = '✕';
+    x.setAttribute('aria-label', TEXT.later); x.title = TEXT.later;
+    x.addEventListener('click', later);
+    el.appendChild(x);
+    paint(m);
+    var care = document.getElementById('slCareBanner'), tabs = document.getElementById('appTabs');
+    var at = care && care.parentNode ? care : tabs;
+    if (!at || !at.parentNode) { el = null; return; }
+    at.parentNode.insertBefore(el, at.nextSibling);
+  }
+  function sig(m, p) { return [p, m.kind, m.id, m.enough ? 1 : 0].join('|'); }
+  function check() {
+    var on = onLearn(), m = on ? model() : null, p = who();
+    if (!m) { hide(); if (on) needCore(); return null; }
+    if (el && el.parentNode && el.getAttribute('data-sig') === sig(m, p)) paint(m);   /* the same line, new numbers */
+    else build(m, p);
+    return m;
+  }
+  window.slLearnStrip = { check: check, hide: hide, model: model, TEXT: TEXT };
+  check();
+  setTimeout(check, 0);
 })();
 </script>
 <style>
@@ -35632,6 +36095,20 @@ window.SL_WORLD_TRIAL = true;
   .maths-subtab:hover { transform: translateY(-2px); }
   .maths-subtab.active { background: linear-gradient(135deg,#6c5ce7,#a86ff0); color: #fff;
     box-shadow: 0 5px 14px rgba(108,92,231,0.35); }
+  /* [W3-NAV] the four places: each has its own colour when it is the page you are on */
+  .sl-nav-btn { font-weight: 800; transition: transform .14s, box-shadow .14s; }
+  .sl-nav-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(80,60,160,0.18); }
+  .sl-nav-btn[aria-current="page"] { box-shadow: 0 6px 18px rgba(80,60,160,0.3); }
+  .sl-nav-btn[aria-current="page"][data-nav="learn"]   { background: linear-gradient(135deg,#5b4bd6,#3a6fd8); }
+  .sl-nav-btn[aria-current="page"][data-nav="island"]  { background: linear-gradient(135deg,#17907a,#2470b8); }
+  .sl-nav-btn[aria-current="page"][data-nav="games"]   { background: linear-gradient(135deg,#9a2fc0,#c42f78); }
+  .sl-nav-btn[aria-current="page"][data-nav="rewards"] { background: linear-gradient(135deg,#ffd76a,#ffb84d); color: #4a2f00; }
+  .sl-nav-btn[aria-current="page"][data-nav="rewards"] .sl-nav-sub { color: #4a2f00; }
+  /* reduced motion: the tabs and the four places stay still on hover */
+  @media (prefers-reduced-motion: reduce) {
+    .app-tab, .maths-subtab, .sl-nav-btn { transition: none; }
+    .app-tab:hover, .maths-subtab:hover, .sl-nav-btn:hover { transform: none; }
+  }
 
   .btn-primary { position: relative; overflow: hidden;
     transition: transform .13s, box-shadow .13s; }

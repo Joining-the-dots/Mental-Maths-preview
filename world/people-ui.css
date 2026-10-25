@@ -20,6 +20,7 @@
                          .on + .slp-tick when chosen; .slp-wait a picture still being painted
      .slp-banner .slp-q  the photo result · .slp-foot .slp-done   'That’s me'
      .slp-castlist .slp-cast (.active) .slp-castpic .slp-chip (.own .lock .free) .slp-need .slp-act
+       .slp-shortbtns (wave 3: a short card's '📚 Learn' .slw-learnbtn above 'Save up for it')
      .slp-nav .slp-sub .slp-switch .slp-who .slp-pick .slp-extra .slp-extra-acts .slp-moves .slp-emote
      .slp-slots .slp-slot   (My character, A6: 👕 Wardrobe · 🎨 Change look · 🔁 Change character · ✨ More)
      .slp-wgrid .slp-wcard (.on) .slp-wbtn .slp-wnm .slp-dots .slp-more · .slp-row .slp-col .slp-lead
@@ -148,6 +149,9 @@ html body .slp-play { min-width: 44px; min-height: 44px; padding: 0; }
 html body .slp-need { color: var(--px-gold-ink, #8A5A00); font-weight: 800; margin-bottom: 6px; }
 html body .slp-act { margin-top: auto; padding-top: 4px; }
 html body .slp-act .slw-btn, html body .slp-act .slw-buy, html body .slp-act .slw-goalbtn { width: 100%; min-height: 48px; }
+/* wave 3: a short card's two buttons, stacked: '📚 Learn' above 'Save up for it'. Learn's colour is island-pixel.css's
+   one .slw-learnbtn rule (the violet block, as on every other Learn button); nothing here paints it */
+html body .slp-shortbtns { display: flex; flex-direction: column; gap: 8px; }
 
 /* ---------------- My character, switch, moves and the wardrobe ---------------- */
 html body .slp-who-nm { flex: 0 1 150px; display: flex; align-items: center; }

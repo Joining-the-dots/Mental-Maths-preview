@@ -34,8 +34,13 @@
                    .v3Scene is on and html is not .sl-low
      trial         bool | () → bool (default window.SL_WORLD_TRIAL === true): FREE prices
      reduced       bool | () → bool (default the media query): still turntable, no pops
-     openCorner(petId?)  the Pet Corner (P3.1): its button on a pet the child has, and beside
+     openCorner(petId?)  My pets (the Pet Corner, P3.1): its button on a pet the child has, and beside
                    care.ownFull. Absent → no such buttons.
+     learnFor(id, {from: 'petShop'})  wave 3 (contract 5): a card the child cannot afford yet (real
+                   prices, never in test mode) says how many 🪙 to earn and gets '📚 Learn' instead of a
+                   greyed Adopt / price button; the host starts the learn-and-come-back trip for that id
+                   and closes the sheets (a returned false keeps the shop open). Absent → no Learn button
+                   (the greyed button as before).
      now() → ms (default Date.now) · sound(name) or sfx(name): an SLSound name ('pop' when a food
      lands in the pantry) · C (default SLWorldCore) · care (default SLPetCare, bound to C) · shop
      (default SLIslandShop) · document (a test seam)
@@ -179,7 +184,7 @@
   function isNew(id) { var L = sib('SLIslandLook', './world-look.js'); return !!(L && Array.isArray(L.KU_IDS) && L.KU_IDS.indexOf(id) >= 0); }
   function petCardVM(E, c, room, U) {
     var vm = { id: c.id, kind: 'pet', name: c.name, fact: factOf(E, c.id), price: c.price, free: c.free, state: c.state, wallet: c.wallet || null,
-      readopt: !!c.readopt, chip: null, act: null, can: false, line: null,
+      readopt: !!c.readopt, chip: null, act: null, can: false, line: null, learn: false,
       fresh: (c.state === 'adopt' || c.state === 'ownFull' || c.state === 'homeFull' || c.state === 'locked') && !c.readopt && isNew(c.id) ? tx('isle.chipNew') : null,
       loves: c.favFood ? { id: c.favFood, text: tx('care.shop.loves', { food: speciesName(E, c.favFood) }) } : null };
     if (own(PLACE, c.state)) {
@@ -187,9 +192,12 @@
       vm.act = E.deps.openCorner ? 'corner' : null;
       vm.can = !!vm.act;
     } else if (c.state === 'ownFull') {
-      /* 'total' at the cap: the card says so ('3 of 3 pets') and leads to the Pet Corner, never a Buy that cannot work */
+      /* 'total' at the cap: the card says so ('3 of 3 pets') and leads to My pets, never a Buy that cannot work. KU-QA 12:
+         an animal the child does NOT have says why in words of its own ('You can have up to 3 pets.'), so it never reads
+         like a pet the child owns ('At home' + My pets) */
       var n = room && typeof room.count === 'number' ? room.count : 0;
       vm.chip = { cls: 'rep', text: room && n > room.max ? tx('care.shop.capKeep', { n: n }) : tx('care.shop.capFull', { n: n }) };
+      vm.line = tx('care.welcome.capTotal');
       vm.act = E.deps.openCorner ? 'corner' : null;
       vm.can = !!vm.act;
     } else if (c.state === 'locked') {
@@ -203,14 +211,23 @@
       vm.can = !!c.can;
     }
     /* 'total' at the cap ('ownFull'): the cap chip and the Pet Corner (above); the banner says why (care.ownFull) */
-    if ((vm.act === 'adopt' || vm.act === 'room') && !vm.can && c.code === 'insufficient' && typeof c.need === 'number') vm.line = needLine(c, c.need);
+    if ((vm.act === 'adopt' || vm.act === 'room') && !vm.can && c.code === 'insufficient' && typeof c.need === 'number') {
+      vm.line = needLine(c, c.need);
+      vm.learn = learnOn(E, c.need);                         /* wave 3: '📚 Learn' beside the need line */
+    }
     return vm;
   }
+  /* wave 3 (contract 5): '📚 Learn' on a card the child is short for — only with the host's learnFor, real prices (in
+     test mode nothing is short) and a real shortfall */
+  function learnOn(E, need) { return typeof E.deps.learnFor === 'function' && !E.trial() && typeof need === 'number' && need > 0; }
   function foodCardVM(E, c, trialMax) {
     var vm = { id: c.id, kind: 'food', name: c.name, fact: descOf(E, c.id), price: c.price, free: c.free, have: c.have, state: c.state, wallet: c.wallet || null,
-      act: 'buy', can: !!c.can, line: null, pantry: tx('care.pantry') + ' · ' + c.have };
+      act: 'buy', can: !!c.can, line: null, learn: false, pantry: tx('care.pantry') + ' · ' + c.have };
     if (c.state === 'full') vm.line = tx('care.pantryFull', { food: c.name });
-    else if (c.state === 'short' && typeof c.need === 'number') vm.line = tx(c.wallet === 'coins' ? 'care.noCoins' : 'care.noPoints', { n: fmt(c.need), food: c.name });
+    else if (c.state === 'short' && typeof c.need === 'number') {
+      vm.line = tx(c.wallet === 'coins' ? 'care.noCoins' : 'care.noPoints', { n: fmt(c.need), food: c.name });
+      vm.learn = learnOn(E, c.need);
+    }
     /* test mode: a greyed 'Get it free' says why on the card (QA 24 Oct, item 8) */
     else if (c.state === 'trialFull') vm.line = tx('care.trialFull', { n: trialMax || ((E.C.CARE || {}).trialPantryMax) || 0 });
     return vm;
@@ -257,9 +274,11 @@
     h += '<div class="slps-foot">';
     if (c.kind === 'food') h += '<span class="chip rep slps-have">' + esc(c.pantry) + '</span>';
     if (c.chip) h += '<span class="chip ' + c.chip.cls + '">' + esc(c.chip.text) + '</span>';
-    var priceOnButton = c.act === 'buy' && !c.free && buy;
+    /* a short card's button is '📚 Learn', so its price shows on the card instead */
+    var priceOnButton = c.act === 'buy' && !c.free && buy && !c.learn;
     if ((!c.chip || c.chip.cls === 'lock') && !priceOnButton) h += priceHtml(c);
-    if (c.line) h += '<div class="slps-need">' + esc(c.line) + '</div>';
+    if (c.line) h += '<div class="slps-need' + (c.state === 'ownFull' ? ' slps-capline' : '') + '">' + esc(c.line) + '</div>';
+    if (c.learn) return h + '<div class="row">' + learnBtn(c) + '</div><div class="slw-err" aria-live="polite"></div></div></div>';
     var label = c.act === 'adopt' ? tx('care.shop.adopt') : c.act === 'room' ? tx('care.makeRoom') : c.act === 'corner' ? tx('care.corner.title')
       : c.act === 'buy' ? (c.free ? tx('isle.unlockFree') : money(c)) : '';
     var needsBuy = c.act === 'adopt' || c.act === 'room' || c.act === 'buy';
@@ -268,6 +287,12 @@
         (c.act === 'buy' ? ' aria-label="' + esc(c.name + ' · ' + label) + '"' : '') + (c.can ? '' : ' disabled') + '>' + esc(label) + '</button></div>';
     }
     return h + '<div class="slw-err" aria-live="polite"></div></div></div>';
+  }
+  /* wave 3: '📚 Learn' (learn.go), named for its card ('Kitten · 📚 Learn'). Never the 'big' class: the detail sheet's
+     picture box is .big (its sky fill would paint the button) */
+  function learnBtn(c) {
+    var label = tx('learn.go');
+    return '<button type="button" class="slw-btn slw-learnbtn" data-a="learn" data-id="' + esc(c.id) + '" aria-label="' + esc(c.name + ' · ' + label) + '">' + esc(label) + '</button>';
   }
   function bodyHtml(E, vm) {
     var h = '';
@@ -313,6 +338,12 @@
     '.slps-loves{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;line-height:1.25;color:var(--px-ink-2,#474E7E);}',
     '.slps-loves .slps-food{flex:none;width:24px;height:24px;}.slps-loves .slps-food svg{width:24px;height:24px;}',
     '.slps-need{font-size:13px;font-weight:700;line-height:1.3;color:var(--px-gold-ink,#8A5A00);}',
+    /* KU-QA 12: the cap's own line on an animal the child does not have (ink, not the gold of a shortfall) */
+    '.slps-need.slps-capline{color:var(--px-ink-2,#474E7E);}',
+    /* wave 3: '📚 Learn' on a short card. Its colour is island-pixel.css's one .slw-learnbtn rule (the same violet
+       block as on the Island Shop, the item sheet and the HUD); nothing here paints it (review W3-4: sun here meant
+       a second colour for the same button, and sun is My pets' "this pet wants a meal") */
+    '.slps-ov .slw-learnbtn{white-space:nowrap;}',
     '.slps-card .row .slw-buy,.slps-card .row .slw-btn{flex:1 1 auto;}',
     /* the foot at the card's bottom: every card in a row has its price and button on the same line */
     '.slps-foot{margin-top:auto;display:flex;flex-direction:column;gap:5px;min-width:0;}',
@@ -428,6 +459,8 @@
         var id = b.getAttribute('data-id'), card = id ? q(body, '.slps-card[data-id="' + id + '"]') : null, err = card ? q(card, '.slw-err') : null;
         /* a pet the child has: the Corner opens where it is (the Pet Corner picks the tab); the cap card and the banner open it plain */
         if (a === 'corner') { if (E.deps.openCorner) E.deps.openCorner(id && card && own(PLACE, card.getAttribute('data-state')) ? id : undefined); return; }
+        /* wave 3: learn and come back for this card (the host closes the sheets; false keeps the shop open) */
+        if (a === 'learn') { learnFor(E, id, ov); return; }
         if (a === 'open') { openDetail(E, deps, id, function () { draw('.slps-card[data-id="' + id + '"] .ic'); }); return; }
         busy = true;
         /* redraw (counts, states, the cap) unless a refusal's reason is on the card: that card stays as it is */
@@ -456,6 +489,14 @@
     });
   }
 
+  /* wave 3 (contract 5): the host's learn-and-come-back trip for this id, from the Pet Shop; the sheet closes unless the
+     host says no (it may already have closed every sheet) */
+  function learnFor(E, id, ov) {
+    if (typeof E.deps.learnFor !== 'function') return;
+    var r;
+    try { r = E.deps.learnFor(id, { from: 'petShop' }); } catch (e) { r = false; }
+    if (r !== false && ov && ov.isConnected !== false && typeof ov._close === 'function') ov._close();
+  }
   /* a food: the host's buy flow, then the pantry count on the card goes up */
   function buyFood(E, id, btn, err) {
     if (typeof E.deps.buy !== 'function') return Promise.resolve(false);
@@ -481,8 +522,9 @@
       '<div class="info"><p class="slps-desc">' + esc(desc) + '</p><p class="slps-facts">' + esc(tx('care.shop.lives', { island: E.C.ISLES[k].name })) + '</p>' +
       (c.loves ? '<div class="slps-loves">' + foodPic(E, c.loves.id) + '<span>' + esc(c.loves.text) + '</span></div>' : '') +
       (c.chip ? '<span class="chip ' + c.chip.cls + '">' + esc(c.chip.text) + '</span>' : '') + (!c.chip || c.chip.cls === 'lock' ? priceHtml(c) : '') +
-      (c.line ? '<div class="slps-need">' + esc(c.line) + '</div>' : '') +
-      (label && (!needsBuy || buy) ? '<div class="row"><button type="button" class="' + (c.act === 'corner' ? 'slw-btn big' : 'slw-buy') + '" data-a="' + c.act + '"' + (c.can ? '' : ' disabled') + '>' + esc(label) + '</button></div>' : '') +
+      (c.line ? '<div class="slps-need' + (c.state === 'ownFull' ? ' slps-capline' : '') + '">' + esc(c.line) + '</div>' : '') +
+      (c.learn ? '<div class="row">' + learnBtn(c) + '</div>'
+        : label && (!needsBuy || buy) ? '<div class="row"><button type="button" class="' + (c.act === 'corner' ? 'slw-btn' : 'slw-buy') + '" data-a="' + c.act + '"' + (c.can ? '' : ' disabled') + '>' + esc(label) + '</button></div>' : '') +
       '<div class="slw-err" aria-live="polite"></div></div></div>', { small: false, cls: 'slps-ov', onClose: function () { if (stop) { try { stop(); } catch (e) { /* gone */ } } } });
     var P = E.deps.photocard || root.SLPhotocard;
     if (E.use3D() && P && typeof P.turntable === 'function') {
@@ -492,6 +534,7 @@
     if (btn) {
       btn.addEventListener('click', function () {
         if (btn.disabled) return;
+        if (c.learn) { learnFor(E, id, ov); return; }
         if (c.act === 'corner') { ov._close(); if (E.deps.openCorner) E.deps.openCorner(own(PLACE, c.state) ? id : undefined); return; }
         ov._close();
         adopt(deps, id, {}).then(function () { if (after) after(); });

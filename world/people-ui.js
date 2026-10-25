@@ -18,6 +18,10 @@
                    buy, price chips show but nothing is bought here.
      trial         bool or () → bool (default window.SL_WORLD_TRIAL === true): FREE chips
      openShop(slot) the Island Shop's 👕 Wardrobe tab on a slot ('Shop more'); hidden without it
+     learnFor(id, {from: 'cast'})  wave 3 (contract 5): a cast card the child cannot afford yet gets
+                   '📚 Learn' beside its need line and 'Save up for it'; the host starts the
+                   learn-and-come-back trip for that character and closes the sheets (a returned false
+                   keeps the cast open). Hidden without it (and in test mode nothing is short)
      findMe()      KU34: 'Find me on the island' in My character (the host closes the sheets)
      cover(delta)  pause / resume the 3D island under a sheet · sound(name) (default SLSound.play)
      use3D         true: turntables (SLPhotocard) over the 2D figure; false: 2D only (LOW, no 3D).
@@ -400,7 +404,12 @@
     var act = '';
     if (c.state === 'owned') act = btn('play', tx('char.cast.play', { name: c.name }), { v: c.id, pressed: c.active, cls: 'slw-btn big' + (c.active ? '' : ' on') });
     else if (c.state === 'affordable' && s.buy) act = btn('buy', c.free ? tx('isle.unlockFree') : money(c.price), { v: c.id, cls: 'slw-buy', label: c.name + ', ' + (c.free ? tx('wardrobe.free') : money(c.price)) });
-    else if (c.state === 'short') act = '<p class="slp-need">' + esc(tx(needKey(), { n: fmt(c.need) })) + '</p>' + btn('goal', tx('char.cast.save'), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') });
+    else if (c.state === 'short') {
+      /* wave 3: '📚 Learn' beside the need line when the host can start a learn-and-come-back trip (contract 5) */
+      var learn = ctx && typeof ctx.learnFor === 'function' && c.need > 0 ? btn('learn', tx('learn.go'), { v: c.id, cls: 'slw-btn slw-learnbtn', label: c.name + ' · ' + tx('learn.go') }) : '';
+      act = '<p class="slp-need">' + esc(tx(needKey(), { n: fmt(c.need) })) + '</p>' + (learn ? '<div class="slp-shortbtns">' + learn : '') +
+        btn('goal', tx('char.cast.save'), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') }) + (learn ? '</div>' : '');
+    }
     return '<li class="slp-cast' + (c.active ? ' active' : '') + '" data-id="' + c.id + '"><div class="slp-castpic">' + picHtml(c.id, ctx) + '</div>' +
       '<h3>' + esc(c.name) + '</h3><p class="slp-theme">' + esc(c.theme) + '</p><p class="slp-chips">' + chip + '</p>' +
       (c.comes.length ? '<p class="slp-comes">' + esc(tx('char.cast.comes', { items: c.comes.join(', ') })) + '</p>' : '') +
@@ -767,6 +776,13 @@
         goal: function (b) {
           var id = b.getAttribute('data-v');
           commit(ctx, function (u) { var w = C().ensureWorld(u); return C().setGoal(u, C().goalId(w) === id ? null : id); }).then(function (r) { if (r.ok) { sound(ctx, SOUND.pick); draw(); } });
+        },
+        /* wave 3 (contract 5): learn and come back for this character; the host closes the sheets (false: the cast stays) */
+        learn: function (b) {
+          var id = b.getAttribute('data-v'), r;
+          if (typeof ctx.learnFor !== 'function') return;
+          try { r = ctx.learnFor(id, { from: 'cast' }); } catch (e) { r = false; }
+          if (r !== false) s.close();
         },
         move: function (b) {
           var id = b.getAttribute('data-v'), li = s.body.querySelector('li[data-id="' + id + '"]'), pic = li && li.querySelector('.slp-castpic'), c = P().castOf(id);

@@ -1,19 +1,20 @@
 /* ================================================================
-   My Island v3, kids update — the Pet Corner (P3.1; world/pet-care-ui.js). CSS only.
+   My Island v3, kids update — My pets (the Pet Corner, P3.1; world/pet-care-ui.js). CSS only.
    Loaded by slLoadWorld with pet-care-ui.js beside the other world UI (plan-ku KU21). The sheets are
-   the island's own (.slw-ov / .slw-sheet / .slw-btn, island-pixel.css), so this file only adds the
-   Pet Corner's parts in the same Pixel Blocks look: white blocks, a 3 px navy line, hard lips,
+   the island's own (.slw-ov / .slw-sheet / .slw-btn, island-pixel.css), so this file only adds
+   My pets' parts in the same Pixel Blocks look: white blocks, a 3 px navy line, hard lips,
    Outfit at 15 px and more, no blur, no glow, no overshoot.
 
    KU36: targets ≥ 44 px, a 3 px ink focus ring with a white halo, state as shape as well as colour
-   (pressed in, dashed, a ✓), ink on light fills, no horizontal scroll at 390 × 844 (the tab row
-   scrolls inside itself), reduced motion = end states, nothing above 2 Hz (the nods are 1.5 Hz).
+   (pressed in, dashed, a ✓), ink on light fills, no horizontal scroll at 390 × 844 (one card a row,
+   the footer's buttons wrap), reduced motion = end states, nothing above 2 Hz (the nods are 1.5 Hz).
    Every rule starts with `html body` like the island's sheets.
 
-   HOOKS: .slw-pcc-ov (every sheet here) · .slw-pcc (the Corner) > .slw-pcc-tabs .slw-pcc-tab,
-     .slw-pcc-panel > .slw-pcc-list > .slw-pcc-card (.slw-pcc-guest .slw-pcc-basket .slw-pcc-memory)
-       .slw-pcc-top .slw-pcc-pic .slw-pcc-info .slw-pcc-name .slw-pcc-sp .slw-pcc-fav .slw-pcc-meters
-       .slw-pcc-acts .slw-pcc-do (.slw-pcc-feed, sun while .slw-pcc-due) .slw-pcc-more .slw-pcc-msg .slw-pcc-tray
+   HOOKS: .slw-pcc-ov (every sheet here) · .slw-pcc (My pets: one list, wave 3 §8) > .slw-pcc-panel >
+     .slw-pcc-cap · .slw-pcc-group[data-g] (.slw-pcc-ghead .slw-pcc-gart .slw-pcc-gh .slw-pcc-gn) · .slw-pcc-foot
+       (.slw-pcc-pantry .slw-pcc-fbtns); .slw-pcc-list > .slw-pcc-card (.slw-pcc-guest .slw-pcc-basket .slw-pcc-memory)
+       .slw-pcc-top .slw-pcc-pic .slw-pcc-info .slw-pcc-name .slw-pcc-sp .slw-pcc-fav .slw-pcc-meters .slw-pcc-hint
+       .slw-pcc-acts .slw-pcc-do (.slw-pcc-feed: sun while .slw-pcc-due, soft while .slw-pcc-quiet) .slw-pcc-more .slw-pcc-msg .slw-pcc-tray
        .slw-pcc-foods .slw-pcc-food (.off .fav) .slw-pcc-why .slw-pcc-rename
      .slw-pcc-picker .slw-pcc-pick .slw-pcc-pet (.on) · .slw-pcc-card1 (news, rule, day cards)
      .slw-pcc-strip (the sheet slides down) .slw-pcc-see (the island shows) .slw-pcc-stripwrap
@@ -40,29 +41,40 @@ html body .slw-pcc-soon { background: var(--px-rep, #FFF1C9); color: var(--px-re
 html body .slw-pcc-btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 12px; }
 html body .slw-pcc-btns .slw-btn { flex: 0 1 auto; }
 
-/* ---------------- the tab row: one sideways strip that sticks at the top of the sheet ---------------- */
-html body .slw-pcc-tabs {
-  position: -webkit-sticky; position: sticky; top: -18px; z-index: 4; display: flex; gap: 8px; flex-wrap: nowrap;
-  margin: 6px -18px 12px; padding: 8px 18px 10px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
-  scrollbar-width: none; background: var(--px-panel, #FFFFFF); box-shadow: 0 2px 0 0 var(--px-white-lip, #C9D3EC);
+/* ---------------- My pets: one list (wave 3 §8) — the cap line, then a group per place, then the footer ---------------- */
+html body .slw-pcc-ov .slw-pcc-cap { margin: 0 0 6px; font-size: 18px; font-weight: 800; color: var(--px-ink, #1B2150); }
+html body .slw-pcc-panel > .slw-pcc-sitter { margin-bottom: 8px; }
+/* a group: its heading (a picture for the Hotel and the Rescue, the words, a count pill), its line, its cards */
+html body .slw-pcc-group { margin: 16px 0 0; padding-top: 14px; border-top: 2px solid var(--px-white-lip, #C9D3EC); }
+html body .slw-pcc-group, html body .slw-pcc-foot { scroll-margin-top: calc(var(--slw-hdh, 0px) + 8px); }
+html body .slw-pcc-ghead { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+html body .slw-pcc-gart { flex: none; display: block; width: 72px; }
+html body .slw-pcc-gart svg { width: 100%; height: auto; }
+html body .slw-pcc-ov .slw-pcc-gh {
+  display: flex; align-items: center; gap: 8px; margin: 0; font-family: var(--sle-ui, "Outfit", system-ui, sans-serif);
+  font-size: 19px; font-weight: 800; line-height: 1.2; color: var(--px-ink, #1B2150);
 }
-html body .slw-pcc-tabs::-webkit-scrollbar { display: none; }
-html body .slw-pcc-tab[class] { flex: 0 0 auto; gap: 6px; padding: 8px 14px; font-size: 15px; white-space: nowrap; }
-html body .slw-pcc-tab svg { width: 20px; height: 20px; }
+html body .slw-pcc-gn {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 8px;
+  border-radius: 14px; background: var(--px-well, #EEF7FF); border: 2px solid var(--px-line, #2B3A80);
+  font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+html body .slw-pcc-group > .slw-pcc-line { margin-bottom: 10px; }
+html body .slw-pcc-gbtns { justify-content: flex-start; margin: 0 0 12px; }
+/* the footer: the pantry's meals, then where to go for more (they wrap; two a row on phones) */
+html body .slw-pcc-foot { margin: 18px 0 0; padding: 14px 0 8px; border-top: 2px solid var(--px-white-lip, #C9D3EC); }
+html body .slw-pcc-ov .slw-pcc-pantry { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 800; color: var(--px-ink, #1B2150); }
+html body .slw-pcc-fbtns { justify-content: flex-start; }
+html body .slw-pcc-fbtns .slw-btn { gap: 6px; }
 html body .slw-pcc-tstar { display: inline-flex; flex: none; padding: 2px; background: var(--px-night-1, #1B2150); border-radius: 5px; box-shadow: 0 0 0 2px var(--px-panel, #FFFFFF); }
 html body .slw-pcc-tstar svg { width: 18px; height: 18px; }
-/* the pressed tab: violet, pressed in (shape and colour) */
-html body .slw-pcc-tab[aria-selected="true"] {
-  --sle-a: var(--px-violet, #5B3FD6); --sle-b: var(--px-violet, #5B3FD6); --sle-fg: #FFFFFF; --sle-lip: var(--px-violet-lip, #3A259A);
-  --px-lift: 2px; transform: translateY(2px);
-}
 
 /* ---------------- a pet's card ---------------- */
 html body .slw-pcc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; align-items: start; }
 html body .slw-pcc-card {
   min-width: 0; padding: 12px; background: var(--px-panel, #FFFFFF); border: var(--px-bw, 3px) solid var(--px-line, #2B3A80);
   border-radius: var(--px-r-card, 10px); box-shadow: 0 4px 0 0 rgba(27, 33, 80, 0.18);
-  scroll-margin-top: 76px;   /* a card scrolled into view (a day card's Feed) stops below the sticky tab row */
+  scroll-margin-top: calc(var(--slw-hdh, 0px) + 8px);   /* a card scrolled into view (a day card's Feed) stops below the sheet's sticky header */
 }
 html body .slw-pcc-top { display: flex; gap: 12px; align-items: flex-start; }
 html body .slw-pcc-pic {
@@ -90,8 +102,13 @@ html body .slw-pcc-acts { display: grid; grid-template-columns: repeat(3, minmax
 html body .slw-pcc-basket .slw-pcc-acts { grid-template-columns: 1fr; }
 html body .slw-pcc-do[class] { min-height: 52px; padding: 8px 6px; font-size: 16px; }
 html body .slw-pcc-feed.slw-pcc-due[class] { --sle-a: var(--px-sun, #FFD23F); --sle-b: var(--px-sun, #FFD23F); --sle-fg: var(--px-ink, #1B2150); --sle-lip: var(--px-sun-lip, #C99A00); }
+/* KU-QA 12: a fed or full pet's Feed is quiet — the soft well fill, ink-2 words, a low lip; still a button (a treat is
+   still a snack), never dashed (dashed means it cannot be used) */
+html body .slw-pcc-feed.slw-pcc-quiet[class] { --sle-a: var(--px-well, #EEF7FF); --sle-b: var(--px-well, #EEF7FF); --sle-fg: var(--px-ink-2, #474E7E); --sle-lip: var(--px-white-lip, #C9D3EC); --px-lift: 2px; font-weight: 600; }
 html body .slw-pcc-more { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 html body .slw-pcc-more .slw-btn { flex: 1 1 auto; padding: 8px 10px; }
+/* KU-QA 12: the one line under the first 'Make my runner' that says what a runner is */
+html body .slw-pcc-ov .slw-pcc-hint { margin: 8px 0 0; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--px-ink-2, #474E7E); }
 /* a tray that is open: its button pressed in, violet */
 html body .slw-pcc-ov .slw-btn[aria-expanded="true"] {
   --sle-a: var(--px-violet, #5B3FD6); --sle-b: var(--px-violet, #5B3FD6); --sle-fg: #FFFFFF; --sle-lip: var(--px-violet-lip, #3A259A);
@@ -221,6 +238,9 @@ html body .slw-pcc-pic.slw-pcc-hop > * { animation: pccHop 600ms ease-in-out 2; 
   html body .slw-pcc-scene .slw-pcc-bowl { width: 62px; }
   html body .slw-pcc-bits { right: 18px; bottom: 32px; }
   html body .slw-pcc-stripbar { gap: 10px; padding: 8px 10px; }
+  /* the footer's four ways out: two a row */
+  html body .slw-pcc-fbtns .slw-btn { flex: 1 1 calc(50% - 5px); }
+  html body .slw-pcc-gart { width: 60px; }
 }
 
 /* ---------------- reduced motion: end states, no slides ---------------- */
@@ -228,5 +248,5 @@ html body .slw-pcc-pic.slw-pcc-hop > * { animation: pccHop 600ms ease-in-out 2; 
   html body .slw-ov.slw-pcc-strip > .slw-sheet { animation: none; visibility: hidden; }
   html body .slw-pcc-scene .slw-pcc-bit, html body .slw-pcc-scene .slw-pcc-eat, html body .slw-pcc-pic.slw-pcc-hop > * { animation: none; }
   html body .slw-pcc-scene.love .slw-pcc-love { animation: none; opacity: 1; }
-  html body .slw-pcc-tab[aria-selected="true"], html body .slw-pcc-pet.on, html body button.slw-pcc-food:active { transition: none; }
+  html body .slw-pcc-pet.on, html body button.slw-pcc-food:active, html body .slw-pcc-ov .slw-btn { transition: none; }
 }
