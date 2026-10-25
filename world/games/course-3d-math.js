@@ -13,6 +13,8 @@
      • juice         a plain-object state machine fed by round.events
                      (hit-stop, shake, kicks, LED blackout, fan reactions)
      • pet visual    which rig clip + overrides for the pet this frame
+     • people        the kids update: the character's moment (runnerVisual), the sidekick's
+                     place at the end, the dizzy ✦, the 'sidekick off' guard
      • props         wobble / flatten / cushion spring / happy hop
      • LEDs, fans, marquee, cue rings, hat pop, zips, curtains
      • ParticleSim   a fixed-capacity SoA particle pool (no allocation)
@@ -272,11 +274,12 @@
     var need = 2 * Math.atan(lane / (2 * dist * aspect)) / DEG;
     return clamp(Math.max(base, need), base, max);
   }
-  /* the follow rig: position + look-at for pet x and smoothed height h (yaw/roll always 0) */
-  function followCam(px, h, out) {
+  /* the follow rig: position + look-at for pet x and smoothed height h (yaw/roll always 0).
+     lift (kids update, KU-CH18): the chase target rises PEOPLE.camLift for the taller person, nothing else */
+  function followCam(px, h, out, lift) {
     out = out || {};
     out.x = px + CAM.dx; out.y = CAM.y + CAM.ky * h; out.z = CAM.z;
-    out.tx = px + CAM.dx; out.ty = CAM.lookY + CAM.ky * h; out.tz = 0;
+    out.tx = px + CAM.dx; out.ty = CAM.lookY + CAM.ky * h + (lift > 0 ? lift : 0); out.tz = 0;
     return out;
   }
   /* a decaying screen shake (never above amp): `since` seconds after the kick */
@@ -298,6 +301,29 @@
   function moveK(since, dur, reduced) { if (reduced) return since >= 0 ? 1 : 0; return inOutSine(since / dur); }
   /* the menu stage-cam: a slow ±5° (10° total) orbit of the pet on the start line */
   function menuOrbit(t, reduced) { return reduced ? 0 : (CAM.menu.orbitDeg / 2) * Math.sin(TAU * t / CAM.menu.period) * DEG; }
+  /* the results framing (F-KU1). The shell's results glass covers the stage from its top edge down
+     (at least the bottom 58 %), so while the results are up the camera keeps the pair — feet on the
+     floor, the tallest head at `top` u — in the band above it: `free` is the share of the stage
+     height above the glass (measured by the view; RESULTS.free when it cannot be; at least minFree:
+     a phone's glass starts higher, or covers it all), less a margin above and below. The camera
+     keeps its line and pitch and only backs off along it until the pair's height (× fit, for the
+     cheer's arms and the pet standing upstage) fits the band; the
+     picture then shifts up by `off` of its height (camera.setViewOffset: the same angle, nothing
+     tilts). → {dist (≥ dist0), off, aimY (the pair's middle), band, free} */
+  var RESULTS = { free: 0.42, minFree: 0.15, pad: 0.05, padShare: 0.15, fit: 1.2, dur: 0.6 };
+  function resultsFrame(fovDeg, top, free, dist0, out) {
+    out = out || {};
+    var f = clamp(free > 0 && isFinite(free) ? free : RESULTS.free, RESULTS.minFree, RESULTS.free);
+    var pad = Math.min(RESULTS.pad, f * RESULTS.padShare);          /* a phone's thin band keeps most of itself */
+    var band = f - 2 * pad;
+    var h = top > 0.3 && isFinite(top) ? top : 1;
+    var tn = Math.tan(clamp(fovDeg > 0 && isFinite(fovDeg) ? fovDeg : CAM.fov, 10, 120) * DEG / 2);
+    out.dist = Math.max(dist0 > 0 && isFinite(dist0) ? dist0 : 0, h * RESULTS.fit / (2 * tn * band));
+    out.off = 0.5 - (pad + band / 2);
+    out.aimY = h / 2;
+    out.band = band; out.free = f;
+    return out;
+  }
 
   /* ================================================================
      JUICE — the view's own reaction state, driven ONLY by round.events
@@ -454,6 +480,170 @@
     }
     out.sx = sxz; out.sz = sxz; out.sy = sy;
     return out;
+  }
+
+  /* ================================================================
+     THE PLAYER FIGURE AND ITS SIDEKICK (kids update KU-CH18, characters.json design.games.debutRun)
+     The child's character (or the classic avatar) is the runner; the pet follows the runner's own
+     path 0.35 s behind (game-people petTrail) and never collides. runnerVisual picks the game
+     MOMENT the runner plays this frame (game-people clipFor('runner', moment) turns it into a clip:
+     run · takeoff → jump · dj → jumpTuck · slide → slideFlat · bump → tumble · dizzy / slip → dizzy ·
+     finish → cheer · encore → the signature move (or duo) · curtain → the bow) plus the juice on top,
+     from the same state as petVisual. Read only: nothing here can change a rule or a hitbox.
+     o = {reduced, clock, speed (u/s), menu, sinceEnd (s since the finish or the Encore's end),
+     sinceCurtain (s since the curtain call), sigDur (s: the signature move's length; after it and
+     PEOPLE.sigRest the cheer loops on, ≤ 2 Hz)}
+     ================================================================ */
+  var PEOPLE = {
+    camLift: 0.15,          /* the chase target rises so the head stays in frame (design camera) */
+    petZ: -0.42,            /* the sidekick runs a little upstage: it never stands inside the runner */
+    sepGap: 0.9, sepZ: 0.4,  /* closer than sepGap (a tumble's knock-back, a slip) it steps sepZ further upstage */
+    waitMax: 1.2,           /* … and waits on its own point of the path: the read delay grows up to this (s) */
+    catchUp: 0.5,           /* then hurries back to 0.35 s behind: the read time runs 1.5× along the same path */
+    trailSize: 128, trailReach: 1.3,   /* the 3D sidekick's ring: every frame a sample, 1.3 s of path */
+    petScale: 0.9,          /* the pet beside a 0.9 u person, as on the island (pet : person) */
+    endGap: 0.8,            /* once the show is over the pet stops this far stage-left of the runner */
+    curtainGap: 0.5,        /* … closer for the curtain call, so both fit the gap between the curtains */
+    curtainZ: 5.3,          /* … with the camera a little further back than the pet's 4.5 (the gap ≈ 1.1 u wide) */
+    finishDx: 0,            /* the finish crane looks straight at the pair (CAM.finish.dx = 0.8 put the arch's front pillar between) */
+    sigRest: 0.3,           /* after the signature move, a beat before the loop takes over */
+    tumbleLift: 0.12,       /* the back flip's own rise on top of the logic's pop (head clears the floor) */
+    slipDizzy: 0.6,         /* a slip: a brief dizzy (s) */
+    menuFace: 0.35,         /* on the start line (the menu, the count-in) the runner turns a little to the house */
+    bodyC: 0.45,            /* the person's middle above its feet (bubble, sparkles, cones) */
+    sparkR: 0.28, sparkY: 1.1, sparkHz: 0.8   /* the dizzy ✦ circling above the head and any hat (≤ 2 Hz) */
+  };
+  function newRunnerVisual() {
+    return { moment: 'idle', t: 0, speed: 0, height: 0, faceCam: 0, pitch: 0, yaw: 0, sx: 1, sy: 1, sz: 1,
+      frozen: false, spark: 0, slide: false, trail: false, end: false };
+  }
+  function runnerVisual(s, j, o, out) {
+    out = out || newRunnerVisual();
+    var red = !!o.reduced, clock = o.clock || 0, v = Math.max(0, o.speed || 0);
+    out.moment = 'run'; out.t = clock; out.speed = v; out.height = 0; out.faceCam = 0; out.pitch = 0; out.yaw = 0;
+    out.sx = 1; out.sy = 1; out.sz = 1; out.frozen = false; out.spark = 0; out.slide = false; out.trail = false; out.end = false;
+    if (!s || o.menu) { out.moment = 'idle'; out.speed = 0; out.faceCam = PEOPLE.menuFace; return out; }   /* ready on the start line, a 3/4 turn to the house */
+    var ph = s.phase;
+    if (ph === 'finish' || (ph === 'done' && s.finished)) {             /* run out, then cheer (the Encore: the signature move) */
+      var e = o.sinceEnd != null ? o.sinceEnd : (s.endT || 0);
+      out.end = true;
+      if (ph === 'finish' && e < 0.6) { out.speed = v * (1 - e / 0.6); return out; }
+      out.moment = s.encoreCleared ? 'encore' : 'finish'; out.t = Math.max(0, e - 0.6); out.speed = 0;
+      var sd = o.sigDur > 0 ? o.sigDur + PEOPLE.sigRest : Infinity;
+      if (out.moment === 'encore' && out.t >= sd) { out.moment = 'finish'; out.t -= sd; }   /* the move once, then the cheer */
+      out.faceCam = red ? 1 : clamp01((e - 0.6) / 0.4);
+      return out;
+    }
+    if (ph === 'curtain' || (ph === 'done' && s.curtain)) {             /* dizzy, then a gentle bow to the house */
+      var c = o.sinceCurtain != null ? o.sinceCurtain : ph === 'done' ? 9 : (s.endT || 0);
+      out.end = true; out.speed = 0;
+      if (c < 1.0) { out.moment = 'dizzy'; out.t = c; out.spark = 1; }
+      else { out.moment = 'curtain'; out.t = c - 1.0; out.faceCam = red ? 1 : inOutSine((c - 1.0) / 0.4); }
+      return out;
+    }
+    if (ph === 'done') { out.moment = 'idle'; out.speed = 0; out.faceCam = 0.5; out.end = true; return out; }   /* time's up */
+    if (s.eff === 'tumble') {                                            /* a bump (a first-of-kind prop too): the flip, then dizzy ✦ */
+      var et = s.effT || 0;
+      out.speed = 0;
+      if (red) { out.moment = 'bump'; out.t = et; out.spark = et > 0.1 ? 1 : 0; }
+      else if (et < VIEW.HITSTOP) out.frozen = true;
+      else if (!s.onGround || et - VIEW.HITSTOP < VIEW.FLIP_TUMBLE) {
+        out.moment = 'bump'; out.t = (et - VIEW.HITSTOP) * (0.6 / VIEW.FLIP_TUMBLE); out.height = PEOPLE.tumbleLift;
+      } else { out.moment = 'dizzy'; out.t = et; out.spark = et < VIEW.DIZZY_END ? 1 : 0; }
+      return out;
+    }
+    if (!s.onGround) {
+      if (j.sinceDJ < 0.6) { out.moment = 'dj'; out.t = j.sinceDJ; }                       /* the tucked front flip */
+      else if (s.diving) { out.moment = 'fall'; if (!red) out.pitch = 360 * inOutSine(j.sinceDive / VIEW.DIVE_SPIN); }
+      else if (s.vy < 0) {
+        out.moment = 'takeoff'; out.t = j.sinceTakeoff;
+        if (!red && j.sinceBoing < VIEW.TWIRL) out.yaw = 360 * inOutSine(j.sinceBoing / VIEW.TWIRL);   /* off a cushion: a twirl */
+      } else out.moment = 'fall';
+    } else if (s.sliding) { out.moment = 'slide'; out.slide = true; out.trail = true; return out; }   /* flat under the gate: no squash */
+    else if (s.eff === 'slip' && (s.effT || 0) < PEOPLE.slipDizzy) { out.moment = 'slip'; out.t = s.effT || 0; }
+    /* squash and stretch, as the pet's (multipliers; xz share one factor) */
+    var sxz = 1, sy = 1;
+    if (j.sinceBump < VIEW.HITSTOP) { sxz = 0.85; sy = 1.08; }
+    else if (!red) {
+      if (j.sinceTakeoff < VIEW.SQUASH_TO) { sy = 0.85; sxz = 1.1; }
+      else if (j.sinceTakeoff < VIEW.STRETCH_TO) { sy = 1.12; sxz = 0.94; }
+      else if (s.onGround && j.sinceLand < VIEW.LAND_SQ) { sy = 0.85; sxz = 1.1; }
+      else if (s.onGround && j.sinceLand < VIEW.LAND_SQ + VIEW.LAND_BACK) {
+        var u = outBack((j.sinceLand - VIEW.LAND_SQ) / VIEW.LAND_BACK);
+        sy = 0.85 + 0.15 * u; sxz = 1.1 - 0.1 * u;
+      }
+    }
+    out.sx = sxz; out.sz = sxz; out.sy = sy;
+    return out;
+  }
+  /* the sidekick's x (u): on the trail while the show runs (never clamped then: a clamp would leave the
+     runner's own path, and a tumbling runner is knocked back); once it is over, no nearer than gap
+     (endGap; curtainGap at a curtain call) stage-left of the runner, side by side for the bow, the cheer or the duo */
+  function sidekickX(trailX, runnerX, ending, gap) {
+    return ending ? Math.min(trailX, runnerX - (gap > 0 ? gap : PEOPLE.endGap)) : trailX;
+  }
+  /* the sidekick's depth: PEOPLE.petZ, stepping up to sepZ further upstage as it closes in on the runner
+     (after a tumble the leader is knocked back and the trail catches up), so the two never merge */
+  function sidekickZ(petX, runnerX) {
+    return PEOPLE.petZ - PEOPLE.sepZ * clamp01((petX - (runnerX - PEOPLE.sepGap)) / 0.5);
+  }
+  /* follow the leader, waiting (s = the read delay): while the pet at delay d would close in on the runner
+     (a tumble's knock-back, a slip) and its point of the path is on the ground, its read time stands still
+     — it waits on a point the runner already cleared — up to PEOPLE.waitMax; otherwise the delay eases
+     back to `base` (0.35 s), the pet hurrying along the same recorded path. Never off the path. */
+  function sidekickDelay(d, dt, close, grounded, base) {
+    if (close && grounded) return Math.min(PEOPLE.waitMax, d + Math.max(0, dt));
+    return Math.max(base, d - PEOPLE.catchUp * Math.max(0, dt));
+  }
+  /* the sidekick's game moment (game-people clipFor('sidekick', moment) turns it into a pet clip):
+     on the trail it copies the leader (tr = trail.read: run · jump up · fall · slide); a worried hop
+     while the runner tumbles or slips; once the show is over and it has stopped (moving: still
+     walking up to its place), the runner's own end moment — cheer, the dance in the Encore, a hop
+     at the dizzy curtain, then sitting for the bow. Never 'sad'. */
+  function sidekickMoment(rv, tr, s, moving) {
+    if (rv.end) {
+      if (moving) return 'run';
+      return rv.moment === 'run' ? 'run' : rv.moment === 'encore' ? 'encore' : rv.moment === 'finish' ? 'finish'
+        : rv.moment === 'dizzy' ? 'dizzy' : rv.moment === 'curtain' ? 'curtain' : 'idle';
+    }
+    if (s && (s.eff === 'tumble' || (s.eff === 'slip' && (s.effT || 0) < PEOPLE.slipDizzy)) && !tr.airborne && !tr.sliding) return 'tumble';
+    if (tr.sliding) return 'slide';
+    if (tr.airborne) return tr.vy > 0 ? 'jump' : 'fall';
+    return 'run';
+  }
+  /* the dizzy ✦ circling the head: k = 0..2 → out {x, y, z} offsets from the runner's feet (u) */
+  function dizzySpark(k, t, reduced, out) {
+    out = out || {};
+    var a = (reduced ? 0 : TAU * PEOPLE.sparkHz * t) + k * TAU / 3;
+    out.x = Math.cos(a) * PEOPLE.sparkR; out.z = Math.sin(a) * PEOPLE.sparkR; out.y = PEOPLE.sparkY + 0.04 * Math.sin(a * 2);
+    return out;
+  }
+  /* 'sidekick off' (design budget): the game's last CPU step before the stage's 2D fallback. The stage
+     ladder steps the game down; once its CPU steps are taken (cpuDone) and this view's own frames stay
+     slow — work over GUARD.workMs or under 20 fps — for GUARD.holdMs, the pet steps off the stage (it is
+     hidden, never rebuilt). Pauses and one-off stalls (over GUARD.hitchMs) are not frames. */
+  var GUARD = { workMs: 24, intervalMs: 50, holdMs: 2000, minFrames: 30, hitchMs: 250 };
+  function newGuard() { return { work: 0, interval: 0, n: 0, since: -1, off: false }; }
+  function guardStep(g, workMs, intervalMs, nowMs, cpuDone) {
+    if (g.off) return true;
+    if (!(intervalMs > 0) || intervalMs > GUARD.hitchMs || !(workMs >= 0) || workMs > GUARD.hitchMs) return false;
+    g.n++;
+    g.work = g.n === 1 ? workMs : g.work * 0.9 + workMs * 0.1;
+    g.interval = g.n === 1 ? intervalMs : g.interval * 0.9 + intervalMs * 0.1;
+    var slow = g.n >= GUARD.minFrames && (g.work > GUARD.workMs || g.interval > GUARD.intervalMs);
+    if (!slow || !cpuDone) { g.since = -1; return false; }
+    if (g.since < 0) g.since = nowMs;
+    if (nowMs - g.since >= GUARD.holdMs) g.off = true;
+    return g.off;
+  }
+  /* the stage ladder's CPU steps (SLTier LADDER: outlines, particles, life, decor) are all taken or
+     already off on this tier: q = SL3D.quality */
+  function cpuStepsDone(q) {
+    if (!q) return true;
+    var st = Array.isArray(q.steps) ? q.steps : [];
+    function has(k) { return st.indexOf(k) >= 0; }
+    return (has('outlines') || q.outlines === false) && (has('particles') || q.particleScale < 1) &&
+      (has('life') || q.lifeScale < 1) && (has('decor') || q.decor === false);
   }
 
   /* ================================================================
@@ -722,10 +912,13 @@
     worldX: worldX, worldY: worldY, petX: petX, feetH: feetH, obsCentreX: obsCentreX, kindSizes: kindSizes, look3d: look3d,
     /* light + camera */
     showMix: showMix, lightAt: lightAt, fovFor: fovFor, followCam: followCam, shakeAt: shakeAt, kickAt: kickAt,
-    moveK: moveK, menuOrbit: menuOrbit,
+    moveK: moveK, menuOrbit: menuOrbit, RESULTS: RESULTS, resultsFrame: resultsFrame,
     /* juice + pet + props */
     newJuice: newJuice, resetJuice: resetJuice, juiceEvent: juiceEvent, juiceStep: juiceStep, juiceCam: juiceCam,
     newVisual: newVisual, petVisual: petVisual, newPropAnim: newPropAnim, propAnim: propAnim,
+    /* the player figure and its sidekick (KU-CH18) */
+    PEOPLE: PEOPLE, GUARD: GUARD, newRunnerVisual: newRunnerVisual, runnerVisual: runnerVisual, sidekickX: sidekickX, sidekickMoment: sidekickMoment, sidekickZ: sidekickZ, sidekickDelay: sidekickDelay,
+    dizzySpark: dizzySpark, newGuard: newGuard, guardStep: guardStep, cpuStepsDone: cpuStepsDone,
     rehearsalRect: rehearsalRect, dashCount: dashCount, dashAt: dashAt,
     /* lights, fans, strips, timelines */
     ledAt: ledAt, marqueeOn: marqueeOn, ringBase: ringBase, ringSlot: ringSlot, fanLook: fanLook, fanPose: fanPose,

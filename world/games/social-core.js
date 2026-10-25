@@ -21,10 +21,14 @@
    Games never award or spend anything: nothing here changes a
    child's balance or their island.
 
-     V, ON                       shape version; release switches {boards, race, classes}
+     V, ON                       shape version; release switches {boards, race, classes, duels}
      AVATARS, COLORS             the app's own lists (index.html), sent as index numbers
-     NAME_RE, EXTRA_INSIDE       1 to 12 letters; strings no real first name contains
-     rudeFrom(core)              → isRude(name), from SLWorldCore plus EXTRA_INSIDE
+     NAME_RE, NAME_SRC, NAME_MAX a first name: 1 to 12 letters (accented ones too: the island's
+                                 own letters, À to ÿ), with a - or ' between two letters
+                                 (Zoë, Élodie, Mary-Jane, D'Arcy); the rules check NAME_SRC and NAME_MAX
+     EXTRA_INSIDE                strings no real first name contains
+     rudeFrom(core)              → isRude(name), from SLWorldCore plus EXTRA_INSIDE (accents folded first)
+     firstName(text)             the first name at the start of a text, capitalised; '' if none
      displayName(username, {plain, isRude})     the Control Centre's 'Shown as' text
      cleanName(raw, fallback, isRude)           a name read from a roster or a request
      avatarIndex, avatarAt, colorIndex, colorAt, who(profile) → {ai, ci}
@@ -49,14 +53,28 @@
 
   var V = 1;
   /* release switches: each feature checks its flag first. Setting one to false and
-     redeploying switches that feature off once a device has picked up the new files. */
-  var ON = { boards: true, race: true, classes: true };
+     redeploying switches that feature off once a device has picked up the new files.
+     duels (kids update, KG8): the challenges in Debut Run, Encore Shootout and Neon Grand
+     Prix. The host offers them only while it is true (cfg.duels), and the challenge files
+     stop at ON.duels === false. A family's challenges follow its games.race ('Race
+     together and challenges' in the Control Centre) and a class's follow its races; there
+     is no games field of their own and no code rooms (KU14). */
+  var ON = { boards: true, race: true, classes: true, duels: true };
 
   /* the app's own avatar and colour lists (index.html; a test parses that file and compares) */
   var AVATARS = Object.freeze(['😀', '😎', '🦄', '🐯', '🐼', '🐵', '🦊', '🐸', '🐙', '🦖', '🦕', '🐳', '🐝', '🦉', '🐨', '🦁', '🐶', '🐱', '⭐', '🚀', '🌈', '🍭', '🍕', '🎈']);
   var COLORS = Object.freeze(['#ff5aa3', '#6c5ce7', '#2ecc71', '#f6c244', '#00b4d8', '#ff9f43', '#a55eea', '#26de81']);
 
-  var NAME_RE = /^[A-Za-z]{1,12}$/;      /* the same pattern the security rules use for a request's name */
+  /* A first name (E9): letters, accented ones too (the island's own pet-name letters, so its word
+     check reads every one of them), with a hyphen or an apostrophe only between two letters, 12
+     characters at most. NAME_SRC is the pattern the security rules use for a request's name, next
+     to n.size() <= NAME_MAX (their regular expressions have no look-ahead); NAME_RE adds the length. */
+  var LETTERS = 'A-Za-zÀ-ÖØ-öø-ÿ';      /* A-Z, a-z, À-Ö, Ø-ö, ø-ÿ (not × or ÷) */
+  var NAME_MAX = 12;
+  var NAME_SRC = '^[' + LETTERS + "]+(?:[-'][" + LETTERS + ']+)*$';
+  var NAME_RE = new RegExp('^(?=.{1,' + NAME_MAX + '}$)' + NAME_SRC.slice(1));
+  var LETTER_RE = new RegExp('^[' + LETTERS + ']$');
+  var LEAD_RE = new RegExp(NAME_SRC.slice(0, -1));                    /* the same, at the start of a longer text */
   var CLASS_RE = /^[A-Z]{10}[0-9]{4}$/;  /* and for a class id */
   /* an account id as a map key: no dot, slash or space, and never '__proto__' */
   var UID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -81,18 +99,55 @@
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
   function isUid(s) { return typeof s === 'string' && UID_RE.test(s); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); }
+  /* one letter in the other case, only when that is still one of the name letters (ß, ÿ and the
+     like have no single capital among them, so they stay as they are) */
+  function cased(ch, upper) {
+    var c = upper ? ch.toUpperCase() : ch.toLowerCase();
+    return c.length === 1 && LETTER_RE.test(c) ? c : ch;
+  }
+  /* Capital first, and after a hyphen; after an apostrophe only when one letter comes before it
+     (D'Arcy, Ma'ayan); every other letter small. */
+  function capName(s) {
+    var out = '', up = true, run = 0, i, ch;
+    for (i = 0; i < s.length; i++) {
+      ch = s.charAt(i);
+      if (ch === '-' || ch === "'") { out += ch; up = ch === '-' || run === 1; run = 0; continue; }
+      out += cased(ch, up); up = false; run++;
+    }
+    return out;
+  }
+  /* the same letters however a keyboard made them: composed (an iPad may send e + ¨ for ë), and
+     the tablet's curly apostrophe and the typographer's hyphens as plain ones */
+  function tidy(text) {
+    var s = text;
+    try { s = s.normalize('NFC'); } catch (e) {}
+    return s.replace(/[\u2018\u2019\u02BC]/g, "'").replace(/[\u2010\u2011]/g, '-');
+  }
+  /* the plain letters of a name, for the inside-a-word checks: é → e, ø → o, æ → ae, ß → ss, so
+     an accent can never hide a word the check knows */
+  var FOLD = { '\u00E6': 'ae', '\u00F8': 'o', '\u00DF': 'ss', '\u00F0': 'd', '\u00FE': 'th' };
+  function fold(name) {
+    var s = name.toLowerCase();
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+    return s.replace(/[\u00E6\u00F8\u00DF\u00F0\u00FE]/g, function (c) { return FOLD[c]; });
+  }
 
   /* ---------- names ---------- */
   /* rudeFrom(SLWorldCore) → isRude(name). True when the island's pet-name check refuses the
-     name or it contains an EXTRA_INSIDE string. With no check to call, every name is rude. */
+     name (as written, or with its accents folded away) or it contains an EXTRA_INSIDE string.
+     With no check to call, every name is rude. */
   function rudeFrom(core) {
     var ready = !!core && typeof core.validatePetName === 'function';
+    function ok(n) {
+      var res = null;
+      try { res = core.validatePetName(n); } catch (e) { return false; }
+      return !!res && res.ok === true;
+    }
     return function (name) {
       if (!ready || typeof name !== 'string') return true;
-      var res = null;
-      try { res = core.validatePetName(name); } catch (e) { return true; }
-      if (!res || res.ok !== true) return true;
-      var low = name.toLowerCase().replace(/[^a-z]/g, '');
+      var plain = fold(name);
+      if (!ok(name) || (plain !== name.toLowerCase() && !ok(plain))) return true;
+      var low = plain.replace(/[^a-z]/g, '');
       for (var i = 0; i < EXTRA_INSIDE.length; i++) if (low.indexOf(EXTRA_INSIDE[i]) >= 0) return true;
       return false;
     };
@@ -101,25 +156,40 @@
   function rude(isRude, name) {
     try { return isRude(name) !== false; } catch (e) { return true; }
   }
-  /* The 'Shown as' text for an account: the leading run of letters of the username, 12 at
-     most, capital first. 'Player' when the grown-up chose that, when no letter is left,
-     when the name is rude or when there is no checker. Control Centre only: a child's
-     device never makes a shown name. */
+  /* The first name at the start of a text: letters (accented ones too) with a hyphen or an
+     apostrophe between two of them, 12 characters at most (a cut never ends on a hyphen or an
+     apostrophe), capitalised. '' when the text does not start with a letter. 'zoë_smith' →
+     'Zoë', 'mary-jane99' → 'Mary-Jane', 'Élodie Martin' → 'Élodie'. */
+  function firstName(text) {
+    var t = typeof text === 'string' ? tidy(text) : '', m = LEAD_RE.exec(t), s, next;
+    if (!m) return '';
+    /* a letter these do not cover comes next (Dvořák, Łukasz): no name, rather than a cut one */
+    next = t.charAt(m[0].length);
+    if (next && (next.toLowerCase() !== next.toUpperCase() || /[̀-ͯ]/.test(next))) return '';
+    s = m[0].slice(0, NAME_MAX).replace(/[-']+$/, '');
+    return NAME_RE.test(s) ? capName(s) : '';
+  }
+  /* The 'Shown as' text for an account: the first name at the start of the username (see
+     firstName). 'Player' when the grown-up chose that, when no letter is left, when the name
+     is rude or when there is no checker. Control Centre only: a child's device never makes a
+     shown name, it only reads one from the roster. */
   function displayName(username, opts) {
     var o = isObj(opts) ? opts : {};
     if (o.plain || typeof o.isRude !== 'function' || typeof username !== 'string') return 'Player';
-    var m = /^[A-Za-z]+/.exec(username);
-    if (!m) return 'Player';
-    var name = cap(m[0].slice(0, 12));
+    var name = firstName(username);
+    if (!name) return 'Player';
     return rude(o.isRude, name) ? 'Player' : name;
   }
-  /* A name read from a roster or a request: kept only if it is 1 to 12 letters and not
-     rude, then re-capitalised. Anything else is the fallback ('Player' on a board,
-     'Racer 3' in a race). */
+  /* A name read from a roster or a request: kept only if it is a first name (NAME_RE, once
+     composed) and not rude, then re-capitalised. Anything else is the fallback ('Player' on a
+     board, 'Racer 3' in a race). */
   function cleanName(raw, fallback, isRude) {
-    var fb = typeof fallback === 'string' ? fallback : 'Player';
-    if (typeof raw !== 'string' || !NAME_RE.test(raw) || typeof isRude !== 'function') return fb;
-    var name = cap(raw);
+    var fb = typeof fallback === 'string' ? fallback : 'Player', s;
+    if (typeof raw !== 'string' || raw.length > 4 * NAME_MAX || typeof isRude !== 'function') return fb;
+    s = raw;
+    try { s = s.normalize('NFC'); } catch (e) {}
+    if (!NAME_RE.test(s)) return fb;
+    var name = capName(s);
     return rude(isRude, name) ? fb : name;
   }
 
@@ -382,8 +452,8 @@
   }
 
   var API = {
-    V: V, ON: ON, AVATARS: AVATARS, COLORS: COLORS, NAME_RE: NAME_RE, EXTRA_INSIDE: EXTRA_INSIDE,
-    rudeFrom: rudeFrom, displayName: displayName, cleanName: cleanName,
+    V: V, ON: ON, AVATARS: AVATARS, COLORS: COLORS, NAME_RE: NAME_RE, NAME_SRC: NAME_SRC, NAME_MAX: NAME_MAX, EXTRA_INSIDE: EXTRA_INSIDE,
+    rudeFrom: rudeFrom, firstName: firstName, displayName: displayName, cleanName: cleanName,
     avatarIndex: avatarIndex, avatarAt: avatarAt, colorIndex: colorIndex, colorAt: colorAt, who: who,
     gamesCfg: gamesCfg, memberOk: memberOk, gamesPatch: gamesPatch, rosterDoc: rosterDoc, rosterName: rosterName,
     seatTag: seatTag, tagMap: tagMap, bound: bound, cacheKey: cacheKey,

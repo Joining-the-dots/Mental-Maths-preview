@@ -1577,7 +1577,9 @@
   function pale(h) { var c = rgbOf(h); return c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11 > 214; }
 
   /* ---------------- v3 crew: the ten mascots and the land gear (D100, D107) ----------------
-     PETCOL3 is world-look's table, letter for letter (test-enforced). A mascot's 16 × 16 frame
+     PETCOL3 is world-look's table, letter for letter (test-enforced): the ten mascots, then the
+     kids update's fourteen new species (drawn as CRITTER in their own colours until their frames
+     are registered). A mascot's 16 × 16 frame
      sits at (PETX, PETY) in the 120 × 100 pet box, PETU units a pixel, feet on y 94 like the
      V4.54 pets. ANCHOR454: the V4.54 body in that grid (head centre 88, 42, radius 20) — where
      land gear sits on the four V4.54 pets, and what a V4.54 accessory is moved FROM on a mascot.
@@ -1592,7 +1594,22 @@
     pet_duckling: { body: '#FFD95A', dark: '#F2B632', light: '#FFF1B0', nose: '#FF9A3D' },
     pet_pony:     { body: '#C98B5A', dark: '#9C6238', light: '#FBE9C9', nose: '#5A3A2A' },
     pet_penguin:  { body: '#6E8FC4', dark: '#4A6AA6', light: '#F7F9FF', nose: '#FF9F1C' },
-    pet_seal:     { body: '#A9B8CC', dark: '#7E8FA8', light: '#EEF3FA', nose: '#2B2D42' }
+    pet_seal:     { body: '#A9B8CC', dark: '#7E8FA8', light: '#EEF3FA', nose: '#2B2D42' },
+    /* the kids update's fourteen (pets.json catalogue.new; world-look has the crisp retunes' reasons) */
+    pet_hamster:     { body: '#E8A866', dark: '#C47F45', light: '#FFF1DE', nose: '#F29CB0' },
+    pet_guineapig:   { body: '#F2A65A', dark: '#6B4A3A', light: '#FFF4E8', nose: '#F29CB0' },
+    pet_tortoise:    { body: '#9DAA55', dark: '#6E5236', light: '#E9C77B', nose: '#4A3A2A' },
+    pet_budgie:      { body: '#8BD62B', dark: '#2B6E3F', light: '#FFE66D', nose: '#3F7FD8' },
+    pet_otter:       { body: '#8B5E3C', dark: '#6A4428', light: '#EED9BF', nose: '#3B2A22' },
+    pet_flamingo:    { body: '#FF8FB1', dark: '#E8607F', light: '#FFD3E0', nose: '#2B2D42' },
+    pet_sloth:       { body: '#B49A7E', dark: '#7A6550', light: '#EADBC8', nose: '#4A3A2A' },
+    pet_toucan:      { body: '#3D4658', dark: '#2F3542', light: '#FFF6DC', nose: '#FF9F1C' },
+    pet_redpanda:    { body: '#D9653B', dark: '#7A3B2E', light: '#FFF1E2', nose: '#3B2A22' },
+    pet_hedgehog:    { body: '#A0694A', dark: '#6E523C', light: '#F2DFC4', nose: '#3B2A22' },
+    pet_goatkid:     { body: '#EDE6DA', dark: '#9C8B78', light: '#FFFDF8', nose: '#F2A0A8' },
+    pet_peacock:     { body: '#2F7FD8', dark: '#1F8A70', light: '#E8F6FF', nose: '#C9B27C' },
+    pet_reindeer:    { body: '#A87952', dark: '#6E4B30', light: '#F5E6D0', nose: '#3B2A22' },
+    pet_snowleopard: { body: '#E5E1D8', dark: '#6F7C89', light: '#FFFFFF', nose: '#F29CB0' }
   };
   var PETU = 5, PETX = 20, PETY = 14, PET_GRID = { size: 16, unit: PETU, x: PETX, y: PETY };
   var ANCHOR454 = { hat: [13.6, 1.6], neck: [12.4, 9.2], face: [15.2, 5], back: [6.4, 7.2] };

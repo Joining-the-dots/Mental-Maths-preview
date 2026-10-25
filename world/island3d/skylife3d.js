@@ -30,7 +30,10 @@
              16 / 32), drifting leaves (jungle), the aurora curtain (ice at night, MID / HIGH: a
              ribbon of rays hung in the sky band behind the village, above its tallest items in
              the visit view; its wave and colours drift at ≤ 0.1 Hz), the fish's splash rings and
-             the boat's wake.
+             the boat's wake, and (kids update P3.3) up to 5 memory stars over Home at night: a pet
+             that passed away under a grown-up's farewell switch, a steady 4-point star in Star Gold
+             whose glow drifts ±10 % at 0.3 Hz (MEMORY; steady on LOW and under reduced motion).
+             LOW has no sparks pool until a memory star needs one (then 1 draw call, at night only).
    WHO MOVES. Only the visited island's creatures move (they ease from / to rest over 0.6 s); the
      others hold their rest pose (perched, sitting, floating, standing by the igloo). LOW: every
      creature on an island is static, and an island's creatures hide while its centre is > 45 u
@@ -52,6 +55,11 @@
        setReduced(on), setQuality(q), info(), dispose()}
      additive: setLayout(isle, footprints [{x, y, w, h, path}]) — a penguin whose cell an object
        takes steps out (for SLSky3D.setLayout to forward); actors() / lanes() / sparks() read only.
+     kids update (P3.3): setPetStars(list) → the stars kept (list: pet ids or memory cards {id, name,
+       to, returned, key}, oldest first; a returned card is skipped, one star per (id, to), the newest
+       MEMORY.max are kept) · petStars() → [{id, name, to, key, x, y, z, r}] the stars on screen now
+       (night only; their centres and tap radius, world u). SLIsland3D reaches them through SLSky3D's
+       life getter (stage.setPetStars).
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -128,6 +136,20 @@
     'PX Skylife Hull': '#E8455E', 'PX Skylife Hull Light': '#FF5D73', 'PX Skylife Deck': '#E8B07A', 'PX Skylife Mast': '#F5E6C8', 'PX Skylife Flag': '#FF4D6D',
     'PX Skylife Fish Home': '#FF7B54', 'PX Skylife Fish Castle': '#9FB8E6', 'PX Skylife Fish Ice': '#DFE8F7', 'PX Skylife Wing Pink': '#FF6FB5',
     'PX Skylife Firefly': '#F4FF9A', 'PX Skylife Star': '#FFF6D8' };
+  /* THE KIDS UPDATE'S MEMORY STARS (P3.3; pets.json lookNotes.star, ui U11, decision P15): a pet that passed
+     away (only ever with a grown-up's farewell switch) is a steady 4-point star in Home's night sky. Each is
+     SLPxCare.starCells() (STAR here when px-care.js is not loaded) drawn as glow cubes in the sparks pool:
+     cell u a side, smaller and softer toward the tips (taper / glow by a cell's steps from the centre: full
+     Star Gold in the middle, STAR.glow at the tips), the star's plane tilted back tilt° so it faces the Home
+     view. At most max (the newest), at spots (Home-local x, y, z): a row over the sea just behind Home,
+     between the Castle, Treetop and Ice bridges and clear of SLIsles3D.cloudExclusion(), so every default
+     Home view sees them in the band above the island and its signs (a wide screen: NDC y 0.6–0.8; a phone's
+     zoomed-in Home: the top band, the first four across it); the first two either side of the Castle bridge. The brightness drifts
+     ±STAR.driftAmp at STAR.driftHz, each star its own phase (never a flash); steady under reduced motion and
+     on LOW. hitR: the tap sphere (u) the stage picks them with. */
+  var MEMORY = { max: 5, cell: 0.26, taper: [1, 0.8, 0.6], glow: [1, 0.8], tilt: 44, hitR: 0.9, phase: 1.9,
+    spots: [[-2.1, 1.1, -9], [2.1, 1.1, -9], [-4.1, 0.95, -9], [4.1, 0.95, -9], [-6.1, 1.2, -9.2]],
+    STAR: { rows: ['..x..', '..x..', 'xxxxx', '..x..', '..x..'], token: 'Star Gold', glow: 0.6, driftHz: 0.3, driftAmp: 0.1 } };
   /* a critter pivot → [axis 0 x | 1 y | 2 z, pose slot a0 | a1 | a2, sign] */
   var PIVOT = { wingL: [2, 0, 1], wingR: [2, 0, -1], armL: [2, 0, 1], armR: [2, 0, -1], legL: [0, 0, 1], legR: [0, 0, 1], tail: [0, 1, 1], head: [1, 2, 1] };
 
@@ -238,6 +260,39 @@
     return out;
   }
   function wrapX(x) { var W = CLOUD.wrap; x = (x + W) % (2 * W); if (x < 0) x += 2 * W; return x - W; }
+
+  /* ---------------- the memory stars (kids update P3.3) ---------------- */
+  /* the star's look: SLPxCare.STAR (P2.5) when px-care.js is loaded, else MEMORY.STAR */
+  function starDef() { var PC = sibling('SLPxCare', './px-care.js', true); return PC && PC.STAR && Array.isArray(PC.STAR.rows) ? PC.STAR : MEMORY.STAR; }
+  /* the star's cells [dx, dy (cells, −2..2), size (× MEMORY.cell), brightness] — a cell's steps from the
+     centre pick its taper; the tips glow at STAR.glow, the middle at full */
+  function memoryCells() {
+    var S = starDef(), PC = sibling('SLPxCare', './px-care.js', true), cells = [];
+    if (PC && typeof PC.starCells === 'function') cells = PC.starCells();
+    else S.rows.forEach(function (row, r) { for (var c = 0; c < row.length; c++) if (row.charAt(c) === 'x') cells.push([c - 2, 2 - r]); });
+    var tip = typeof S.glow === 'number' ? S.glow : MEMORY.STAR.glow;
+    return cells.map(function (q) {
+      var d = Math.min(2, Math.abs(q[0]) + Math.abs(q[1]));
+      return [q[0], q[1], MEMORY.taper[d], d < 2 ? MEMORY.glow[d] : tip];
+    });
+  }
+  /* the host's list (pet ids, or records with id and name: care3.stars) → at most MEMORY.max {id, name},
+     the newest (the last) kept, each id once */
+  function memoryStars(list) {
+    var out = [], seen = {};
+    (Array.isArray(list) ? list : []).forEach(function (s) {
+      var card = !!s && typeof s === 'object', id = typeof s === 'string' ? s : card && typeof s.id === 'string' ? s.id : '';
+      if (!id || (card && s.returned)) return;              /* a pet a grown-up brought back is no star */
+      var to = card && typeof s.to === 'string' ? s.to : '', key = card && typeof s.key === 'string' && s.key ? s.key : id + (to ? '~' + to : '');
+      if (seen[id + '|' + to]) return;
+      seen[id + '|' + to] = 1;
+      out.push({ id: id, name: card && typeof s.name === 'string' ? s.name : '', to: to, key: key });
+    });
+    return out.slice(Math.max(0, out.length - MEMORY.max));
+  }
+  /* star i's centre (world) and its cells' world offsets: x along the island, y up the tilted plane */
+  function memorySpot(i) { var F = grid().V3.frame('home'), s = MEMORY.spots[i % MEMORY.spots.length]; return [F.cx + s[0], F.cy + s[1], F.cz + s[2]]; }
+  function memoryUp() { var a = MEMORY.tilt * Math.PI / 180; return [0, Math.cos(a), -Math.sin(a)]; }
   /* a cloud's centre at time t → out {x, y, z, e (its scale: 0 at the wrap)} */
   function cloudAt(l, t, out) {
     out.x = wrapX(l.x0 + l.v * t); out.y = l.y + CLOUD.bob * Math.sin(TAU * RATES.cloudBob * t + l.ph); out.z = l.z;
@@ -838,11 +893,16 @@
       sparkCap = C0.stars + Math.max(I.ice.snow + aur + 12, I.jungle.fireflies + I.jungle.leaves + 12, 20);
       if (!C0.stars && !I.ice.snow && !I.jungle.fireflies && !I.jungle.leaves && !I.home.fish) sparkCap = 0;
     }());
+    var MEM_CELLS = memoryCells(), MEM_CUBES = MEMORY.max * MEM_CELLS.length, mem = [], memSig = '', SD = starDef();
+    /* the glow's drift (held to the design's slow breath whatever the table says: ≤ 0.5 Hz, ≤ ±20 %) */
+    var MEM_DRIFT = { driftHz: Math.min(0.5, SD.driftHz > 0 ? SD.driftHz : MEMORY.STAR.driftHz), driftAmp: Math.min(0.2, SD.driftAmp >= 0 ? SD.driftAmp : MEMORY.STAR.driftAmp) };
+    if (sparkCap > 0) sparkCap += MEM_CUBES;                     /* room for the memory stars (LOW makes its pool for them alone) */
     var sparks = null, sp = [], spN = 0, spStep = -1, _s3 = [0, 0, 0], _rgb = [0, 0, 0], AUR = ['PX Aurora Mint', 'PX Aurora Sky', 'PX Aurora Violet'].map(rgb);
-    if (sparkCap > 0) {
-      sparks = V.instancedCubes(sparkCap, { mode: 'glow', size: 1, name: 'skylife:sparks' });
+    function makeSparks(cap) {
+      sparks = V.instancedCubes(cap, { mode: 'glow', size: 1, name: 'skylife:sparks' });
       sparks.mesh.userData.kind = 'sparks'; sparks.mesh.raycast = noPick; group.add(sparks.mesh);
     }
+    if (sparkCap > 0) makeSparks(sparkCap);
     function spark(kind, extra) { var r = { kind: kind, k: sparks.alloc(), i: sp.length }; for (var key in extra) r[key] = extra[key]; sp.push(r); return r; }
     function assignSparks() {
       if (!sparks) return;
@@ -852,6 +912,17 @@
         var az = TAU * hash(i, 1, 11), el = (-62 + 66 * hash(i, 2, 11)) * Math.PI / 180, r = 95 + 25 * hash(i, 3, 11);
         spark('star', { x: 3 + r * Math.cos(el) * Math.cos(az), y: -12 + r * Math.sin(el), z: -10 + r * Math.cos(el) * Math.sin(az), s: 0.16 + 0.16 * hash(i, 4, 11),
           col: rgb(['PX Skylife Star', 'PX Glint', 'PX Aurora Sky', 'PX Bulb Warm'][i % 4]) });
+      }
+      /* the memory stars: in Home's sky whichever island is visited, night only */
+      if (night && mem.length) {
+        var up = memoryUp(), gold = rgb(starDef().token || MEMORY.STAR.token);
+        mem.forEach(function (m, si) {
+          var p = memorySpot(si);
+          MEM_CELLS.forEach(function (q, ci) {
+            spark('mem', { id: m.id, name: m.name, to: m.to, key: m.key, c: ci, cx: p[0], cy: p[1], cz: p[2], x: p[0] + q[0] * MEMORY.cell, y: p[1] + q[1] * MEMORY.cell * up[1],
+              z: p[2] + q[1] * MEMORY.cell * up[2], s: MEMORY.cell * q[2], b: q[3], ph: si * MEMORY.phase, col: gold });
+          });
+        });
       }
       if (!st.open[isle]) { spN = sp.length; return; }
       if (isle === 'ice' && !calm) for (i = 0; i < c.snow; i++) spark('snow', { x: F.bounds.x0 - 0.5 + (F.bounds.x1 - F.bounds.x0 + 1) * hash(i, 5, 11), z: F.bounds.z0 - 0.5 + (F.bounds.z1 - F.bounds.z0 + 1) * hash(i, 6, 11),
@@ -888,6 +959,13 @@
           case 'star':
             if (force || step !== spStep) { tint(r, 0.7 + 0.3 * hash(r.i, Math.floor((calm ? 0 : step + (r.i & 7)) / 8), 12)); sparks.set(r.k, r.x, r.y, r.z, r.s * nf); }
             break;
+          case 'mem': {
+            /* a memory star: placed when the night comes (it grows in with the dusk), its glow drifting slowly */
+            var S = MEM_DRIFT, still = calm || low;
+            if (force || !still) tint(r, r.b * (still ? 1 : 1 + S.driftAmp * Math.sin(TAU * S.driftHz * t + r.ph)));
+            if (force) sparks.set(r.k, r.x, r.y, r.z, r.s * nf);
+            break;
+          }
           case 'snow': {
             var fall = ((0.3 * t + r.ph * r.H) % r.H + r.H) % r.H;
             if (force) tint(r, lit);
@@ -983,7 +1061,7 @@
         if (mv) busy = true;
       }
       if (writeSparks(t0, st.dirty)) busy = true;
-      if (sparks && spN && st.k > 0.5) busy = true;          /* the night's twinkle and breathing */
+      if (sparks && spN && st.k > 0.5 && !low) busy = true;  /* the night's twinkle and breathing (LOW: the memory stars hold still) */
       st.dirty = false; st.busy = busy;
       return busy;
     }
@@ -1031,6 +1109,22 @@
       st.occ[isle] = occ; st.dirty = true;
       if (st.reduced) writeAll(st.clock, true);
     }
+    /* the memory stars (kids update P3.3): the host's star pets → at most MEMORY.max stars (→ how many) */
+    function setPetStars(list) {
+      if (st.disposed) return 0;
+      var next = memoryStars(list), sig = next.map(function (m) { return m.key + '\u0001' + m.name; }).join('\u0002');
+      if (sig === memSig) return mem.length;
+      memSig = sig; mem = next;
+      if (mem.length && !sparks) makeSparks(MEM_CUBES);          /* LOW: a pool for the stars alone (1 draw call, at night) */
+      assignSparks(); st.dirty = true;
+      return mem.length;
+    }
+    /* the stars drawn now (night only): [{id, name, x, y, z, r}] at their centres, for the stage's taps */
+    function petStars() {
+      var out = [];
+      for (var i = 0; i < spN; i++) { var r = sp[i]; if (r.kind === 'mem' && r.c === 0) out.push({ id: r.id, name: r.name, to: r.to, key: r.key, x: r.cx, y: r.cy, z: r.cz, r: MEMORY.hitR }); }
+      return out;
+    }
     function setQuality(q) {
       if (!q) return;
       var ls = q.lifeScale > 0 ? q.lifeScale : quality.lifeScale, ps = q.particleScale > 0 ? q.particleScale : quality.particleScale;
@@ -1055,7 +1149,8 @@
       return { VERSION: VERSION, tier: tier, calls: calls, tris: Math.round(tris), k: st.k, visit: st.visit, edit: st.edit, reduced: st.reduced, busy: st.busy,
         clouds: { n: lanes.length, cubes: lanes.reduce(function (n, l) { return n + l.cubes.length; }, 0), moving: !low && !st.reduced },
         balloons: actors.filter(function (a) { return a.kind === 'balloon'; }).length, birds: actors.filter(function (a) { return a.kind === 'bird'; }).length,
-        critters: per, sparks: kinds, bones: skel ? skel.bones.length : 0, lifeScale: quality.lifeScale, particleScale: quality.particleScale, far: Object.keys(st.far).filter(function (i) { return st.far[i]; }) };
+        critters: per, sparks: kinds, bones: skel ? skel.bones.length : 0, lifeScale: quality.lifeScale, particleScale: quality.particleScale, far: Object.keys(st.far).filter(function (i) { return st.far[i]; }),
+        memory: mem.length };
     }
     function dispose() {
       if (st.disposed) return;
@@ -1079,6 +1174,7 @@
     var api = {
       VERSION: VERSION, group: group, tier: tier,
       update: update, setIsles: setIsles, setVisit: setVisit, setEdit: setEdit, setShow: setShow, setReduced: setReduced, setQuality: setQuality, setLayout: setLayout,
+      setPetStars: setPetStars, petStars: petStars,
       info: info, dispose: dispose,
       /* for the tests and the lab: the actors' live poses and the lanes (read only) */
       actors: function () { return actors; }, lanes: function () { return lanes; }, sparks: function () { return sp.slice(0, spN); }
@@ -1090,8 +1186,10 @@
 
   return {
     VERSION: VERSION, ISLES: ISLES, BUDGET: BUDGET, AMBIENT: AMBIENT, CRITTERS: CRITTERS, RATES: RATES, CAPS: CAPS, CLOUD: CLOUD, CIRCUIT: CIRCUIT, YARD: YARD,
-    BIRD: BIRD, BALLOON: BALLOON, LAND: LAND, TOKENS: TOKENS, FAR: FAR, NEAR: NEAR, EDIT_KEEP: EDIT_KEEP,
+    BIRD: BIRD, BALLOON: BALLOON, LAND: LAND, TOKENS: TOKENS, FAR: FAR, NEAR: NEAR, EDIT_KEEP: EDIT_KEEP, MEMORY: MEMORY,
     create: create,
+    /* the memory stars (P3.3) */
+    memoryCells: memoryCells, memoryStars: memoryStars, memorySpot: memorySpot, memoryUp: memoryUp,
     /* pure helpers (Node-testable) */
     counts: counts, flockSizes: flockSizes, cloudCubes: cloudCubes, cloudLanes: cloudLanes, cloudAt: cloudAt, clearBox: clearBox, loopPath: loopPath, pathAt: pathAt,
     circuit: circuit, circuitClear: circuitClear, yardAt: yardAt, yardClear: yardClear, waterSpot: waterSpot, flapAt: flapAt, livePose: livePose, restPose: restPose,

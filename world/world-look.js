@@ -20,8 +20,9 @@
                                   verbatim copies of the 2D/game colours (test-enforced)
      ART2D    {name: hex}         per-item colours the bible takes from world-art.js
      EXTRA    {name: hex}         the few v1 3D-only colours (lights, matcaps, Showtime sea)
-     LOOK     {id: entry}         all 240 CATALOG ids: the 104 V4.54 ids, then the 136 v3 ids
-                                  (V3_IDS) in CATALOG order (schema below); every table is deep-frozen
+     LOOK     {id: entry}         all 260 CATALOG ids: the 104 V4.54 ids, then the 136 v3 ids
+                                  (V3_IDS), then the kids update's 20 (KU_IDS), in CATALOG order
+                                  (schema below); every table is deep-frozen
      CHARACTERS {avatar, wand, fanBlob}   non-catalogue models (may use '@member' = u.color;
                                   MEMBER_FALLBACK when the member colour is missing)
      DUSK, SHOW                   golden hour (the default, k = 0) and Showtime (k = 1) presets;
@@ -88,11 +89,20 @@
                                   (TRIS_CAPS.petRig3 {bare, dressed}: the v3 rigs, D108)
      TRIS_CAPS_LOD1(id), TRIS_LOD1   the cap of a v3 placeable's 'vox-lod1' template, or null (D106)
      SLOT_CAPS {hat, neck, face, back}   the per-slot accessory caps on every species (D108)
-     PETCOL3  {mascot: {body, dark, light, nose}}   the ten mascots' colours ('PETCOL3.<id>.<part>'
+     PETCOL3  {pet: {body, dark, light, nose}}   the colours of every pet but the four V4.54 ones:
+                                  the ten mascots, then the kids update's fourteen ('PETCOL3.<id>.<part>'
                                   tokens; LOCKED.PETCOL stays the four V4.54 pets, D107)
-     SPECIES3 {mascot: {standIn, gait, play, voice, biped, topY, hudEmoji, tailHz, happyHz, tailAmp,
-                                  hover, sig, weights, tap}}   the mascots' behaviour rows (D111)
+     SPECIES3 {pet: {standIn, gait, play, voice, biped, topY, hudEmoji, tailHz, happyHz, tailAmp,
+                                  hover, sig, weights, tap}}   the behaviour rows of the same 24 (D111);
+                                  the kids update's fourteen add pace (and geom for the flamingo and
+                                  the peacock), and play their interim moves until P2.5
      ITEM_MAX_H 2.9, ISLAND_ITEM_MAX_H 5.5 (LOOK kind 'isleLandmark' only), itemMaxH(id)
+
+   KIDS UPDATE ADDITIONS (docs/island3d/v3/kids-update/plan-ku.json, pets.json; every v3 table and
+   function above keeps its results for the 240 ids):
+     KU_IDS                       the 20 kids-update ids in CATALOG order: the 14 new species
+                                  (LOOK kind 'pet', PETCOL3 / SPECIES3 rows like the mascots'), then
+                                  the 6 foods (LOOK kind 'food': a display model, TRIS_CAPS.food)
      jitterVox(uid, id, sameIdNeighbours, out?)   {yaw, sx, sy, sz, tl, th} for voxel templates
                                   (organic kinds only; identity for everything else)
 
@@ -101,6 +111,7 @@
                 decor landmark path fun house style pet acc land attraction
                 variant cosmetic building (the city buildings: CATALOG kind 'fun', cat 'city')
                 isleLandmark (the five v3 lm_* sky landmarks, up to ISLAND_ITEM_MAX_H; D73)
+                food (the kids update's six pet foods: never placed, never worn)
      h          height (u) of the top above the item's base
      colors     {part: token}; tokens come ONLY from PALETTE, PALETTE_V2, PALETTE_V3, LOCKED (dotted
                 path, e.g. 'PETCOL.pet_puppy.body', '$slot' = the selected style, e.g.
@@ -239,7 +250,8 @@
     TRACKS: { track_loop: { grass: '#7ad06a' }, track_volcano: { grass: '#9cc46a' }, track_beach: { grass: '#f3dc9a' } }
   };
 
-  /* ---------------- the ten land mascots (catalogAdditions.species; D92, D95, D107, D111) ----------------
+  /* ---------------- the ten land mascots (catalogAdditions.species; D92, D95, D107, D111) and the
+     kids update's fourteen new species (kids-update pets.json catalogue.new) ----------------
      PETCOL3: their colours, as tokens 'PETCOL3.<id>.<part>'. A table of its own, because
      LOCKED.PETCOL stays the four V4.54 pets byte for byte (the 2D art, the kit fallback and the
      kart all guard it); SLWorldArt.PETCOL3 carries the same data for the 2D views. */
@@ -253,9 +265,31 @@
     pet_duckling: { body: '#FFD95A', dark: '#F2B632', light: '#FFF1B0', nose: '#FF9A3D' },
     pet_pony:     { body: '#C98B5A', dark: '#9C6238', light: '#FBE9C9', nose: '#5A3A2A' },
     pet_penguin:  { body: '#6E8FC4', dark: '#4A6AA6', light: '#F7F9FF', nose: '#FF9F1C' },
-    pet_seal:     { body: '#A9B8CC', dark: '#7E8FA8', light: '#EEF3FA', nose: '#2B2D42' }
+    pet_seal:     { body: '#A9B8CC', dark: '#7E8FA8', light: '#EEF3FA', nose: '#2B2D42' },
+    /* the kids update's fourteen (kids-update pets.json catalogue.new: four Home pets, then two per land).
+       Each keeps a light face part beside its body so the eyes read at island scale, and every pet's
+       body is ΔE76 ≥ 20 from its own ground at the Daytime gain (crisp-palette (b) asks 15). Four
+       bodies are retuned from the design for that: the hedgehog's spines a warmer chestnut for
+       #9C7A5B (13.5 from the treetop trail), the snow leopard cub a warm smoky grey for #DDE4EA (12.4
+       from the shady snow), and on the Home grass the budgie a true yellow-green for #7ED957 (18.9)
+       and the tortoise's skin a yellower olive for #8FBF5A (17.3), both lost in the grass at island
+       scale in the render check */
+    pet_hamster:     { body: '#E8A866', dark: '#C47F45', light: '#FFF1DE', nose: '#F29CB0' },
+    pet_guineapig:   { body: '#F2A65A', dark: '#6B4A3A', light: '#FFF4E8', nose: '#F29CB0' },
+    pet_tortoise:    { body: '#9DAA55', dark: '#6E5236', light: '#E9C77B', nose: '#4A3A2A' },
+    pet_budgie:      { body: '#8BD62B', dark: '#2B6E3F', light: '#FFE66D', nose: '#3F7FD8' },
+    pet_otter:       { body: '#8B5E3C', dark: '#6A4428', light: '#EED9BF', nose: '#3B2A22' },
+    pet_flamingo:    { body: '#FF8FB1', dark: '#E8607F', light: '#FFD3E0', nose: '#2B2D42' },
+    pet_sloth:       { body: '#B49A7E', dark: '#7A6550', light: '#EADBC8', nose: '#4A3A2A' },
+    pet_toucan:      { body: '#3D4658', dark: '#2F3542', light: '#FFF6DC', nose: '#FF9F1C' },
+    pet_redpanda:    { body: '#D9653B', dark: '#7A3B2E', light: '#FFF1E2', nose: '#3B2A22' },
+    pet_hedgehog:    { body: '#A0694A', dark: '#6E523C', light: '#F2DFC4', nose: '#3B2A22' },
+    pet_goatkid:     { body: '#EDE6DA', dark: '#9C8B78', light: '#FFFDF8', nose: '#F2A0A8' },
+    pet_peacock:     { body: '#2F7FD8', dark: '#1F8A70', light: '#E8F6FF', nose: '#C9B27C' },
+    pet_reindeer:    { body: '#A87952', dark: '#6E4B30', light: '#F5E6D0', nose: '#3B2A22' },
+    pet_snowleopard: { body: '#E5E1D8', dark: '#6F7C89', light: '#FFFFFF', nose: '#F29CB0' }
   };
-  /* SPECIES3: one behaviour row per mascot. standIn = the V4.54 species a game shows when no voxel
+  /* SPECIES3: one behaviour row per mascot (and new pet). standIn = the V4.54 species a game shows when no voxel
      rig is available (D98); gait, tailHz / happyHz (Hz, ≤ MAX_FLASH_HZ), tailAmp (deg), hover and
      sig (a DANCE_MOVES move) are the clip layer's row; play and tap name the crew moves
      (catalogAdditions.crewMoves) and weights are factors on pets-brain WEIGHTS (a key not listed
@@ -280,7 +314,40 @@
     pet_penguin:  { standIn: 'pet_bunny', gait: 'waddle', play: 'bellyflop', voice: 'peep', biped: true, topY: 0.72, hudEmoji: '🐧',
                     tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'spin', weights: { play: 1.3, look: 1.2, beatNod: 1.2 }, tap: 'hop' },
     pet_seal:     { standIn: 'pet_puppy', gait: 'galumph', play: 'clap', voice: 'arf', biped: false, topY: 0.58, hudEmoji: '🐾',
-                    tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'point', weights: { nap: 1.5, lookAvatar: 1.3, play: 1.1 }, tap: 'clap' }
+                    tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'point', weights: { nap: 1.5, lookAvatar: 1.3, play: 1.1 }, tap: 'clap' },
+    /* the kids update's fourteen (pets.json catalogue.new), the same fields + pace (0.4–1.2: the walk
+       speed and cadence factor, clamped to the gait's floor by the clip layer) and, for the two long-
+       legged birds, geom (their GAIT_GEOM_SPECIES row). play is the oracle's move (rigs.newPlayMoves):
+       P2.5 gave pets-brain curl (tortoise, hedgehog), balance (flamingo), fan (peacock) and stand (red
+       panda), and lets a v3 row play the V4.54 binky (guinea pig) and pounce (snow leopard) */
+    pet_hamster:     { standIn: 'pet_bunny', gait: 'trot', play: 'stash', voice: 'squeak', biped: false, topY: 0.45, hudEmoji: '🐹',
+                       tailHz: 0, happyHz: 1.6, tailAmp: 6, hover: 0, sig: 'spin', weights: { play: 1.5, sniff: 1.4, nap: 1.2 }, tap: 'hop', pace: 1 },
+    pet_guineapig:   { standIn: 'pet_bunny', gait: 'trot', play: 'binky', voice: 'wheek', biped: false, topY: 0.45, hudEmoji: '🐾',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'hopTurn', weights: { sniff: 1.5, lookAvatar: 1.3, play: 1.2 }, tap: 'hop', pace: 0.9 },
+    pet_tortoise:    { standIn: 'pet_puppy', gait: 'trot', play: 'curl', voice: 'hum', biped: false, topY: 0.46, hudEmoji: '🐢',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'step', weights: { nap: 1.5, wander: 0.6, sniff: 1.4 }, tap: 'hop', pace: 0.5 },
+    pet_budgie:      { standIn: 'pet_dragon', gait: 'waddle', play: 'flutter', voice: 'tweet', biped: true, topY: 0.56, hudEmoji: '🦜',
+                       tailHz: 0.5, happyHz: 1.6, tailAmp: 8, hover: 0, sig: 'point', weights: { look: 1.3, play: 1.3, beatNod: 1.3 }, tap: 'hop', pace: 1 },
+    pet_otter:       { standIn: 'pet_puppy', gait: 'galumph', play: 'clap', voice: 'chirp', biped: false, topY: 0.58, hudEmoji: '🦦',
+                       tailHz: 0.4, happyHz: 1.2, tailAmp: 10, hover: 0, sig: 'spin', weights: { play: 1.4, lookAvatar: 1.3, nap: 1.2 }, tap: 'clap', pace: 1 },
+    pet_flamingo:    { standIn: 'pet_dragon', gait: 'waddle', play: 'balance', voice: 'honk', biped: true, topY: 0.92, hudEmoji: '🦩',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'freeze', weights: { sit: 0.4, look: 1.4, lookBack: 1.3 }, tap: 'hop', pace: 0.9, geom: 'flamingo' },
+    pet_sloth:       { standIn: 'pet_kitten', gait: 'trot', play: 'loaf', voice: 'eee', biped: false, topY: 0.62, hudEmoji: '🦥',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'freeze', weights: { nap: 2, sit: 1.5, wander: 0.4, play: 0.6 }, tap: 'hop', pace: 0.4 },
+    pet_toucan:      { standIn: 'pet_dragon', gait: 'waddle', play: 'flutter', voice: 'croak', biped: true, topY: 0.72, hudEmoji: '🐦',
+                       tailHz: 0.4, happyHz: 1.4, tailAmp: 8, hover: 0, sig: 'point', weights: { look: 1.3, visit: 1.4 }, tap: 'hop', pace: 1 },
+    pet_redpanda:    { standIn: 'pet_kitten', gait: 'trot', play: 'stand', voice: 'huff', biped: false, topY: 0.68, hudEmoji: '🐾',
+                       tailHz: 0.5, happyHz: 1.5, tailAmp: 14, hover: 0, sig: 'hopTurn', weights: { play: 1.3, lookBack: 1.3, nap: 1.2 }, tap: 'rear', pace: 1 },
+    pet_hedgehog:    { standIn: 'pet_bunny', gait: 'trot', play: 'curl', voice: 'snuffle', biped: false, topY: 0.46, hudEmoji: '🦔',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'step', weights: { sniff: 1.6, nap: 1.3, wander: 0.8 }, tap: 'hop', pace: 0.8 },
+    pet_goatkid:     { standIn: 'pet_puppy', gait: 'canter', play: 'prance', voice: 'bleat', biped: false, topY: 0.8, hudEmoji: '🐐',
+                       tailHz: 1, happyHz: 2, tailAmp: 14, hover: 0, sig: 'hopTurn', weights: { play: 1.5, wander: 1.3, visit: 1.2 }, tap: 'rear', pace: 1 },
+    pet_peacock:     { standIn: 'pet_dragon', gait: 'waddle', play: 'fan', voice: 'coo', biped: true, topY: 0.85, hudEmoji: '🦚',
+                       tailHz: 0, happyHz: 0, tailAmp: 0, hover: 0, sig: 'spin', weights: { look: 1.3, lookAvatar: 1.3, play: 1.2 }, tap: 'hop', pace: 0.9, geom: 'peacock' },
+    pet_reindeer:    { standIn: 'pet_puppy', gait: 'canter', play: 'prance', voice: 'snort', biped: false, topY: 0.86, hudEmoji: '🦌',
+                       tailHz: 0.8, happyHz: 1.8, tailAmp: 10, hover: 0, sig: 'step', weights: { wander: 1.2, sniff: 1.3, play: 1.2 }, tap: 'hop', pace: 1 },
+    pet_snowleopard: { standIn: 'pet_kitten', gait: 'trot', play: 'pounce', voice: 'chuff', biped: false, topY: 0.68, hudEmoji: '🐆',
+                       tailHz: 0.4, happyHz: 1.2, tailAmp: 18, hover: 0, sig: 'point', weights: { play: 1.4, lookBack: 1.3, nap: 1.2 }, tap: 'hop', pace: 1 }
   };
 
   /* ---------------- per-item colours the bible takes from the 2D art ---------------- */
@@ -595,9 +662,10 @@
                         ball: 'ball_classic', stadium: 'stadium_day', kart: 'kart_red', track: 'track_loop' };
 
   /* 'isleLandmark' (v3, D73) is the five lm_* sky landmarks only: up to ISLAND_ITEM_MAX_H 5.5 and
-     TRIS_CAPS.isleLandmark; 'landmark' stays the windmill / lighthouse kind (2.9 u, 900 tris) */
+     TRIS_CAPS.isleLandmark; 'landmark' stays the windmill / lighthouse kind (2.9 u, 900 tris).
+     'food' (the kids update) is the six pet foods: a display model only, never placed or worn */
   var KINDS = ['tree', 'flower', 'bush', 'rock', 'mushroom', 'light', 'flag', 'decor', 'landmark', 'path', 'fun',
-               'house', 'style', 'pet', 'acc', 'land', 'attraction', 'variant', 'cosmetic', 'building', 'isleLandmark'];
+               'house', 'style', 'pet', 'acc', 'land', 'attraction', 'variant', 'cosmetic', 'building', 'isleLandmark', 'food'];
   var ORGANIC_KINDS = { tree: 1, flower: 1, bush: 1, rock: 1, mushroom: 1 };
   /* v2: only characters keep an ink hull; architecture gets the edit selection hull only */
   var OUTLINE_KINDS = { pet: 1, acc: 1, avatar: 1 };
@@ -1165,11 +1233,19 @@
   function accents(c) { ACCENTS.forEach(function (t, i) { c['a' + (i + 1)] = t; }); return c; }
   function lit(on) { return { state: 'lit', on: on }; }
   function glowTo(on) { return { off: 'PX Lamp Off', on: on }; }
-  function mascot(id, h) {
+  /* a pet's LOOK row: PETCOL3 colours + the shared eye ink and glint, the V4.54 sockets and bones,
+     driven by the actors; the dressed cap, the bare one beside it (D108). The mascots and the kids
+     update's fourteen (KU_IDS) share it. */
+  function petColors(id) {
     var p = 'PETCOL3.' + id + '.';
-    def3(id, 'pet', h, { main: p + 'body', body: p + 'body', dark: p + 'dark', light: p + 'light', nose: p + 'nose', eye: 'PX Ink Eye', glint: 'PX Glint' },
-      { pivots: PET_SOCKETS, bones: PET_BONES, idle: { type: 'actor' }, hit: [0.8, 0.8, 0.8], tris: PET_RIG3.dressed, trisBare: PET_RIG3.bare });
+    return { main: p + 'body', body: p + 'body', dark: p + 'dark', light: p + 'light', nose: p + 'nose', eye: 'PX Ink Eye', glint: 'PX Glint' };
   }
+  function petRig(o) {
+    o = o || {};
+    o.pivots = PET_SOCKETS; o.bones = PET_BONES; o.idle = { type: 'actor' }; o.hit = [0.8, 0.8, 0.8]; o.tris = PET_RIG3.dressed; o.trisBare = PET_RIG3.bare;
+    return o;
+  }
+  function mascot(id, h) { def3(id, 'pet', h, petColors(id), petRig()); }
   function gear(id, socket, h, tris, colors) { def3(id, 'acc', h, colors, { socket: socket, tris: tris }); }
 
   /* -- Theme Park Pier: 9 more rides, 3 snack carts, 3 seaside pieces, the crab and the seagull -- */
@@ -1421,6 +1497,46 @@
   gear('acc_ice_goggles', 'face', 0.1, 140, { main: 'PX Ice Snow', lensA: 'PX Penguin Orange', lensB: 'PX Coral', lensC: 'PX Candy Pink', strap: 'PX Penguin Back' });
   gear('acc_ice_pack', 'back', 0.25, 170, { main: 'PX Penguin Back', tummy: 'PX Penguin Front', beak: 'PX Penguin Orange', strap: 'PX Mint' });
 
+  /* ---------------- the kids update: 14 more pets and 6 pet foods (kids-update pets.json) ----------------
+     KU_IDS are CATALOG ids 241–260 in CATALOG order: the fourteen new species (catalogue.new: the
+     four Home pets, then two per land), then the six foods (food.items). They are not v3 ids
+     (V3_IDS stays plan-v3's 136, KU_SET apart): a pet takes the mascots' row (kind 'pet', PETCOL3,
+     the V4.54 sockets and bones, h at the crown); a food is kind 'food': its display model
+     (px-care.js) is a paper bag (biscuits, the sack), a crate (veg, fruit), a tin (fish) or a jar
+     (treats) with the food on top — the bowl's pile colours (biscuits tan squares, veg orange and
+     green, fish silver-blue, fruit red, yellow and purple, a treat a pink and mint cookie). A food is
+     never placed, never worn and never a vox photocard: the shop and the pantry draw its 2D icon
+     (KU37). Its tris is TRIS_CAPS.food on every tier. */
+  var KU_IDS = [], KU_SET = {}, FOOD_TRIS = 300;
+  function defKU(id, kind, h, colors, o) {
+    KU_IDS.push(id);
+    KU_SET[id] = 1;
+    o.act = null; o.perform = null;
+    def(id, kind, h, colors, o);
+  }
+  function kuPet(id, h) { defKU(id, 'pet', h, petColors(id), petRig()); }
+  function food(id, h, colors) { defKU(id, 'food', h, colors, { tris: FOOD_TRIS }); }
+  kuPet('pet_hamster', 0.35);
+  kuPet('pet_guineapig', 0.35);
+  kuPet('pet_tortoise', 0.35);
+  kuPet('pet_budgie', 0.45);
+  kuPet('pet_otter', 0.45);
+  kuPet('pet_flamingo', 0.8);
+  kuPet('pet_sloth', 0.5);
+  kuPet('pet_toucan', 0.6);
+  kuPet('pet_redpanda', 0.55);
+  kuPet('pet_hedgehog', 0.35);
+  kuPet('pet_goatkid', 0.65);
+  kuPet('pet_peacock', 0.7);
+  kuPet('pet_reindeer', 0.7);
+  kuPet('pet_snowleopard', 0.55);
+  food('food_biscuits', 0.45, { main: 'PX Khaki', trim: 'PX Khaki Shade', label: 'PX Candy Pink', food: 'PX Waffle' });
+  food('food_sack', 0.6, { main: 'PX Khaki', trim: 'PX Jungle Rope', label: 'PX Sky Blue', food: 'PX Waffle' });
+  food('food_veg', 0.4, { main: 'PX Tree Plank', trim: 'PX Jungle Bark Light', food: 'PX Jungle Flower Orange', food2: 'PX Leaf', food3: 'PX Tree Oak Light' });
+  food('food_fish', 0.35, { main: 'PX Pier Stripe Blue', trim: 'PX Ice Snow Shade', label: 'PX Sunny', food: 'PX Ice Pebble 2', food2: 'PX Lens Pale' });
+  food('food_fruit', 0.4, { main: 'PX Tree Plank', trim: 'PX Jungle Bark Light', food: 'PX Jungle Parrot Red', food2: 'PX Banana', food3: 'PX Lilac' });
+  food('food_treats', 0.4, { main: 'PX Lens Pale', trim: 'PX Candy Pink', food: 'PX Candy Pink', food2: 'PX Mint' });
+
   /* ---------------- characters that are not catalogue items ---------------- */
   /* v2: the idol-style chibi in a hoodie (the face stays the child's emoji), the 4-point ✦
      Spark Stick (never 5-pointed) and a silhouette crowd lit by its own Spark Sticks */
@@ -1513,11 +1629,13 @@
   var TRIS_CAPS = {
     house: 1800, building: 2000, bld_stage: 2600, attraction: 2600, tree: 600, smallDecor: 350, flower: 220,
     propLandmark: 900, fun: 900, pathPiece: 100, joinsPiece: 320, petRig: 900, avatar: 1100, fan: 160, critter: 140,
-    isleLandmark: 4000, diorama: 10000, petRig3: PET_RIG3
+    isleLandmark: 4000, diorama: 10000, petRig3: PET_RIG3, food: FOOD_TRIS
   };
   /* + one cap per v3 id: its lookEntries tris (land ids draw dioramas: class 'diorama'). A mascot's
      is the dressed cap; a piece of gear's is its own cap inside its slot's SLOT_CAPS */
   V3_IDS.forEach(function (id) { if (LOOK[id].kind !== 'land') TRIS_CAPS[id] = LOOK[id].tris; });
+  /* + the kids update's ids: a new pet's dressed cap (as a mascot's), a food's display cap */
+  KU_IDS.forEach(function (id) { TRIS_CAPS[id] = LOOK[id].tris; });
   /* tier LOW: the organic kinds (D71) + every v3 id with a lookEntries trisLow: the themed one-offs
      above 1,000 tris and the four at 1,200 (D89), and every repeatable decor id (D106) */
   var TRIS_CAPS_LOW = { tree: 300, treetop_platform: 350, flower: 120, bush: 200, rock: 200, mushroom: 200 };
@@ -1530,7 +1648,7 @@
     tree: 'tree', flower: 'flower', bush: 'smallDecor', rock: 'smallDecor', mushroom: 'smallDecor', light: 'smallDecor',
     flag: 'smallDecor', decor: 'smallDecor', landmark: 'propLandmark', isleLandmark: 'isleLandmark', path: 'pathPiece',
     fun: 'fun', house: 'house', style: 'house', building: 'building', attraction: 'attraction', variant: 'attraction',
-    cosmetic: 'attraction', pet: 'petRig', acc: 'petRig', land: 'diorama'
+    cosmetic: 'attraction', pet: 'petRig', acc: 'petRig', land: 'diorama', food: 'food'
   };
   /* photocards (voxel-engine 4_photocards): the mockup's daytime hemi + sun as a studio, no rim
      (the vox program ignores setRim), the v2 framing (FOV 30, 28° elevation, 25° yaw, 80% fill)
@@ -2263,7 +2381,7 @@
    /* v3 (the addTokens registry stays open: ADDED, ADDED_BY) */
    PALETTE_V3, ART3, VOX_FOG, VOX_EXPOSURE, PREVIEW, GRAIN, TRIS_CAPS, TRIS_CAPS_LOW, TRIS_DETAIL, TRIS_CLASS, PIXEL_STUDIO, ISLE_THEME,
    PX_DAY, PX_SUNSET, PX_NIGHT, PX_RES, PX_SUN_POS, PX_RAINBOW, SHOW_BLEND, LUMA_RULE, FRAME_MIX, V3_IDS, V3_VARIANT_IDS,
-   V3_VARIANT, V3_SET, PETCOL3, SPECIES3, SLOT_CAPS, TRIS_LOD1, GROUND_TOKENS, PX_TWICE].forEach(deepFreeze);
+   V3_VARIANT, V3_SET, PETCOL3, SPECIES3, SLOT_CAPS, TRIS_LOD1, GROUND_TOKENS, PX_TWICE, KU_IDS, KU_SET].forEach(deepFreeze);
 
   return {
     LOOK_VERSION: LOOK_VERSION, MAX_FLASH_HZ: MAX_FLASH_HZ, LED_CHASE_HZ: LED_CHASE_HZ, SIGN_WORDS: SIGN_WORDS,
@@ -2292,6 +2410,8 @@
     ITEM_MAX_H: ITEM_MAX_H, ISLAND_ITEM_MAX_H: ISLAND_ITEM_MAX_H, itemMaxH: itemMaxH,
     resolve: resolve, addTokens: addTokens, tokens: tokens, jitterVox: jitterVox,
     /* v3 land shops */
-    PETCOL3: PETCOL3, SPECIES3: SPECIES3, SLOT_CAPS: SLOT_CAPS, TRIS_LOD1: TRIS_LOD1, TRIS_CAPS_LOD1: trisCapLod1
+    PETCOL3: PETCOL3, SPECIES3: SPECIES3, SLOT_CAPS: SLOT_CAPS, TRIS_LOD1: TRIS_LOD1, TRIS_CAPS_LOD1: trisCapLod1,
+    /* the kids update */
+    KU_IDS: KU_IDS
   };
 }));

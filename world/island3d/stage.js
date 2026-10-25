@@ -17,7 +17,8 @@
                                         the host's late-3D retry asks for ['vox'] (D68)
      .loadGroup(name) → Promise<bool>   one script group ('core' | 'vox' | 'v2' | 'v2env'): true once every
                                         file of it arrived (the lab and mount({registry: 'v2'}) use v2 + v2env)
-     .voxRoute(id, st, C, L) → {handler | api, args}|null   (pure; also exported for Node, D75)
+     .voxRoute(id, st, C, L) → {handler | api, args}|null   (pure; also exported for Node, D75); a char_* /
+                                        wear_* id (kids update) routes to px-people's handler with {key, view}
      .remembered(ver) → {off, why, ver, at}|null (expires after REMEMBER_DAYS), .remember2D(why),
      .forget() ("Try 3D again"), .failed() → reason|null
      .dispose({keepKit})                stop, drop the renderer (force-lost) and the kit caches
@@ -79,7 +80,11 @@
               mount), so order inside the batch is the engine first, the model files last: the Home
               models, then px-characters.js (the open SPECIES / ACCS tables) and the files that fill
               them (px-crew, px-mascots-a/b, px-gear), then one to three files per land (pier,
-              jungle, treetop, castle, ice: the land shops, D102), the landmarks last
+              jungle, treetop, castle, ice: the land shops, D102), the landmarks, then the kids
+              update's files appended in contracts.vox KU_VOX order (KU21: plan-v3's vox list stays an
+              exact prefix): px-people.js (KU-CH9), then the pets' px-pets-a/b/c.js (the fourteen new
+              species, rows of the open SPECIES table) and px-care.js (the feeding bowl, the food
+              display models, the memory star) (P2.1)
        v2     the V4.54 models (the games batch tree_palm / umbrella from them, make the karts and
               balls): loaded by ensure() (every game view), never by a v3 island boot
        v2env  the V4.54 island scenery (organic terrain, sea and sky, the city across the bay, its
@@ -134,6 +139,11 @@
     { path: 'px-ice-a.js', group: 'vox' },
     { path: 'px-ice-b.js', group: 'vox' },
     { path: 'px-landmarks.js', group: 'vox' },
+    { path: 'px-people.js', group: 'vox' },
+    { path: 'px-pets-a.js', group: 'vox' },
+    { path: 'px-pets-b.js', group: 'vox' },
+    { path: 'px-pets-c.js', group: 'vox' },
+    { path: 'px-care.js', group: 'vox' },
     { path: 'models-garden.js', group: 'v2' },
     { path: 'models-home.js', group: 'v2' },
     { path: 'models-fun.js', group: 'v2' },
@@ -155,6 +165,12 @@
      kinds route through another handler or a vox API (voxRoute) */
   var VOX_MODEL_KINDS = MODEL_KINDS.concat(['landmark']);
   var VOX_DISPLAY_KINDS = ['style', 'variant', 'pet', 'acc', 'land'];
+  /* the kids update's people (KU-CH9): characters and wearables are plug-in items (people-core,
+     never in CATALOG) and both draw through ONE handler of px-people.js */
+  var VOX_PEOPLE_KINDS = ['char', 'wear'], PEOPLE_HANDLER = 'px_people';
+  /* the kids update's pet foods (P1.1 / P2.5): kind 'food' draws through px-care.js's handler of the
+     same id (the bag, crate, tin or jar with the food on top) and nothing else */
+  var VOX_CARE_KINDS = ['food'];
   var VOX_KEYS = ['models', 'category', 'missing', 'ready', 'make', 'templates', 'displayVoxels', 'coverage'];
   var ISLAND_ONLY = ['isles', 'water'];             /* = SLTier.ISLAND_ONLY (D82) */
   var CORE_KEYS = ['__stage', 'version', 'THREE', 'addons', 'tier', 'budget', 'quality', 'facts', 'tierWhy', 'models', 'modelCategory',
@@ -202,7 +218,8 @@
        MODEL_KINDS and 'landmark' (lm_*)  their own handler, wearing their resolved style
        style ids (wall_*, roof_*, …)      house_cottage wearing that style (the player's house, as photocards)
        pet_*                              the pet, with its accessories (st.acc); a land mascot (a 'pet'
-                                          with an isle: pet_crab …) routes the same way, to its own handler
+                                          with an isle: pet_crab …) and the kids update's new species
+                                          (px-pets-a/b/c) route the same way, each to its own handler
        acc_*                              the display pet wearing it, and so does land gear (an 'acc' with
                                           an isle: acc_pier_conehat …). The display pet is st.pet when the
                                           look or the catalogue knows it as a pet — the host passes
@@ -210,6 +227,17 @@
        variants and cosmetics             their own handler (px-attractions)
        land_cove / land_meadow            their own diorama handler
        land_<isle>                        the isleDiorama(isle) API (px-landmarks)
+       char_* / wear_* (kids update)      the px-people handler (PEOPLE_HANDLER): a character in its
+                                          default look and own pieces, or the live look st {look | lk,
+                                          wear | wr, vr, member, pose, t}; a wearable on the Fitting
+                                          Friend (st.look / lk: on that person instead). The route also
+                                          carries key (the template's state key: the id and the st
+                                          fields, canonical, so a live look never reuses a stale
+                                          template) and view ('back' for a back piece: it is seen
+                                          from behind)
+       food_* (kids update, kind 'food')  px-care's handler of that id (the food's display model: a bag,
+                                          a crate, a tin or a jar with the food on top), no style and
+                                          never a pet; photocards draw no food (KU37: its 2D icon)
      The look resolves every id it has an entry for; an id only the catalogue knows (a land-shop id
      while world-look has no entry for it) takes the stage's own rules: a mascot wears st.acc, gear
      sits in its catalogue slot.
@@ -251,7 +279,28 @@
       if (isle) return { id: id, kind: kind, api: 'isleDiorama', args: [isle] };
       return { id: id, kind: kind, handler: id, args: [{}] };
     }
+    if (VOX_PEOPLE_KINDS.indexOf(kind) >= 0) return peopleRoute(id, kind, it, s);
+    if (VOX_CARE_KINDS.indexOf(kind) >= 0) return { id: id, kind: kind, handler: id, args: [{}] };
     return { id: id, kind: kind, handler: id, args: [styleOf(id, s, C, L)] };
+  }
+  /* a character or a wearable: the st fields px-people reads, copied (plain data only), and the key */
+  var PEOPLE_ST = ['look', 'lk', 'wear', 'wr', 'vr', 'member', 'pose', 't'];
+  function plainCopy(v, depth) {
+    if (v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v))) return v;
+    if (!v || typeof v !== 'object' || depth > 3) return undefined;
+    if (Array.isArray(v)) return v.map(function (x) { var c = plainCopy(x, depth + 1); return c === undefined ? null : c; });
+    var out = {};
+    Object.keys(v).sort().forEach(function (k) { var c = plainCopy(v[k], depth + 1); if (c !== undefined) out[k] = c; });
+    return out;
+  }
+  function peopleRoute(id, kind, it, s) {
+    var st = { kind: kind, id: id }, key = id;
+    PEOPLE_ST.forEach(function (k) {
+      var v = has(s, k) ? plainCopy(s[k], 0) : undefined;
+      if (v === undefined || v === null) return;
+      st[k] = v; key += '|' + k + ':' + JSON.stringify(v);
+    });
+    return { id: id, kind: kind, handler: PEOPLE_HANDLER, args: [st], key: key, view: kind === 'wear' && it && it.slot === 'back' ? 'back' : 'front' };
   }
   /* the resolved style of a handler id: SLIslandLook.resolveStyle (wearing `wear`, a style id, for
      the house) for an id the look has an entry for; else the stage's own rules with the catalogue:
@@ -543,6 +592,7 @@
     VERSION: VERSION, FILES: FILES, ADDONS: ADDONS, MODEL_KINDS: MODEL_KINDS,
     GROUPS: GROUPS, LEGACY_GROUPS: LEGACY_GROUPS, groupList: groupList,
     VOX_MODEL_KINDS: VOX_MODEL_KINDS, VOX_DISPLAY_KINDS: VOX_DISPLAY_KINDS, VOX_KEYS: VOX_KEYS, ISLAND_ONLY: ISLAND_ONLY,
+    VOX_PEOPLE_KINDS: VOX_PEOPLE_KINDS, PEOPLE_HANDLER: PEOPLE_HANDLER, VOX_CARE_KINDS: VOX_CARE_KINDS,
     voxRoute: voxRoute, emptyModel: emptyModel,
     baseFrom: baseFrom, scriptList: scriptList, resolveSt: resolveSt,
     REMEMBER_DAYS: REMEMBER_DAYS, rememberedFrom: rememberedFrom, tierToSave: tierToSave,
@@ -805,7 +855,8 @@
       var r = voxRoute(id, st, root.SLWorldCore, root.SLIslandLook);
       if (!r || !r.handler) return null;
       var t = root.SLTier.parseTier(tier) || SL3D.tier, K = SL3D.kit(t), rs = r.args[0] || {};
-      var tpl = K.templates.get(r.handler, K.stateKey(r.handler, rs), t, rs, voxNs({ full: o.full !== false, lod: o.lod }));
+      var sk = typeof r.key === 'string' ? r.key : K.stateKey(r.handler, rs);         /* a people route keys itself */
+      var tpl = K.templates.get(r.handler, sk, t, rs, voxNs({ full: o.full !== false, lod: o.lod }));
       var obj = K.instantiate(tpl, { outlines: false });
       obj.userData.model = VOX.models[r.handler] || null;
       return obj;

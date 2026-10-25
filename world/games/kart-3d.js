@@ -17,7 +17,7 @@
    with the tier's settings, and every model falls back to local primitives in
    the same LOCKED colours.
 
-   Owns: the camera rig (Chase / Stage / High / TV, C key or the 🎥 button;
+   Owns: the camera rig (Chase / Stage / Map / TV, C key or the 🎥 button;
    intro crane on the session's first race, boost FOV kick + speed lines,
    final-lap push-in, finish orbit, bump shake — all cuts under reduced
    motion), the light arc SOUNDCHECK → SHOWTIME → ENCORE, the Spotlight
@@ -67,6 +67,22 @@ async function getSL3D() {
 /* one teardown step; a step for something a failed build never reached throws (a ReferenceError
    for a name not declared yet) and is skipped, so every other step still runs */
 function bestEffort(fn) { try { fn(); } catch (e) { /* not built, or already gone */ } }
+/* KU-CH19b: the game's loading deadline (the runtime, then the driver's vox group when the game was
+   opened from the 2D island), as Debut Run's and the Shootout's */
+const LOAD_MS = 7000;
+function clockMs() { try { if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now(); } catch (e) { /* no clock */ } return Date.now(); }
+/* the games' people helper (world/games/game-people.js, SLGamePeople), feature-detected */
+function peopleHelper() {
+  const GP = typeof window !== 'undefined' ? window.SLGamePeople : null;
+  return GP && typeof GP.playerRig === 'function' && GP.SCALE && typeof GP.clipFor === 'function' ? GP : null;
+}
+/* a quality step's bottleneck (SLTier.stepKind; the same table when tier.js is older) */
+const CPU_STEPS = ['outlines', 'particles', 'life', 'decor', 'isles'];
+function stepKind(step) {
+  const T = typeof window !== 'undefined' ? window.SLTier : null;
+  if (T && typeof T.stepKind === 'function') { try { return T.stepKind(step); } catch (e) { /* below */ } }
+  return CPU_STEPS.indexOf(step) >= 0 ? 'cpu' : 'gpu';
+}
 
 /* Where a name tag goes: the world point (x, y, z) through the camera's view matrix V
    (matrixWorldInverse) and projection matrix P (three's column-major elements) to CSS px of a w × h
@@ -140,6 +156,7 @@ export async function create(mid, opts) {
   const reducedMotion = !!(opts.reduced || cfg.reduced);
   let failed = false;
   const fail = (why) => { if (failed) return; failed = true; try { if (opts.onFail) opts.onFail(why); } catch (e) { /* shell handles it */ } };
+  const t0 = clockMs();
 
   /* ---------------- modules + the island runtime, in parallel ---------------- */
   const [SL3D, , kitM, envM, trackM, modelsM, fxM, hudM] = await Promise.all([
@@ -154,18 +171,30 @@ export async function create(mid, opts) {
   const budget = (SL3D && SL3D.budget) || fallbackBudget(tier);
   const quality = (SL3D && SL3D.quality) || { pixelRatio: budget.pixelRatio, shadows: !!budget.shadows, outlines: !!budget.outlines, particleScale: 1, cones: true, steps: [] };
 
+  /* ---------------- the driver (kids update KU-CH19b, plan-ku KU8) ----------------
+     With the games' people helper on the page (SLGamePeople, in the game's deps) the child's
+     character drives (cfg.char), or the classic hoodie avatar when they have none; a game opened
+     from the 2D island loads the vox group for it inside the rest of LOAD_MS. No helper, no
+     runtime or no rig → V4.55: the pet drives. Visual only: nothing here reaches the race logic. */
+  const GP = peopleHelper();
+  let figure = null;
+  if (GP && SL3D) {
+    try { figure = await GP.playerRig(SL3D, cfg, tier, GP.SCALE.kart, { deadlineMs: Math.max(0, LOAD_MS - (clockMs() - t0)) }); } catch (e) { figure = null; }
+  }
+
   /* ---------------- build: everything that may hold the island's renderer ----------------
      The view is built in ONE synchronous step once the modules are in. If anything in it
      throws, the half-built view is torn down — above all the renderer lease is handed back —
      before the error reaches the shell (which then carries on in 2D). A leaked game lease
      would stay current and the 3D island would never render again after the game. */
-  const built = { dispose: null };
+  const built = { dispose: null, player: null };
   try {
     const view = buildView();
     cfg.view3d = true;                          /* kart.js: the menu offers the Camera row */
     return view;
   } catch (err) {
     if (built.dispose) bestEffort(built.dispose);
+    if (figure && !built.player) bestEffort(() => figure.dispose());   /* the player owns it once it is built */
     cfg.view3d = false;
     throw err;
   }
@@ -245,8 +274,12 @@ export async function create(mid, opts) {
     scene.add(blobs.mesh);
     const blobIdx = [];
     for (let i = 0; i < 8; i++) blobIdx.push(blobs.alloc());
-    const player = modelsM.makePlayer({ ...ctxBase, kart: cfg.kart, pet: cfg.pet });
+    const player = modelsM.makePlayer({ ...ctxBase, kart: cfg.kart, pet: cfg.pet, figure, GP });
+    built.player = player;
+    /* a models file that did not take the figure (an older cached one: the pet drives) never leaves it built */
+    if (figure && player.figure !== figure) { bestEffort(() => figure.dispose()); figure = null; }
     scene.add(player.root);
+    if (player.riser) scene.add(player.riser);       /* KU-CH19b: where the figure stands at the menu (MID / HIGH) */
     /* the rival models: the Glow Crew, or a shared race's racers (rebuilt only when rivalKey changes) */
     const crewList = modelsM.rivalSpecs(KL.CREW, KL.CREW);
     let rivals = modelsM.makeRivals(ctxBase, crewList), rivalKey = modelsM.rivalKey(crewList), rivalSrc = crewList;
@@ -295,7 +328,9 @@ export async function create(mid, opts) {
       const homes = [];
       for (let i = 0; i < 3; i++) homes.push((tr.spots.coneHomes && tr.spots.coneHomes[i]) || new THREE.Vector3(rect.cx, 0, rect.cz));
       for (let i = 0; i < 2; i++) homes.push((tr.spots.gantryHomes && tr.spots.gantryHomes[i]) || new THREE.Vector3(rect.cx, 0, rect.cz));
-      avatar = modelsM.makeAvatar(ctxBase, user, tr.spots.avatar);
+      /* the riser: the driving figure itself steps up there at the menu (KU-CH19b), else V4.55's riser avatar */
+      if (player.figure) player.setRiser(tr.spots.avatar || null);
+      else avatar = modelsM.makeAvatar(ctxBase, user, tr.spots.avatar);
       if (avatar) scene.add(avatar.group);
       cur = { id, track, rect, env, tr, homes, tv: core.tvPosts(track), jumps: core.jumpsOf(track) };
       hud.setTrack(track, track.laps);
@@ -318,7 +353,7 @@ export async function create(mid, opts) {
     const camPos = new THREE.Vector3(0, 12, 20), camLook = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3(), _t = new THREE.Vector3();
     const want = {}, crane = {}, pst = {}, spinP = {}, sq = {}, tmpPt = {}, coneInfo = { encore: 0, spot: 0, snap: 0, target: new THREE.Vector3(), homes: null };
     const glowPts = new Float32Array(75);
-    const hudV = { place: 0, total: 0, gapVal: null, splits: [], lap: 0, laps: 3, wandPips: 0, full: false, spot: false, dots: [], night: false, wrong: false };
+    const hudV = { place: 0, total: 0, gapVal: null, splits: [], lap: 0, laps: 3, wandPips: 0, full: false, spot: false, dots: [], night: false, wrong: false, tip: '' };
     const dotPool = [];
     for (let i = 0; i < 8; i++) dotPool.push({ x: 0, y: 0, color: '#fff', me: false });
     const trackSt = { t: 0, gates: 0, encore: 0, haloScale: 1, haloAlpha: 0.5, wandHex: null, waveSince: null, noteGot: null, banks: -1, go: false, led: '', reduced: reducedMotion,
@@ -332,12 +367,12 @@ export async function create(mid, opts) {
     const JET_COLS = [player.kartHex, core.COL.starGold];
     const TRAIL_COLS = [core.COL.coral, '#FFA94D', core.COL.starGold, core.COL.leafMint, '#4FC3F7', core.COL.grape];
     const TIMERS = ['hop', 'land', 'bump', 'shake', 'dizzy', 'trick', 'push', 'go'], SQUASH = ['hop', 'land', 'bump'];
-    /* the player pose at rest (menu grid, podium) */
-    function restPst(dt, clip, petStand) {
+    /* the player pose at rest (menu grid, podium); moment: the figure's (KU-CH19b) 'menu' | 'podium' */
+    function restPst(dt, clip, petStand, moment) {
       pst.dt = dt; pst.t = clock; pst.v = 0; pst.steer = 0; pst.drifting = false; pst.tier = 0; pst.grey = false; pst.boostK = 0;
       pst.wand = petStand ? 1 : 0.15; pst.spot = false; pst.roll = 0; pst.squashY = 1; pst.squashXZ = 1; pst.squashX = 1; pst.squashZ = 1; pst.spinTurn = 0; pst.hop = 0;
       pst.clip = clip; pst.clipT = clock; pst.encore = preset.encore || 0; pst.marker = false; pst.reduced = reducedMotion;
-      pst.petStand = !!petStand; pst.trickSpin = 0;
+      pst.petStand = !!petStand; pst.trickSpin = 0; pst.moment = moment;
       return pst;
     }
 
@@ -489,7 +524,7 @@ export async function create(mid, opts) {
           hud.word('pass', clock, sigHex);
           /* a crew kart waves as you go by; another child's kart never does something its driver did not */
           if (e.rival >= 0 && e.rival < waveUntil.length && !(race.rivals[e.rival] && race.rivals[e.rival].remote)) waveUntil[e.rival] = clock + 1.6;
-          if (e.place === 1) { snapUntil = clock + 2; setLed(((cfg.pet && cfg.pet.name) || 'YOUR PET') + ' · P1!', 2); waveStart = clock; }
+          if (e.place === 1) { snapUntil = clock + 2; setLed(p1Who() + ' · P1!', 2); waveStart = clock; }
           break;
         case 'pacerGap': {
           const pc = race.pacers.filter((p) => p.kind === e.kind)[0];
@@ -515,6 +550,13 @@ export async function create(mid, opts) {
       }
     }
     function setLed(text, sec) { ledOverride = text; ledUntil = clock + sec; }
+    /* who the LED cheers at P1: the driver — the pet (V4.55), or the child's figure (KU-CH19b): their
+       character's name, else their own, else YOU. Shown on this device only */
+    function p1Who() {
+      if (!player.figure) return (cfg.pet && cfg.pet.name) || 'YOUR PET';
+      const ch = cfg.char && typeof cfg.char.name === 'string' && cfg.char.name.trim() ? cfg.char.name.trim() : '';
+      return ch || (typeof user.name === 'string' && user.name.trim()) || 'YOU';
+    }
     function liveRound() { return !!round && round.live === true; }
     /* Another child's kart faces where it is going, with an eased turn: its place comes over the network,
        and a correction sideways or backwards must not swing it round. The road's own direction, turned
@@ -592,10 +634,11 @@ export async function create(mid, opts) {
       spotW = reducedMotion ? (spotOn ? 1 : 0) : core.clamp(spotW + (spotOn ? dt / 0.4 : -dt / 0.8), 0, 1);
       /* the driver's clip */
       const coasting = rs.phase === 'coast';
-      let clip = 'drive', clipT = clock;
-      if (coasting) { clip = 'dance'; clipT = 4 * 60 / 118 + rs.coastT; }
-      else if (fxT.dizzy < 1.2 || k.spinT > 0) { clip = 'dizzy'; clipT = fxT.dizzy; }
-      else if (fxT.trick < 0.5) { clip = 'cheer'; clipT = fxT.trick; }
+      let clip = 'drive', clipT = clock, moment = 'drive';
+      if (coasting) { clip = 'dance'; clipT = 4 * 60 / 118 + rs.coastT; moment = 'coast'; }
+      else if (fxT.dizzy < 1.2 || k.spinT > 0) { clip = 'dizzy'; clipT = fxT.dizzy; moment = 'dizzy'; }
+      else if (fxT.trick < 0.5) { clip = 'cheer'; clipT = fxT.trick; moment = 'trick'; }
+      pst.moment = moment;                              /* the driving figure's moment (KU-CH19b) */
       pst.dt = dt; pst.t = clock; pst.v = Math.abs(k.v) / core.U; pst.steer = core.clamp(omegaS / 2.9, -1, 1);
       pst.drifting = drifting; pst.tier = k.drift.tier; pst.grey = drifting && k.onGrass; pst.boostK = reducedMotion ? Math.min(boostK, 0.6) : boostK;
       pst.wand = Math.min(1, rs.wand / PHYS.WAND); pst.spot = spotOn; pst.roll = reducedMotion ? 0 : core.bodyRoll(omegaS, drifting);
@@ -722,6 +765,8 @@ export async function create(mid, opts) {
       hudV.lap = Math.min(pr.lap, track.laps); hudV.laps = track.laps;
       hudV.wandPips = core.wandPips(rs.wand, k.spotlightT, PHYS.SPOT_T, PHYS.WAND);
       hudV.full = rs.wand >= PHYS.WAND * 0.875; hudV.spot = spotOn; hudV.wrong = rs.wrongT > 0.6;
+      /* a first-time tip from kart.js (V4.55 fix run B5); a kart.js without tips has no round.tip */
+      hudV.tip = typeof round.tip === 'function' ? String(round.tip() || '') : '';
       let nd = 0;
       for (let i = 0; i < race.pacers.length && nd < 7; i++) { const d = dotPool[nd++], p = race.pacers[i]; d.x = p.x; d.y = p.y; d.color = 'rgba(255,255,255,.7)'; d.me = false; }
       for (let i = 0; i < nR && nd < 7; i++) { const r = race.rivals[i]; if (r.hidden) continue; const d = dotPool[nd++]; d.x = r.x; d.y = r.y; d.color = r.color; d.me = false; }
@@ -798,7 +843,7 @@ export async function create(mid, opts) {
     function idleRacers(dt) {
       gridPose(-30, 0, gp);
       player.root.position.set(gp.x, 0, gp.z); player.root.rotation.set(0, gp.yaw, 0);
-      player.update(restPst(dt, 'drive', false));
+      player.update(restPst(dt, 'drive', false, 'menu'));
       blobs.set(blobIdx[0], gp.x, 0.02, gp.z, 1.15, 1.4);
       syncRivals(crewList);                             /* back at the menu: the Glow Crew on the grid */
       rivals.group.visible = true;
@@ -885,7 +930,7 @@ export async function create(mid, opts) {
       for (let i = 6; i < 8; i++) blobs.set(blobIdx[i], 0, -5, 0, 0, 0);
       blobs.commit();
       if (pacers) pacers.group.visible = false;
-      player.update(restPst(dt, myAt < 3 ? 'dance' : 'cheer', true));
+      player.update(restPst(dt, myAt < 3 ? 'dance' : 'cheer', true, 'podium'));
       orbit(P.x, 0, P.z, 7.6, 3.5, P.yaw + (reducedMotion ? 0.25 : 0.45 * Math.sin(core.TAU * 0.05 * clock)), 0, -0.9, dt);
       /* a gentle confetti trickle and a crowd wave every few seconds */
       confettiT += dt;
@@ -953,8 +998,12 @@ export async function create(mid, opts) {
     }
 
     /* ---------------- adaptive quality ---------------- */
+    /* KU-CH19b (plan-ku KU25): the first CPU step a struggling device takes while the race holds the
+       renderer also takes the pet passenger off — the kart's first relief before the 2D fallback */
+    let passengerStep = '';
     function applyQuality(q, step) {
       if (!q) return;
+      if (step && !passengerStep && player.passengerOn && stepKind(step) === 'cpu') { passengerStep = step; player.setPassenger(false); }
       if (cur) cur.env.setQuality(q);
       if (q.particleScale) fx.setScale(q.particleScale);
       if (step === 'shadows' || q.shadows === false) renderer.shadowMap.enabled = false;
@@ -988,7 +1037,8 @@ export async function create(mid, opts) {
       camMode = core.nextCam(camMode);
       camSnap = true;
       hud.setCam(core.CAM_LABEL[camMode]);
-      /* chase / stage / map persist through kart.js's option store; 'tv' lasts for this session */
+      /* every camera persists through kart.js's option store (V4.55 fix run: 'tv' used to be refused
+         there, so the one before it — map — was what the next game opened on) */
       try { if (opts.def && typeof opts.def.setOption === 'function') opts.def.setOption(cfg, 'cam', camMode); } catch (e) { /* not saved */ }
       lastOptCam = (cfg.kartOpts && cfg.kartOpts.cam) || lastOptCam;
       return camMode;
@@ -1053,7 +1103,10 @@ export async function create(mid, opts) {
       info() {
         const ri = renderer.info;
         return { tier, lease: !!L, island: kit.island, camera: camMode, calls: ri.render.calls, tris: ri.render.triangles,
-          programs: ri.programs ? ri.programs.length : 0, track: cur ? cur.tr.info() : null, particles: fx.alive() };
+          programs: ri.programs ? ri.programs.length : 0, track: cur ? cur.tr.info() : null, particles: fx.alive(),
+          /* KU-CH19b (the lab, KQ5): who drives, where, and the passenger ('person' | 'classic' | null = the pet drives) */
+          figure: player.figure ? player.figure.figure || 'person' : null, figureAt: player.figureAt || null,
+          figureTris: player.figure ? player.figure.tris || 0 : 0, passenger: !!player.passenger, passengerOn: !!player.passengerOn, passengerStep: passengerStep || null };
       }
     };
     return view;

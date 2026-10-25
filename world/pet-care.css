@@ -1,0 +1,232 @@
+/* ================================================================
+   My Island v3, kids update — the Pet Corner (P3.1; world/pet-care-ui.js). CSS only.
+   Loaded by slLoadWorld with pet-care-ui.js beside the other world UI (plan-ku KU21). The sheets are
+   the island's own (.slw-ov / .slw-sheet / .slw-btn, island-pixel.css), so this file only adds the
+   Pet Corner's parts in the same Pixel Blocks look: white blocks, a 3 px navy line, hard lips,
+   Outfit at 15 px and more, no blur, no glow, no overshoot.
+
+   KU36: targets ≥ 44 px, a 3 px ink focus ring with a white halo, state as shape as well as colour
+   (pressed in, dashed, a ✓), ink on light fills, no horizontal scroll at 390 × 844 (the tab row
+   scrolls inside itself), reduced motion = end states, nothing above 2 Hz (the nods are 1.5 Hz).
+   Every rule starts with `html body` like the island's sheets.
+
+   HOOKS: .slw-pcc-ov (every sheet here) · .slw-pcc (the Corner) > .slw-pcc-tabs .slw-pcc-tab,
+     .slw-pcc-panel > .slw-pcc-list > .slw-pcc-card (.slw-pcc-guest .slw-pcc-basket .slw-pcc-memory)
+       .slw-pcc-top .slw-pcc-pic .slw-pcc-info .slw-pcc-name .slw-pcc-sp .slw-pcc-fav .slw-pcc-meters
+       .slw-pcc-acts .slw-pcc-do (.slw-pcc-feed, sun while .slw-pcc-due) .slw-pcc-more .slw-pcc-msg .slw-pcc-tray
+       .slw-pcc-foods .slw-pcc-food (.off .fav) .slw-pcc-why .slw-pcc-rename
+     .slw-pcc-picker .slw-pcc-pick .slw-pcc-pet (.on) · .slw-pcc-card1 (news, rule, day cards)
+     .slw-pcc-strip (the sheet slides down) .slw-pcc-see (the island shows) .slw-pcc-stripwrap
+       .slw-pcc-stripbar .slw-pcc-scene (.go .still .play .love) .slw-pcc-eat .slw-pcc-bowl
+       .slw-pcc-bits .slw-pcc-bit .slw-pcc-love · .slw-pcc-hop (the portrait bounces)
+   ================================================================ */
+html body .slw-pcc-ov, html body .slw-pcc-ov * { box-sizing: border-box; }
+html body .slw-pcc .slw-sheet { max-width: 760px; }
+html body .slw-pcc-ov .slw-sheet h2 { padding-right: 52px; }
+html body .slw-pcc-ov p { margin: 0; }   /* each block below sets its own (two classes out-rank this) */
+html body .slw-pcc-ov .slw-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+html body .slw-pcc-ov svg { display: block; }
+html body .slw-pcc-ov button:focus-visible, html body .slw-pcc-ov input:focus-visible {
+  outline: 3px solid var(--px-ink, #1B2150); outline-offset: 3px; box-shadow: 0 0 0 8px var(--px-panel, #FFFFFF);
+}
+html body .slw-pcc-ov .slw-pcc-line { margin: 0 0 10px; font-size: 16px; line-height: 1.4; color: var(--px-ink, #1B2150); }
+html body .slw-pcc-note { font-size: 15px; color: var(--px-ink-2, #474E7E); font-weight: 600; }
+html body .slw-pcc-sitter, html body .slw-pcc-rule, html body .slw-pcc-soon {
+  padding: 8px 12px; border: 2px solid currentColor; border-radius: var(--px-r-card, 10px); font-size: 15px; font-weight: 700;
+}
+html body .slw-pcc-sitter { background: var(--px-mint, #DFF7E6); color: var(--px-own-fg, #17663A); }
+html body .slw-pcc-rule { background: var(--px-lock, #ECE6FF); color: var(--px-lock-fg, #4B33B8); }
+html body .slw-pcc-soon { background: var(--px-rep, #FFF1C9); color: var(--px-rep-fg, #7A5200); }
+html body .slw-pcc-btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 12px; }
+html body .slw-pcc-btns .slw-btn { flex: 0 1 auto; }
+
+/* ---------------- the tab row: one sideways strip that sticks at the top of the sheet ---------------- */
+html body .slw-pcc-tabs {
+  position: -webkit-sticky; position: sticky; top: -18px; z-index: 4; display: flex; gap: 8px; flex-wrap: nowrap;
+  margin: 6px -18px 12px; padding: 8px 18px 10px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scrollbar-width: none; background: var(--px-panel, #FFFFFF); box-shadow: 0 2px 0 0 var(--px-white-lip, #C9D3EC);
+}
+html body .slw-pcc-tabs::-webkit-scrollbar { display: none; }
+html body .slw-pcc-tab[class] { flex: 0 0 auto; gap: 6px; padding: 8px 14px; font-size: 15px; white-space: nowrap; }
+html body .slw-pcc-tab svg { width: 20px; height: 20px; }
+html body .slw-pcc-tstar { display: inline-flex; flex: none; padding: 2px; background: var(--px-night-1, #1B2150); border-radius: 5px; box-shadow: 0 0 0 2px var(--px-panel, #FFFFFF); }
+html body .slw-pcc-tstar svg { width: 18px; height: 18px; }
+/* the pressed tab: violet, pressed in (shape and colour) */
+html body .slw-pcc-tab[aria-selected="true"] {
+  --sle-a: var(--px-violet, #5B3FD6); --sle-b: var(--px-violet, #5B3FD6); --sle-fg: #FFFFFF; --sle-lip: var(--px-violet-lip, #3A259A);
+  --px-lift: 2px; transform: translateY(2px);
+}
+
+/* ---------------- a pet's card ---------------- */
+html body .slw-pcc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; align-items: start; }
+html body .slw-pcc-card {
+  min-width: 0; padding: 12px; background: var(--px-panel, #FFFFFF); border: var(--px-bw, 3px) solid var(--px-line, #2B3A80);
+  border-radius: var(--px-r-card, 10px); box-shadow: 0 4px 0 0 rgba(27, 33, 80, 0.18);
+  scroll-margin-top: 76px;   /* a card scrolled into view (a day card's Feed) stops below the sticky tab row */
+}
+html body .slw-pcc-top { display: flex; gap: 12px; align-items: flex-start; }
+html body .slw-pcc-pic {
+  position: relative; flex: none; width: 96px; height: 96px; padding: 4px; overflow: hidden; border: 2px solid var(--px-sky-5, #DAF2FF); border-radius: 8px;
+  background: linear-gradient(180deg, var(--px-sky-5, #DAF2FF) 0%, var(--px-sky-5, #DAF2FF) 66%, var(--px-grass, #85DF84) 66%, var(--px-grass, #85DF84) 100%);
+}
+html body .slw-pcc-pic > *, html body .slw-pcc-pic svg, html body .slw-pcc-pic canvas, html body .slw-pcc-pic img { display: block; width: 100%; height: 100%; object-fit: contain; }
+html body .slw-pcc-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+html body .slw-pcc-ov .slw-pcc-name { margin: 0; font-family: var(--sle-ui, "Outfit", system-ui, sans-serif); font-weight: 800; font-size: 19px; line-height: 1.2; color: var(--px-ink, #1B2150); overflow-wrap: anywhere; }
+html body .slw-pcc-sp { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; color: var(--px-ink-2, #474E7E); }
+html body .slw-pcc-badge svg { width: 22px; height: 22px; }
+html body .slw-pcc-fav { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; color: var(--px-ink, #1B2150); }
+html body .slw-pcc-fi { display: inline-block; flex: none; width: 26px; height: 26px; }
+html body .slw-pcc-fi svg { width: 100%; height: 100%; }
+/* the tummy and happiness rows side by side, each with its word under it */
+html body .slw-pcc-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+html body .slw-pcc-meter {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 6px 8px;
+  background: var(--px-well, #EEF7FF); border-radius: 8px; font-size: 15px; font-weight: 700; color: var(--px-ink, #1B2150);
+}
+html body .slw-pcc-meter svg { width: auto; height: 22px; max-width: 100%; }
+/* Feed · Pat · Play: three big equal buttons; Feed is the sun one only while the pet wants a meal (.slw-pcc-due:
+   peckish or hungrier), and Visit while a Rescue visit is due today; a fed pet's Feed is a plain white button */
+html body .slw-pcc-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+html body .slw-pcc-basket .slw-pcc-acts { grid-template-columns: 1fr; }
+html body .slw-pcc-do[class] { min-height: 52px; padding: 8px 6px; font-size: 16px; }
+html body .slw-pcc-feed.slw-pcc-due[class] { --sle-a: var(--px-sun, #FFD23F); --sle-b: var(--px-sun, #FFD23F); --sle-fg: var(--px-ink, #1B2150); --sle-lip: var(--px-sun-lip, #C99A00); }
+html body .slw-pcc-more { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+html body .slw-pcc-more .slw-btn { flex: 1 1 auto; padding: 8px 10px; }
+/* a tray that is open: its button pressed in, violet */
+html body .slw-pcc-ov .slw-btn[aria-expanded="true"] {
+  --sle-a: var(--px-violet, #5B3FD6); --sle-b: var(--px-violet, #5B3FD6); --sle-fg: #FFFFFF; --sle-lip: var(--px-violet-lip, #3A259A);
+  --px-lift: 2px; transform: translateY(2px);
+}
+html body .slw-pcc-msg {
+  margin-top: 10px; padding: 8px 10px; background: var(--px-mint, #DFF7E6); border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: var(--px-ink, #1B2150);
+}
+html body .slw-pcc-tray { margin-top: 10px; padding: 10px; background: var(--px-well, #EEF7FF); border: 2px solid var(--px-white-lip, #C9D3EC); border-radius: 10px; }
+html body .slw-pcc-tray .slw-pcc-note { margin-bottom: 8px; }
+html body .slw-pcc-tray .slw-wearslots { margin: 0; }
+/* W5b.1's wear tray inside the Corner: its words at 15 px (KU36) */
+html body .slw-pcc-tray .slw-wearslots .lb { flex-basis: 56px; font-size: 15px; }
+html body .slw-pcc-tray .slw-trayitem { width: 104px; }
+html body .slw-pcc-tray .slw-trayitem span { font-size: 15px; font-weight: 700; }
+
+/* ---------------- food: the picker's tiles and the pantry's shelf ---------------- */
+html body .slw-pcc-foods { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+html body .slw-pcc-food {
+  display: grid; grid-template-columns: 40px 1fr auto; grid-template-areas: "ic nm n" "ic why why"; column-gap: 8px; align-items: center;
+  min-height: 56px; padding: 6px 10px; text-align: left; background: var(--px-panel, #FFFFFF); color: var(--px-ink, #1B2150);
+  border: var(--px-bw, 3px) solid var(--px-line, #2B3A80); border-radius: var(--px-r-btn, 6px); font-family: var(--sle-ui, "Outfit", system-ui, sans-serif);
+}
+html body button.slw-pcc-food { box-shadow: 0 4px 0 0 var(--px-white-lip, #C9D3EC); cursor: pointer; transition: transform 120ms ease-out, box-shadow 120ms ease-out; }
+html body button.slw-pcc-food:active:not([aria-disabled="true"]) { transform: translateY(3px); box-shadow: 0 1px 0 0 var(--px-white-lip, #C9D3EC); }
+html body .slw-pcc-food .slw-pcc-fi { grid-area: ic; width: 40px; height: 40px; }
+html body .slw-pcc-shelf { grid-template-columns: repeat(auto-fill, minmax(min(146px, 100%), 1fr)); }
+html body .slw-pcc-shelf .slw-pcc-food { grid-template-columns: 36px 1fr; grid-template-areas: "ic nm" "ic n"; }
+html body .slw-pcc-shelf .slw-pcc-fi { width: 36px; height: 36px; }
+html body .slw-pcc-fnm { grid-area: nm; min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.2; }
+html body .slw-pcc-n { grid-area: n; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+html body .slw-pcc-why { grid-area: why; font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--px-off-fg, #4A5272); }
+html body .slw-pcc-heart { color: var(--px-pink-lip, #C2306F); }
+html body .slw-pcc-food.fav { border-color: var(--px-pink-lip, #C2306F); }
+/* a food that cannot be used now: off grey, dashed, no lip; the why says so in words */
+html body .slw-pcc-food.off { background: var(--px-off, #E3E8F4); border-style: dashed; border-color: var(--px-off-fg, #4A5272); box-shadow: none; }
+html body .slw-pcc-food.off .slw-pcc-fi { opacity: 0.55; }
+html body button.slw-pcc-food.off { cursor: not-allowed; }
+html body .slw-pcc-rename { display: flex; gap: 8px; align-items: center; }
+html body .slw-pcc-rename input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 6px 10px; font-size: 16px; }
+
+/* ---------------- 'Who lives at home?' and 'Swap with…': portraits that tick ---------------- */
+html body .slw-pcc-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin: 10px 0; }
+html body .slw-pcc-pet {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 44px; padding: 6px;
+  background: var(--px-panel, #FFFFFF); color: var(--px-ink, #1B2150); border: var(--px-bw, 3px) solid var(--px-line, #2B3A80);
+  border-radius: var(--px-r-card, 10px); box-shadow: 0 4px 0 0 var(--px-white-lip, #C9D3EC); cursor: pointer; font-family: var(--sle-ui, "Outfit", system-ui, sans-serif);
+}
+html body .slw-pcc-pet .slw-pcc-pic { width: 72px; height: 72px; }
+html body .slw-pcc-pnm { max-width: 100%; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+html body .slw-pcc-pet.on { background: var(--px-violet-soft, #ECE6FF); border-color: var(--px-violet, #5B3FD6); box-shadow: 0 2px 0 0 var(--px-violet-lip, #3A259A); transform: translateY(2px); }
+html body .slw-pcc-tick {
+  position: absolute; top: -8px; right: -8px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 17px; font-weight: 800; color: #FFFFFF; background: var(--px-violet, #5B3FD6); border: 2px solid var(--px-panel, #FFFFFF);
+}
+html body .slw-pcc-tick:empty { display: none; }
+html body .slw-pcc-pet[aria-disabled="true"] { border-style: dashed; cursor: not-allowed; }
+html body .slw-pcc-lock { position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; }
+html body .slw-pcc-count { font-size: 16px; font-weight: 800; text-align: center; }
+
+/* ---------------- the cards: news, the rule, the island day ---------------- */
+html body .slw-pcc-card1 { text-align: center; }
+html body .slw-pcc-card1 h2 { padding: 0 44px; }
+html body .slw-pcc-card1 .slw-pcc-line { text-align: left; }
+html body .slw-pcc-art { display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin: 0 0 10px; }
+html body .slw-pcc-art > svg { width: min(240px, 70%); height: auto; }
+html body .slw-pcc-art .slw-pcc-bowl svg { width: 120px; height: auto; }
+html body .slw-pcc-art .slw-pcc-bag svg { width: 76px; height: 76px; }
+html body .slw-pcc-art .slw-pcc-pic { width: 120px; height: 120px; }
+html body .slw-pcc-art .slw-care-memory { width: 168px; }
+html body .slw-pcc-mem { flex: none; width: 120px; margin: 0 auto 8px; }
+html body .slw-pcc-memory { display: flex; flex-wrap: wrap; gap: 12px; }
+html body .slw-pcc-memory .slw-pcc-mem { margin: 0; }
+html body .slw-pcc-memory .slw-pcc-more { flex: 1 1 100%; }
+html body .slw-pcc-visits { margin-top: 10px; font-weight: 800; }
+html body .slw-pcc-basket .slw-pcc-soon, html body .slw-pcc-basket .slw-pcc-line { margin: 10px 0 0; }
+html body .slw-pcc-basket .slw-pcc-acts { margin-top: 10px; }
+html body .slw-pcc-panel > .slw-pcc-line { margin-bottom: 12px; }
+
+/* ---------------- the feeding strip: the sheet slides away, the island (or the 2D moment) shows ---------------- */
+html body .slw-ov.slw-pcc-strip > .slw-sheet { animation: pccAway 220ms var(--px-ease, ease-in) forwards; pointer-events: none; }
+@keyframes pccAway { to { transform: translateY(110%); visibility: hidden; } }
+html body .slw-ov.slw-pcc-see { background: transparent; }
+html body .slw-pcc-stripwrap { position: absolute; inset: 0; z-index: 2; display: flex; align-items: flex-end; justify-content: center; padding: 12px; cursor: pointer; }
+html body .slw-pcc-stripbar {
+  display: flex; align-items: center; gap: 14px; width: auto; min-width: min(340px, 100%); max-width: 100%; padding: 10px 18px 10px 14px; background: var(--px-panel, #FFFFFF);
+  color: var(--px-ink, #1B2150); border: 4px solid var(--px-line, #2B3A80); border-radius: 14px; box-shadow: 0 6px 0 0 rgba(27, 33, 80, 0.25);
+}
+html body .slw-pcc-sinfo { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 16px; font-weight: 700; }
+html body .slw-pcc-sinfo b { font-size: 19px; font-weight: 800; overflow-wrap: anywhere; }
+html body .slw-pcc-sm svg { height: 26px; width: auto; }
+html body .slw-pcc-scene {
+  position: relative; flex: none; width: 200px; height: 150px; overflow: hidden; border-radius: 10px; border: 3px solid var(--px-line, #2B3A80);
+  background: linear-gradient(180deg, var(--px-sky-4, #B7E8FF) 0%, var(--px-sky-5, #DAF2FF) 64%, var(--px-grass, #85DF84) 64%, var(--px-grass, #85DF84) 100%);
+}
+html body .slw-pcc-scene:empty { display: none; }
+html body .slw-pcc-scene .slw-pcc-eat { position: absolute; left: 4px; bottom: 8px; width: 120px; height: 120px; padding: 0; border: 0; background: none; transform-origin: 50% 100%; }
+html body .slw-pcc-scene.play .slw-pcc-eat { left: 37px; }
+html body .slw-pcc-scene .slw-pcc-bowl { position: absolute; right: 6px; bottom: 8px; width: 78px; }
+html body .slw-pcc-scene .slw-pcc-bowl svg { width: 100%; height: auto; }
+html body .slw-pcc-bits { position: absolute; right: 26px; bottom: 40px; width: 44px; height: 24px; }
+html body .slw-pcc-bit { position: absolute; left: 0; top: 0; width: 20px; height: 20px; opacity: 0; }
+html body .slw-pcc-bit:nth-child(2) { left: 14px; }
+html body .slw-pcc-bit:nth-child(3) { left: 26px; }
+html body .slw-pcc-bit svg { width: 100%; height: 100%; }
+html body .slw-pcc-love { position: absolute; left: 0; right: 0; top: 6px; display: flex; justify-content: center; gap: 26px; opacity: 0; }
+html body .slw-pcc-love svg { width: 30px; height: auto; }
+html body .slw-pcc-scene.go .slw-pcc-bit { animation: pccDrop 600ms ease-in both; }
+html body .slw-pcc-scene.go .slw-pcc-eat { animation: pccNod 667ms ease-in-out 600ms 3; }
+html body .slw-pcc-scene.go.play .slw-pcc-eat { animation: pccHop 667ms ease-in-out 3; }
+html body .slw-pcc-scene.love .slw-pcc-love { animation: pccLove 1000ms ease-out both; }
+html body .slw-pcc-scene.still .slw-pcc-love, html body .slw-pcc-scene.still.love .slw-pcc-love { opacity: 1; animation: none; }
+@keyframes pccDrop { 0% { opacity: 0; transform: translateY(-34px); } 25% { opacity: 1; } 70% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(2px); } }
+@keyframes pccNod { 0%, 100% { transform: none; } 50% { transform: translateY(4px) rotate(7deg); } }
+@keyframes pccHop { 0%, 100% { transform: none; } 45% { transform: translateY(-14px); } }
+@keyframes pccLove { 0% { opacity: 0; transform: translateY(14px); } 30% { opacity: 1; } 100% { opacity: 1; transform: translateY(-4px); } }
+/* Play without the island: the card's portrait hops twice (1.7 Hz) */
+html body .slw-pcc-pic.slw-pcc-hop > * { animation: pccHop 600ms ease-in-out 2; }
+
+/* ---------------- phones: one card per row, a smaller strip ---------------- */
+@media (max-width: 600px) {
+  html body .slw-pcc-pic { width: 84px; height: 84px; }
+  html body .slw-pcc-scene { width: 160px; height: 128px; }
+  html body .slw-pcc-scene .slw-pcc-eat { width: 98px; height: 98px; }
+  html body .slw-pcc-scene.play .slw-pcc-eat { left: 28px; }
+  html body .slw-pcc-scene .slw-pcc-bowl { width: 62px; }
+  html body .slw-pcc-bits { right: 18px; bottom: 32px; }
+  html body .slw-pcc-stripbar { gap: 10px; padding: 8px 10px; }
+}
+
+/* ---------------- reduced motion: end states, no slides ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  html body .slw-ov.slw-pcc-strip > .slw-sheet { animation: none; visibility: hidden; }
+  html body .slw-pcc-scene .slw-pcc-bit, html body .slw-pcc-scene .slw-pcc-eat, html body .slw-pcc-pic.slw-pcc-hop > * { animation: none; }
+  html body .slw-pcc-scene.love .slw-pcc-love { animation: none; opacity: 1; }
+  html body .slw-pcc-tab[aria-selected="true"], html body .slw-pcc-pet.on, html body button.slw-pcc-food:active { transition: none; }
+}

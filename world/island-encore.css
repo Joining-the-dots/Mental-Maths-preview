@@ -552,12 +552,16 @@ html body .slw-cell.bad { animation: sleBadCell 0.333s ease-in-out infinite alte
 /* ---------------- 3D stage ---------------- */
 html body .slw-stagewrap.slw-is3d { overflow: hidden; background: linear-gradient(180deg, #1E3F86 0%, #2C6FA3 100%); }
 html body .slw.showtime .slw-stagewrap.slw-is3d { background: #0B1440; }
+/* --slw-fit (rewards-world.js fitStage, E2): the window's height below the stage's top, set on #worldView on every
+   draw and resize, so the front lawn (the starter pet, the child) is never under the window's bottom edge. The
+   vh / dvh caps stay as the fallback for a page that never set it */
 html body .slw-stagewrap.slw-is3d .slw-stage {
   width: 100%;
   aspect-ratio: 16 / 9;
   min-height: 260px;
   max-height: calc(100vh - 200px);
   max-height: calc(100dvh - 200px);
+  max-height: var(--slw-fit, calc(100vh - 200px));
 }
 /* tablets held upright: 4:3, the land fills the width */
 @media (orientation: portrait) and (min-width: 701px) {
@@ -572,6 +576,7 @@ html body .slw-stagewrap.slw-is3d .slw-stage {
     min-height: 340px;
     max-height: calc(100vh - 150px);
     max-height: calc(100dvh - 150px);
+    max-height: var(--slw-fit, calc(100vh - 150px));
   }
 }
 /* phones held sideways: the frame is height-limited, so the stage takes the viewport height */
@@ -851,6 +856,28 @@ html body .slw-x {
   html body .slw-x:hover { background: rgba(255, 255, 255, 0.12); }
 }
 html body .slw-x:active { transform: scale(0.94); }
+/* the sticky sheet header (A9): the title, the ⭐ balance and the ✕ stay at the top while the sheet scrolls. It
+   sits flush with the sheet's top edge (its margin and top undo the sheet's 18px padding) on the solid panel */
+html body .slw-sheethd {
+  position: -webkit-sticky;
+  position: sticky;
+  top: -18px;
+  margin: -18px -18px 10px;
+  padding: 12px 18px 10px;
+  background: var(--sle-panel-solid);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+html body .slw-sheethd.bare { margin: -18px -18px 18px; padding: 0; background: transparent; border-bottom: 0; }
+html body .slw-sheethd h2 { margin: 0; }
+html body .slw-hdpts {
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--sle-gold-soft);
+  font-family: var(--sle-ui);
+  font-weight: 800;
+  font-size: 16px;
+}
 html body .slw-cats { gap: 8px; margin: 10px 0 12px; }
 html body .slw-cats .slw-btn { border-radius: 999px; padding: 8px 14px; font-size: 14px; }
 html body .slw-err { color: var(--sle-coral); font-family: var(--sle-ui); font-weight: 700; }
@@ -1717,6 +1744,8 @@ html.sl-low body {
     border-radius: 20px 20px 0 0;
   }
   html body .slw-sheet h2 { font-size: 21px; }
+  html body .slw-sheethd { top: -16px; margin: -16px -14px 10px; padding: 10px 14px 8px; }
+  html body .slw-sheethd.bare { margin: -16px -14px 16px; padding: 0; }
   html body .slw-cats {
     flex-wrap: nowrap;
     overflow-x: auto;

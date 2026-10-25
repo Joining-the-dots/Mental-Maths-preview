@@ -29,7 +29,7 @@
      GhostBuf()                      where another child's kart is at my race clock
      evidence(), hostVerdict(row, evidence, info) → 'ok' | 'dash'
      create(cfg) → session           find, host, join, leave, setTrack, setCrew, ready, start, sendState,
-                                     sendFinish, backToLobby, detach, resync, ghosts, table, on
+                                     sendFinish, backToLobby, detach, resync, prune (= recheck), ghosts, table, on
      peerTransport(Peer, peerOpts, {relayOnly}) → transport
    ================================================================ */
 (function () {
@@ -325,9 +325,15 @@
        2 s or more is owed what a guest sends meanwhile (12 a second of the silence, 30 s at
        most): a backlog that a stalled network, or a starter's own sleep, delivers in one burst
        is not counted. A silence buys at most that once, so a flood is closed as before as soon
-       as what it is owed has gone. A guest just drops what fails. */
-    function wire(link, fromHost, strict) {
+       as what it is owed has gone. A guest just drops what fails.
+       init(L), when given, sets L up (onMsg, onGone, where it is kept) BEFORE the link is
+       listened to: a transport hands over what it held for the link, and tells of a link that
+       has already closed, the moment it is listened to, so nothing may arrive before the
+       handlers are there (a relay room's hub checks the relay for 0.3 s more while the guest's
+       hello is already waiting). */
+    function wire(link, fromHost, strict, init) {
       var L = { link: link, open: true, deaf: false, onMsg: null, onGone: null, seat: null, looker: false, times: [], lastAt: now(), owed: 0 };
+      if (init) init(L);
       link.onMessage(function (data) {
         if (!L.open || L.deaf || dead) return;
         var t = now(), o = parse(data), m;
@@ -422,10 +428,11 @@
     }
     function onCaller(link) {
       if (!H || dead) { try { link.close(); } catch (e) {} return; }
-      var L = wire(link, false, true);
-      L.looker = true; L.over = ++H.lookers > LOOKERS;
-      L.onMsg = hostMsg; L.onGone = hostGone;
-      H.links.push(L);
+      var L = wire(link, false, true, function (x) {
+        x.looker = true; x.over = ++H.lookers > LOOKERS;
+        x.onMsg = hostMsg; x.onGone = hostGone;
+        H.links.push(x);
+      });
       tm.setTimeout(function () { if (L.looker && L.open) kill(L); }, LOOK_MS + 5000);
     }
     function hostGone(L) {
@@ -458,9 +465,10 @@
     function joinReq(m, L) {
       var tags = isObj(c.tags) ? c.tags : {}, s, i, h = L.h;
       if (L.seat || L.asking) return;
-      if (m.tok) {                                       /* back into the same seat: the token stands in for the ticket */
-        s = seatOf(m.tag);
+      if (m.tok) {                                       /* back into the same seat: the token stands in for the ticket, */
+        s = seatOf(m.tag);                               /* but only for a child still in the roster the lobby holds now */
         if (!s || s.tok !== m.tok) return refuse(L, 'closed');
+        if (!has(tags, m.tag)) { refuse(L, 'closed'); freeSeat(s, false); return; }   /* and that child's seat goes */
         if (s.L && s.L !== L) { s.L.seat = null; bye(s.L); }
         return sit(s, L);
       }
@@ -483,6 +491,15 @@
       if (s.L) { if (tell) send(s.L, { t: 'no', why: 'closed' }); s.L.seat = null; bye(s.L); }
       if (row && (row.state === 'racing' || row.state === 'gone')) { row.state = 'gone'; sendRes(); }
       room(); tryGo();
+    }
+    /* every seat whose child has left the roster the lobby holds now (c.tags: a grown-up
+       unticked them, or the lobby read the roster again) is freed and told {no: closed};
+       how many were */
+    function prune() {
+      var tags = isObj(c.tags) ? c.tags : {}, n = 0;
+      if (!H || dead) return 0;
+      seated().forEach(function (s) { if (!has(tags, s.tag) && H.seats[s.seat] === s) { n++; freeSeat(s, true); } });
+      return n;
     }
     function hostMsg(m, L) {
       var s = L.seat, t = m.t, row;
@@ -664,22 +681,25 @@
       }
       tr.dial(roomId(c.groupKey, slot), findMs).then(function (link) {
         if (dead || settled || (keep && !keep())) { try { link.close(); } catch (e) {} return; }
-        L = wire(link, true, false);
-        L.onGone = function () { end(null); };
-        L.onMsg = function (m) {
-          if (settled) return;
-          if (m.t === 'no') return end(m.why === 'version' ? { slot: slot, state: 'version' } : null);
-          if (m.t !== 'info') return;
-          if (m.v !== PROTO || m.rules !== c.rules) return end({ slot: slot, state: 'version' });
-          hostOk(m.tag, slot, m.r).then(function (ok) {
-            if (!ok || dead || settled || (keep && !keep())) return end(null);
-            if (looks[slot]) shut(looks[slot].L);
-            looks[slot] = { L: L, info: m };
-            L.onGone = null; L.onMsg = null;
-            later(function () { if (looks[slot] && looks[slot].L === L) { shut(L); delete looks[slot]; } }, LOOK_MS);
-            end({ slot: slot, tag: m.tag, name: nm(m.tag, 0), ai: m.ai, ci: m.ci, track: m.track, trackOk: !!courseOf(m.track), used: m.used, state: m.state });
-          });
-        };
+        wire(link, true, false, function (x) {
+          L = x;
+          L.onGone = function () { end(null); };
+          L.onMsg = function (m) {
+            if (settled) return;
+            if (m.t === 'no') return end(m.why === 'version' ? { slot: slot, state: 'version' } : null);
+            if (m.t !== 'info') return;
+            if (m.v !== PROTO || m.rules !== c.rules) return end({ slot: slot, state: 'version' });
+            hostOk(m.tag, slot, m.r).then(function (ok) {
+              if (!ok || dead || settled || (keep && !keep())) return end(null);
+              if (looks[slot]) shut(looks[slot].L);
+              looks[slot] = { L: L, info: m };
+              L.onGone = null; L.onMsg = null;
+              later(function () { if (looks[slot] && looks[slot].L === L) { shut(L); delete looks[slot]; } }, LOOK_MS);
+              end({ slot: slot, tag: m.tag, name: nm(m.tag, 0), ai: m.ai, ci: m.ci, track: m.track, trackOk: !!courseOf(m.track), used: m.used, state: m.state });
+            });
+          };
+        });
+        if (settled) return;                             /* the link had already closed */
         send(L, { t: 'hello', v: PROTO, rules: c.rules });
         later(function () { end(null); }, findMs);
       }, function () { end(null); });
@@ -709,8 +729,14 @@
       tm.clearTimeout(G.finT);
       G.finT = later(pushFin, FIN_MS);
     }
+    /* once a second. A tick more than 2.5 s late means this device itself was asleep (the hub's
+       own rule): what the hub sent meanwhile is still on its way, so the silence is counted
+       afresh from now, and a guest whose timers wake first does not give the race up */
     function guestTick() {
-      var t = now(), quiet = t - G.heard, rt = G.cd.rtt(t), weak = quiet > WEAK_MS;
+      var t = now(), slept = t - G.tickAt > STALL_MS, quiet, rt = G.cd.rtt(t), weak;
+      G.tickAt = t;
+      if (slept) G.heard = Math.max(G.heard, t);
+      quiet = t - G.heard; weak = quiet > WEAK_MS;
       if (ses.state === 'lost') return;
       send(G.L, rt === null ? { t: 'p', c: t } : { t: 'p', c: t, rt: Math.min(60000, Math.round(rt)) });
       if (weak !== G.weak) { G.weak = weak; emit('weak', { on: weak }); }
@@ -739,8 +765,7 @@
       (function dial() {
         tr.dial(roomId(c.groupKey, G.slot), Math.max(1, until - now())).then(function (link) {
           if (dead || !G || ses.state === 'lost' || G.tryN !== n) { try { link.close(); } catch (e) {} return; }
-          G.L = wire(link, true, false);
-          G.L.onMsg = guestMsg; G.L.onGone = guestGone;
+          wire(link, true, false, function (x) { G.L = x; x.onMsg = guestMsg; x.onGone = guestGone; });
           send(G.L, { t: 'join', tag: me.tag, ai: me.ai, ci: me.ci, tok: G.tok });
           later(function () { if (G && G.tried && G.tryN === n) lost(); }, findMs);
         }, function (err) {
@@ -785,7 +810,7 @@
       if (!G || L !== G.L) return;
       G.heard = now();
       if (t === 'seat') {
-        if (G.ok) { ses.seat = m.seat; ses.state = 'lobby'; G.ok({ seat: m.seat }); G.ok = G.no = null; every(guestTick, PING_MS); guestTick(); }
+        if (G.ok) { ses.seat = m.seat; ses.state = 'lobby'; G.ok({ seat: m.seat }); G.ok = G.no = null; G.tickAt = now(); every(guestTick, PING_MS); guestTick(); }
         else if (m.seat !== ses.seat) return lost();
         G.tok = m.tok; G.tried = false;
         if (G.fin) pushFin();
@@ -926,7 +951,7 @@
             delete looks[slot]; closeLooks();
             role = ses.role = 'guest'; ses.slot = slot;
             G = { L: lk.L, slot: slot, tok: '', cd: ClockDiff(), heard: now(), rq: -1, sq: -1, q: 0, goR: -1, fin: null, finT: null, rdyTrack: '', hb: false, rdySent: false,
-              weak: false, tried: false, tryN: 0, ok: res, no: rej };
+              weak: false, tried: false, tryN: 0, tickAt: now(), ok: res, no: rej };
             lk.L.onMsg = guestMsg; lk.L.onGone = guestGone;
             send(lk.L, { t: 'join', tag: me.tag, ai: me.ai, ci: me.ci });
             later(function () { joinFail('timeout'); }, findMs);
@@ -978,10 +1003,18 @@
     };
     /* the page came back to the front: measure the clock difference afresh */
     ses.resync = function () { if (G) G.cd.reset(); };
+    /* The starter only: free every seat whose child is no longer in the roster the lobby holds
+       (cfg.tags, read again by the lobby) and tell that child {no: closed}; in a race that
+       child's row is 'gone'. Start and Race again do this themselves; the lobby calls it after
+       each roster re-read. Returns how many seats were freed (0 for a guest). recheck is the
+       same function. */
+    ses.prune = ses.recheck = function () { return role === 'host' ? prune() : 0; };
     /* The starter pressed Start. GO follows as soon as every device in the lobby is ready,
        and after 8 s whoever is not. */
     ses.start = function () {
-      if (role !== 'host' || ses.state !== 'lobby' || !inLobby().length) return false;
+      if (role !== 'host' || ses.state !== 'lobby') return false;
+      prune();
+      if (!inLobby().length) return false;
       ses.state = 'starting'; H.fired = false;
       room(); tryGo();
       tm.clearTimeout(H.goT);
@@ -1020,6 +1053,7 @@
       if (role === 'host') {
         if (!race || !race.final) return false;
         ses.state = 'lobby'; H.me.st = 'lobby'; H.fired = false;
+        prune();
         cast({ t: 'rematch' }); room();
         return true;
       }
@@ -1081,7 +1115,9 @@
     if (relay) { if (!isObj(opts.config)) opts.config = {}; opts.config.iceTransportPolicy = 'relay'; }
 
     function tell(why) { for (var i = 0; i < down.length; i++) { try { down[i](why); } catch (e) {} } }
-    /* one link. Messages that arrive before the session listens are held, not missed. */
+    /* one link. Messages that arrive before the session listens are held, not missed; they are
+       handed over the moment it listens. A link that closed before the session asked to hear
+       of it is reported at once. */
     function wrap(conn) {
       var fn = null, held = [], gone = [], open = true;
       function end() { var i; if (!open) return; open = false; for (i = 0; i < gone.length; i++) { try { gone[i](); } catch (e) {} } }
@@ -1091,7 +1127,7 @@
       return {
         send: function (text) { if (open) { try { conn.send(text); } catch (e) {} } },
         onMessage: function (f) { var h = held, i; fn = f; held = []; for (i = 0; i < h.length; i++) f(h[i]); },
-        onClose: function (f) { gone.push(f); },
+        onClose: function (f) { if (open) gone.push(f); else { try { f(); } catch (e) {} } },
         close: function () { if (!open) return; open = false; try { conn.close(); } catch (e) {} }
       };
     }

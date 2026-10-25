@@ -128,6 +128,26 @@
                   'spot' (one 'spawn' sparkle), idles, plays and answers taps; it is never the
                   active pet, never takes part in an act perform (perform() with it → -1; the
                   maypole never recruits it) and joins a dance break like the rest of the crew.
+
+   THE KIDS UPDATE (P2.5; kids-update pets.json rigs.newPlayMoves / moodAndEating, decisions P21–P23)
+     play         four more PLAY_MOVES, in place: curl 2.0 (hedgehog, tortoise) · balance 2.0 (flamingo)
+                  · fan 2.2 (peacock) · stand 1.8 (red panda); playOf() also accepts the four V4.54
+                  play actions (V454_PLAY) as a v3 row's play (binky: the guinea pig, pounce: the snow
+                  leopard).
+     pace         speedOf(species) = WALK.speed × SPECIES3.pace: a pet's own walks (wander, visits, the
+                  bench) and the floor of its run-overs; crossings and act lead times keep their speeds.
+     mood         sync() pets entries may carry mood {hunger 0–3, happy 0–4, sitter} (moodOf). hunger 1:
+                  lookAvatar × 1.5 · 2: walks × 0.75, play 0, sit × 1.6 · 3: walks × 0.6, sit and nap × 2,
+                  now and then the 'sad' pout (1.6 s) · happy 4: play × 1.5 and the 'signature' (its
+                  DANCE_PLAN counts 5–6, in place) once every 20–30 s · happy 0: lookAvatar × 1.5, wander
+                  × 0.6. Reduced motion: the weights only (no pout, no signature). A pet with no mood
+                  behaves exactly as before. tap() on a hungry pet (hunger ≥ 2): out.tap = 'hungry' (the
+                  softer reaction; no happy tail).
+     feed         feed(id, {fav}) → lead | -1: see feed() below. 'eat' (2.0 s) is never an idle choice.
+     give way     a walking pet that re-plans GIVE_WAY times in a row without getting anywhere steps back
+                  to the free square round it farthest from the pet in its way (or, stuck again, pops to
+                  the nearest square clear of every pet), then idles: pets that block each other no longer
+                  freeze, and settled pets keep their distance.
    ================================================================ */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -214,9 +234,31 @@
   var PLAY_MOVES = {
     dig: { sec: 1.8 }, flutter: { sec: 1.4, turn: [PI, 0.07, 0.54] }, loaf: { sec: 2.4 }, tumble: { sec: 0.85 },
     stash: { sec: 1.8 }, glide: { sec: 1.4, turn: [TAU, 0.06, 0.51] }, follow: { sec: 2.0 }, prance: { sec: 1.6 },
-    bellyflop: { sec: 1.4 }, clap: { sec: 1.6 }
+    bellyflop: { sec: 1.4 }, clap: { sec: 1.6 },
+    /* the kids update's four (pets.json rigs.newPlayMoves): hedgehog / tortoise, flamingo, peacock, red panda */
+    curl: { sec: 2.0 }, balance: { sec: 2.0 }, fan: { sec: 2.2 }, stand: { sec: 1.8 }
   };
   Object.keys(PLAY_MOVES).forEach(function (k) { ACTIONS[k] = { dur: [PLAY_MOVES[k].sec, PLAY_MOVES[k].sec] }; });
+  /* a v3 row may also play one of the V4.54 play actions (the guinea pig's binky, the snow leopard's pounce) */
+  var V454_PLAY = { chase: 1, pounce: 1, binky: 1, loop: 1 };
+  /* KIDS UPDATE P2.5 (pets.json moodAndEating): 'eat' (only ever started by feed()), the hungry pet's
+     'sad' pout and the very happy pet's 'signature' (its DANCE_PLAN counts 5–6, in place). None is in
+     WEIGHTS: sad and signature join a pet's idle choice only through its mood. */
+  ACTIONS.eat = { dur: [2, 2] };
+  ACTIONS.sad = { dur: [1.6, 1.6] };
+  ACTIONS.signature = { dur: [2 * DANCE.beat, 2 * DANCE.beat] };
+  /* mood (view.pets[].mood {hunger 0–3, happy 0–4}): the walk speed factor per hunger level, the sad
+     pout's weight and clip intensity, the signature's spacing (s) */
+  var MOOD = { cruise: [1, 1, 0.75, 0.6], sad: 0.6, sadIntensity: 0.4, sigEvery: [20, 30] };
+  /* feeding (decision P21): the bowl pops in (pop s) beside the pet (dist u away, in one of the dirs round
+     the camera so the child sees it), the meal drops in (drops), the pet hops over (hop) to reach u from
+     the bowl and eats (eat s, the pile going in 4 steps), one happy tap reaction, the bowl pops out (out s).
+     Under reduced motion the end state stands for still s. */
+  var FEED = { pop: 0.2, drops: [0.2, 0.35, 0.5, 0.65], hop: [0.65, 1.0], eat: 2.0, out: 0.2, still: 1.2, r: 0.3,
+               dist: 0.72, reach: 0.4, dirs: [0.9, -0.9, 1.7, -1.7, 0, 2.6, -2.6, PI] };
+  /* the give-way loop: a walking pet that re-plans this many times in a row without getting anywhere
+     steps back (giveWay), so pets that block each other never freeze */
+  var GIVE_WAY = 3;
   var TAPS = ['hop', 'rear', 'clap'];
   var POUNCE_DIST = 0.35;
   /* idle choice weights (base); species tweaks below. beatNod only while music plays. */
@@ -228,8 +270,28 @@
   var REDUCED_W = { look: 1.2, lookAvatar: 1, turn: 1.4, emote: 0.8 };
   /* a species' row of the tables: the V4.54 four above; a land mascot from SLIslandLook.SPECIES3 */
   function species3(sp) { var L = look(), S = L && L.SPECIES3; return S && typeof sp === 'string' && Object.prototype.hasOwnProperty.call(S, sp) ? S[sp] : null; }
-  function playOf(sp) { if (PLAY[sp]) return PLAY[sp]; var s = species3(sp); return s && PLAY_MOVES[s.play] ? s.play : 'chase'; }
+  function playOf(sp) { if (PLAY[sp]) return PLAY[sp]; var s = species3(sp); return s && (PLAY_MOVES[s.play] || V454_PLAY[s.play]) ? s.play : 'chase'; }
   function tapOf(sp) { var s = species3(sp); return s && TAPS.indexOf(s.tap) >= 0 ? s.tap : 'hop'; }
+  /* SPECIES3.pace (0.4–1.2, default 1): the factor on WALK.speed for a pet's own walks (a V4.54 pet: 1) */
+  function paceOf(sp) { var s = species3(sp), v = s ? +s.pace : NaN; return isFinite(v) && v > 0 ? clamp(v, 0.4, 1.2) : 1; }
+  function speedOf(sp) { return WALK.speed * paceOf(sp); }
+  /* a view.pets mood {hunger 0 fine · 1 peckish · 2 hungry · 3 very hungry, happy 0–4, sitter} → a copy, or null */
+  function moodOf(m) {
+    if (!m || typeof m !== 'object') return null;
+    var h = Math.round(+m.hunger), j = Math.round(+m.happy);
+    return { hunger: isFinite(h) ? clamp(h, 0, 3) : 0, happy: isFinite(j) ? clamp(j, 0, 4) : 2, sitter: m.sitter === true };
+  }
+  /* the mood's factors on an idle choice's weights (only keys already there; reduced: weights only) */
+  function moodWeights(m, w, reduced) {
+    if (!m) return w;
+    function mul(k, f) { if (w[k] != null) w[k] *= f; }
+    if (m.hunger === 1) mul('lookAvatar', 1.5);
+    if (m.hunger >= 2) { if (w.play != null) w.play = 0; mul('sit', m.hunger === 2 ? 1.6 : 2); }
+    if (m.hunger === 3) { mul('nap', 2); if (!reduced) w.sad = MOOD.sad; }
+    if (m.happy >= 4 && m.hunger < 2) mul('play', 1.5);
+    if (m.happy === 0) { mul('lookAvatar', 1.5); mul('wander', 0.6); }
+    return w;
+  }
   var W3 = {};
   function weightsOf(sp) {
     if (SPECIES_W[sp]) return SPECIES_W[sp];
@@ -828,6 +890,10 @@
       /* the land mascots (W3b.12): a visited land's own mascot hosted by its island (D112), the tap
          reaction ('hop' | 'rear' | 'clap'), the yaw a play move's body turn starts from */
       guest: false, tapKind: 'hop', turnFrom: 0,
+      /* the kids update (P2.5): the mood from the view (null = none: V4.54 behaviour) and its walk factor,
+         when the next signature may play, the give-way re-plans in a row, the feeding ({on, t0, bowl x y z,
+         yaw, the hop's ends, eat0, end, reduced}; null until the first meal) */
+      mood: null, moodK: 1, sigAt: 0, stuck: 0, feed: null,
       mark: { x: 0, y: 0, z: 0 },                    /* the stage deck mark (danceMark points here) */
       px: 0, pz: 0, qx: 0, qz: 0                       /* pounce start / end */
     };
@@ -863,6 +929,8 @@
     function pick(list) { return list[Math.floor(rng() * list.length) % list.length]; }
     function range(r) { return r[0] + (r[1] - r[0]) * rng(); }
     function g() { return brain.graph; }
+    /* a pet's own walking speed: its species' pace × its mood (a V4.54 pet with no mood: WALK.speed) */
+    function walkSpeed(p) { return speedOf(p.species) * p.moodK; }
 
     /* ---------- reservations: at most one cell per pet, never shared ---------- */
     function reserve(p, i) {
@@ -938,7 +1006,7 @@
 
     /* ---------- walking ---------- */
     function startPath(p, path, goal, cruise) {
-      p.path = path; p.pathS = 0; p.seg = 1; p.goal = goal || null; p.waitT = 0;
+      p.path = path; p.pathS = 0; p.seg = 1; p.goal = goal || null; p.waitT = 0; p.stuck = 0;
       p.cruise = cruise || WALK.speed;
       p.state = 'walk';
       reserve(p, path.target);
@@ -981,6 +1049,10 @@
         target = 0; p.waitT += dt;
         if (p.waitT > WALK.wait) {                     /* give way: re-plan around the pet in front */
           p.waitT = 0;
+          /* pets that block each other would re-plan for ever: after GIVE_WAY re-plans in a row that got
+             nowhere the pet gives way (steps back, or pops clear) */
+          p.stuck = p.pathS < WALK.step ? p.stuck + 1 : 0;
+          if (p.stuck >= GIVE_WAY) { giveWay(p, q); return; }
           var np = planTo(p, path.target, cellOf(q.x, q.z));
           if (np && np.total > 0.05) { p.path = path = np; p.pathS = 0; p.seg = 1; }
           else { arrive(p, true); return; }
@@ -994,6 +1066,30 @@
       p.cell = cellOf(p.x, p.z);
       p.y = heightAt(g(), p.x, p.z);
       if (p.pathS >= path.total - 1e-6) arrive(p, false);
+    }
+    /* stuck nose to nose with q (GIVE_WAY re-plans that got nowhere): step back to the free square round
+       it farthest from q (a short straight walk to its centre; the old goal is dropped) and idle there, so
+       settled pets keep their distance. No such square, or stuck again on the way back: a sparkle pop to
+       the nearest free square clear of every pet (the 'pop' sync already uses) */
+    var RETREAT = { type: 'retreat' };
+    function clearOfPets(p, i) {
+      for (var k = 0; k < brain.pets.length; k++) { var o = brain.pets[k]; if (o !== p && Math.hypot(centreX(i) - o.x, centreZ(i) - o.z) < 0.75) return false; }
+      return true;
+    }
+    function giveWay(p, q) {
+      var gr = g(), c0 = cellOf(p.x, p.z), c = colOf(c0), r = rowOf(c0), best = -1, bd = -1;
+      p.stuck = 0;
+      if (p.goal !== RETREAT) for (var n = -1; n < 8; n++) {
+        var i = n < 0 ? c0 : cellIndex(c + NB_DC[n], r + NB_DR[n]), d = i < 0 ? 0 : Math.hypot(centreX(i) - q.x, centreZ(i) - q.z);
+        if (i >= 0 && d > bd && freeFor(p, i) && clearOfPets(p, i) && losClear(gr, p.x, p.z, centreX(i), centreZ(i), null, 0, -1)) { bd = d; best = i; }
+      }
+      if (best >= 0) { startPath(p, finishPath([p.x, centreX(best)], [p.z, centreZ(best)], [c0, best], best), RETREAT, p.cruise); return; }
+      var far = -1, fd = Infinity;
+      for (var j = 0; j < NCELL; j++) {
+        var dj = Math.hypot(centreX(j) - p.x, centreZ(j) - p.z);
+        if (dj < fd && freeFor(p, j) && clearOfPets(p, j) && (!gr.largest || gr.comp[j] === gr.comp[c0])) { fd = dj; far = j; }
+      }
+      if (far >= 0) popTo(p, far); else arrive(p, true);
     }
     function arrive(p, gaveUp) {
       var goal = p.goal;
@@ -1028,7 +1124,7 @@
       }
       p.turnFrom = p.yaw;
       if (tx != null) { p.desiredYaw = Math.atan2(tx - p.x, tz - p.z); p.hasDesired = true; p.lookX = tx; p.lookZ = tz; p.lookK = 1; }
-      if (name === 'look') { p.desiredYaw = brain.camYaw; p.hasDesired = true; p.faceCam = 1; }
+      if (name === 'look' || name === 'signature') { p.desiredYaw = brain.camYaw; p.hasDesired = true; p.faceCam = name === 'look' ? 1 : 0; }
       if (name === 'turn') { p.desiredYaw = wrap(p.yaw + (rng() < 0.5 ? -1 : 1) * (0.8 + rng() * 1.6)); p.hasDesired = true; }
       if (name === 'emote') { p.desiredYaw = brain.camYaw; p.hasDesired = true; p.faceCam = 1; brain.events.push({ type: 'emote', id: p.id, kind: pick(EMOTES) }); }
       if (name === 'pounce') {
@@ -1037,6 +1133,7 @@
       }
     }
     function actStep(p, dt) {
+      if (p.action === 'eatWait' || p.action === 'eat') { feedStep(p, dt); return; }
       var mv = PLAY_MOVES[p.action], tw = mv && mv.turn;
       if (tw) {                                       /* a play move's eased body turn, in place */
         var tu = clamp01(((brain.now - p.actT0) / Math.max(0.1, p.actDur) - tw[1]) / (tw[2] - tw[1]));
@@ -1059,18 +1156,22 @@
     /* ---------- choosing what to do next (every 4–8 s, start to start) ---------- */
     function weightsFor(p) {
       var w = {}, k, sp = weightsOf(p.species);
-      if (brain.reduced) { for (k in REDUCED_W) w[k] = REDUCED_W[k]; if (g().avatar < 0) w.lookAvatar = 0; return w; }
+      if (brain.reduced) { for (k in REDUCED_W) w[k] = REDUCED_W[k]; moodWeights(p.mood, w, true); if (g().avatar < 0) w.lookAvatar = 0; return w; }
       for (k in WEIGHTS) w[k] = WEIGHTS[k] * (sp[k] != null ? sp[k] : 1);
       if (g().avatar < 0) w.lookAvatar = 0;
       if (!brain.music) w.beatNod = 0;                /* nodding needs a beat to nod to */
       if (brain.show > 0.5) w.bench *= 4;
       if (g().city > 0) w.visit *= 1.5;               /* the crew likes hanging round the city buildings */
-      return w;
+      return moodWeights(p.mood, w, false);
     }
     function decide(p) {
       var G = IDLE.min + (IDLE.max - IDLE.min) * rng();
       p.gap = G; p.lastStart = brain.now; p.nextAt = brain.now + G; p.starts++;
-      var budget = G - IDLE.slack, w = weightsFor(p), names = Object.keys(w), tries = 0;
+      var budget = G - IDLE.slack, w = weightsFor(p), names = Object.keys(w), tries = 0, m = p.mood;
+      if (m && m.happy >= 4 && m.hunger < 2 && !brain.reduced && brain.now >= p.sigAt) {
+        p.sigAt = brain.now + MOOD.sigEvery[0] + (MOOD.sigEvery[1] - MOOD.sigEvery[0]) * rng();
+        if (tryAction(p, 'signature', budget)) return 'signature';
+      }
       while (tries++ < 8) {
         var total = 0, i;
         for (i = 0; i < names.length; i++) total += w[names[i]];
@@ -1108,7 +1209,7 @@
     function tryWander(p, budget) {
       var from = reachMap(p);
       if (from < 0) return false;
-      var maxD = (budget - IDLE.turnPad) * WALK.speed, cand = [];
+      var sp = walkSpeed(p), maxD = (budget - IDLE.turnPad) * sp, cand = [];
       for (var i = 0; i < NCELL; i++) {
         if (i === from || !isFinite(dist[i]) || dist[i] < 1 || dist[i] * 1.06 > maxD) continue;
         if (res[i] >= 0 && res[i] !== p.index) continue;
@@ -1118,21 +1219,21 @@
         var k = Math.floor(rng() * cand.length), t = cand[k];
         cand[k] = cand[cand.length - 1]; cand.pop();
         var cells = chainTo(parent, from, t), path = cells && smoothPath(g(), cells, p.x, p.z, null);
-        if (path && path.total / WALK.speed + IDLE.turnPad <= budget && pathValid(g(), path, 0, null, from)) { startPath(p, path, null); return true; }
+        if (path && path.total / sp + IDLE.turnPad <= budget && pathValid(g(), path, 0, null, from)) { startPath(p, path, null, sp); return true; }
       }
       return false;
     }
     function tryVisit(p, budget) {
       var from = reachMap(p);
       if (from < 0) return false;
-      var opts2 = [];
+      var opts2 = [], sp = walkSpeed(p);
       g().items.forEach(function (ob) {
         var city = CITY_IDS.test(ob.id);
         var kind = SNIFF_IDS.test(ob.id) ? 'sniff' : WATCH_IDS[ob.id] || city ? 'look' : '';
         if (!kind || ob.id === 'bench') return;
         ob.adj.forEach(function (a) {
           if (!isFinite(dist[a]) || (res[a] >= 0 && res[a] !== p.index)) return;
-          var walkT = dist[a] * 1.06 / WALK.speed + IDLE.turnPad;
+          var walkT = dist[a] * 1.06 / sp + IDLE.turnPad;
           if (walkT + 1.4 > budget) return;
           var o = { a: a, ob: ob, kind: kind, walkT: walkT };
           opts2.push(o);
@@ -1145,10 +1246,10 @@
         var cells = o.a === from ? [from] : chainTo(parent, from, o.a);
         var path = cells && smoothPath(g(), cells, p.x, p.z, null);
         if (!path) continue;
-        var goal = { type: 'act', name: o.kind, dur: Math.min(2.4, budget - path.total / WALK.speed - IDLE.turnPad), fx: o.ob.x, fz: o.ob.z };
+        var goal = { type: 'act', name: o.kind, dur: Math.min(2.4, budget - path.total / sp - IDLE.turnPad), fx: o.ob.x, fz: o.ob.z };
         if (goal.dur < 1) continue;
         if (path.total < 0.05) { startAct(p, o.kind, goal.dur, goal); return true; }
-        startPath(p, path, goal);
+        startPath(p, path, goal, sp);
         return true;
       }
       return false;
@@ -1156,13 +1257,13 @@
     function tryBench(p, budget) {
       var from = reachMap(p);
       if (from < 0) return false;
-      var best = null;
+      var best = null, sp = walkSpeed(p);
       g().items.forEach(function (ob) {
         if (ob.id !== 'bench') return;
         if (benchTaken(ob.uid, p)) return;
         ob.adj.forEach(function (a) {
           if (!isFinite(dist[a]) || (res[a] >= 0 && res[a] !== p.index)) return;
-          var t = dist[a] * 1.06 / WALK.speed + IDLE.turnPad + HOP.benchOn + 2 + HOP.off;
+          var t = dist[a] * 1.06 / sp + IDLE.turnPad + HOP.benchOn + 2 + HOP.off;
           var front = rowOf(a) === ob.r + 1 ? 0 : 0.3;     /* hop up from the front when possible */
           if (t <= budget && (!best || t + front < best.t)) best = { a: a, ob: ob, t: t + front };
         });
@@ -1171,7 +1272,7 @@
       var cells = best.a === from ? [from] : chainTo(parent, from, best.a), path = cells && smoothPath(g(), cells, p.x, p.z, null);
       if (!path) return false;
       if (path.total < 0.05) { startSeat(p, best.ob, 'bench', p.nextAt - IDLE.slack - brain.now - HOP.benchOn - HOP.off); return true; }
-      startPath(p, path, { type: 'bench', uid: best.ob.uid });
+      startPath(p, path, { type: 'bench', uid: best.ob.uid }, sp);
       return true;
     }
     function benchTaken(uid, self) {
@@ -1259,7 +1360,8 @@
       pf.ax = centreX(a); pf.az = centreZ(a); pf.ay = heightAt(gr, pf.ax, pf.az);
       if (pf.runDur <= 0) { pf.ax = p.x; pf.az = p.z; pf.ay = p.y; }
       p.state = 'perform'; p.action = kind;
-      p.cruise = run.path ? Math.max(WALK.speed, run.path.total / Math.max(0.05, run.runDur)) : WALK.speed;
+      var own = walkSpeed(p);
+      p.cruise = run.path ? Math.max(own, run.path.total / Math.max(0.05, run.runDur)) : own;
       p.pathS = 0; p.seg = 1;
       reserve(p, a);
     }
@@ -2447,7 +2549,7 @@
         seen[id] = 1;
         var guest = !!(rec && rec.guest), act = !guest && (!!(rec && rec.active) || id === r.activePet);
         if (away[id]) { away[id].active = act; awayActive = awayActive || act; return; }
-        ids.push({ id: id, active: act, guest: guest });
+        ids.push({ id: id, active: act, guest: guest, mood: rec && rec.mood });
       });
       Object.keys(away).forEach(function (id) { if (!seen[id]) { delete away[id]; delete byId[id]; } });
       brain.pets.filter(function (p) { return !seen[p.id]; }).forEach(function (p) { out.removed.push(p.id); delete byId[p.id]; });
@@ -2456,6 +2558,7 @@
         var p = byId[e.id];
         if (!p) { p = newPet(e.id, k); p.isNew = true; byId[e.id] = p; out.added.push(e.id); }
         p.index = k; p.active = e.active; p.guest = e.guest;
+        p.mood = moodOf(e.mood); p.moodK = p.mood ? MOOD.cruise[p.mood.hunger] : 1;
         next.push(p);
       });
       if (next.length && !awayActive && !next.some(function (p) { return p.active; })) {
@@ -2572,8 +2675,9 @@
       var p = byId[id];
       if (!p) return '';
       var kind = p.species === 'pet_dragon' ? 'sparkle' : pick(EMOTES);
-      p.happyUntil = brain.now + 2.5;
-      p.tapKind = tapOf(p.species);
+      var hungry = !!p.mood && p.mood.hunger >= 2;
+      if (!hungry) p.happyUntil = brain.now + 2.5;
+      p.tapKind = hungry ? 'hungry' : tapOf(p.species);
       if (!brain.reduced && (p.state === 'idle' || p.state === 'walk' || (p.state === 'act' && !PLAY_MOVES[p.action]))) {
         p.tapT = brain.now; p.pauseUntil = brain.now + 0.45;
         if (p.state !== 'walk') { p.desiredYaw = brain.camYaw; p.hasDesired = true; }
@@ -2582,9 +2686,83 @@
       return kind;
     }
 
+    /* ---------- feeding (KIDS UPDATE P2.5; decision P21, pets.json moodAndEating) ----------
+       feed(id, {fav}?) → the seconds until the pet starts eating (the bowl's pop and the meal's drop,
+       then its hop over) | -1 (no such pet on this island, away, a land's guest, travelling, edit
+       mode). Whatever the pet was doing stops (a seat or a dance lets it down first). p.feed holds
+       the moment for actors.js: the bowl at (x, y, z) facing yaw, t0, eat0 (eating starts), eatEnd,
+       end (the bowl is gone), fav, reduced. Under reduced motion it is the end state at once (lead 0):
+       the pet faces the bowl, the bowl stands empty for FEED.still s and the 'fed' event fires now. */
+    var _bs = { x: 0, z: 0, yaw: 0 };
+    /* the bowl (FEED.r round its centre) stands wholly on open land, clear of the other pets */
+    function roomFor(gr, x, z) {
+      for (var cx = -1; cx <= 1; cx += 2) for (var cz = -1; cz <= 1; cz += 2) { var c = cellOf(x + cx * FEED.r, z + cz * FEED.r); if (c < 0 || !gr.walk[c]) return false; }
+      for (var k = 0; k < brain.pets.length; k++) { var q = brain.pets[k]; if ((q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < FEED.reach * FEED.reach) return false; }
+      return true;
+    }
+    function bowlSpot(p, out) {
+      var gr = g();
+      for (var k = 0; k < FEED.dirs.length; k++) {
+        var a = brain.camYaw + FEED.dirs[k], bx = p.x + Math.sin(a) * FEED.dist, bz = p.z + Math.cos(a) * FEED.dist, bc = cellOf(bx, bz);
+        if (bc < 0 || !freeFor(p, bc) || !losClear(gr, p.x, p.z, bx, bz, null, 0, -1) || !roomFor(gr, bx, bz)) continue;
+        out.x = bx; out.z = bz; out.yaw = a;
+        return true;
+      }
+      out.yaw = p.yaw; out.x = p.x + Math.sin(p.yaw) * FEED.reach; out.z = p.z + Math.cos(p.yaw) * FEED.reach;   /* no room: right under its nose */
+      return false;
+    }
+    function feed(id, o) {
+      o = o || {};
+      var p = byId[id], gr = g();
+      if (!p || !gr || away[id] || p.guest || p.state === 'travel' || brain.mode !== 'play') return -1;
+      if (p.state === 'perform') finishSeat(p, true);
+      if (p.state === 'dance') finishDancer(p, true, null);
+      toIdle(p, null);
+      var room = bowlSpot(p, _bs), f = p.feed || (p.feed = {}), now = brain.now, red = brain.reduced;
+      var hop = room ? FEED.dist - FEED.reach : 0;
+      f.on = true; f.fav = !!o.fav; f.reduced = red; f.t0 = now;
+      f.x = _bs.x; f.z = _bs.z; f.y = heightAt(gr, _bs.x, _bs.z); f.yaw = brain.camYaw;
+      f.ax = p.x; f.az = p.z; f.hx = p.x + Math.sin(_bs.yaw) * hop; f.hz = p.z + Math.cos(_bs.yaw) * hop;
+      f.eat0 = red ? now : now + FEED.hop[1]; f.eatEnd = red ? now : f.eat0 + FEED.eat;
+      f.end = red ? now + FEED.still : f.eatEnd + FEED.out;
+      p.desiredYaw = Math.atan2(f.x - p.x, f.z - p.z); p.hasDesired = true;
+      p.nextAt = f.end + IDLE.first;
+      if (red) { p.yaw = p.desiredYaw; fed(p); return 0; }
+      p.state = 'act'; p.action = 'eatWait'; p.actT0 = now; p.actDur = FEED.hop[1]; p.actEnd = f.eat0;
+      p.lookX = f.x; p.lookZ = f.z; p.lookK = 1; p.faceCam = 0;
+      return FEED.hop[1];
+    }
+    /* the meal's end: one happy tap reaction (the species' own), and the event the stage cheers on */
+    function fed(p) {
+      var f = p.feed;
+      p.state = 'idle'; p.action = ''; p.lookK = 0;
+      p.tapKind = tapOf(p.species); p.happyUntil = brain.now + 2.5;
+      if (!brain.reduced) { p.tapT = brain.now; p.pauseUntil = brain.now + 0.45; }
+      reserve(p, freeFor(p, p.cell) ? p.cell : p.res);
+      brain.events.push({ type: 'fed', id: p.id, fav: !!(f && f.fav), x: p.x, y: p.y, z: p.z });
+    }
+    /* eatWait: face the bowl while it pops in and fills, hop over (the 'hop' clip carries the height);
+       eat: FEED.eat s nose in the bowl (actors nods the head at 1.5 Hz) */
+    function feedStep(p, dt) {
+      var f = p.feed, now = brain.now;
+      turnToward(p, p.desiredYaw, WALK.turn, dt);
+      if (p.action === 'eatWait') {
+        var u = clamp01((now - f.t0 - FEED.hop[0]) / (FEED.hop[1] - FEED.hop[0])), k = smooth01(u);
+        p.x = f.ax + (f.hx - f.ax) * k; p.z = f.az + (f.hz - f.az) * k; p.y = heightAt(g(), p.x, p.z);
+        if (now >= p.actEnd) {
+          p.x = f.hx; p.z = f.hz; p.cell = cellOf(p.x, p.z);
+          startAct(p, 'eat', FEED.eat, { fx: f.x, fz: f.z });
+          p.actEnd = f.eatEnd;
+        }
+        return;
+      }
+      if (now >= p.actEnd) fed(p);
+    }
+
     brain.sync = sync;
     brain.step = step;
     brain.tap = tap;
+    brain.feed = feed;
     brain.perform = perform;
     brain.dance = dance;
     brain.setMode = function (m) { setMode(m); };
@@ -2652,6 +2830,8 @@
     CROSS: CROSS, HANG: HANG, LEG: LEG, V3_KINDS: V3_KINDS, frameOf: frameOf, deckOf: deckOf, rampOf: rampOf, actOf: actOf,
     PLAY_MOVES: PLAY_MOVES, TAPS: TAPS, WEIGHTS: WEIGHTS, SPECIES_W: SPECIES_W, REDUCED_W: REDUCED_W,
     playOf: playOf, tapOf: tapOf, weightsOf: weightsOf,
+    /* the kids update (P2.5) */
+    V454_PLAY: V454_PLAY, MOOD: MOOD, FEED: FEED, GIVE_WAY: GIVE_WAY, paceOf: paceOf, speedOf: speedOf, moodOf: moodOf, moodWeights: moodWeights,
     buildGraph: buildGraph, astar: astar, distMap: distMap, smoothPath: smoothPath, pathValid: pathValid, samplePath: samplePath,
     losClear: losClear, heightAt: heightAt, nearestFree: nearestFree, danceSpots: danceSpots, danceAt: danceAt,
     alignDelay: alignDelay, glanceAt: glanceAt, bounceAt: bounceAt, posesOf: posesOf, makeRng: makeRng, hash: hash,

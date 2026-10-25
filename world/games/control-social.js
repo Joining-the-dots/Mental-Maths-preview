@@ -4,13 +4,21 @@
    world-core.js, social-core.js and boards-core.js; module.exports
    in Node.
 
-   The '🎮 Game boards and racing together' card of the Control
-   Centre: which accounts of a family may appear to its other
-   children, under which name, on a board and in a shared race, and
-   which class a child's own grown-up has asked for. The '🏫 Classes
-   you run' card: a class for children from different families, run
-   by a grown-up approved by hand. A child's device never writes any
-   of it. Nothing here changes a child's balance or their island.
+   The '🎮 Game boards, racing together and challenges' card of the
+   Control Centre: which accounts of a family may appear to its other
+   children, under which name, on a board, in a shared race and in a
+   challenge, and which class a child's own grown-up has asked for.
+   The '🏫 Classes you run' card: a class for children from different
+   families, run by a grown-up approved by hand. A child's device
+   never writes any of it. Nothing here changes a child's balance or
+   their island.
+
+   Kids update (KG8): the challenges in the three island games follow
+   the family's games.race, so that switch is drawn as 'Race together
+   and challenges' (the field keeps its name and nothing new is
+   saved), and PARENT_TEXT says what a challenge shares. A class's
+   challenges follow its races. While SLSocialCore.ON.duels is off the
+   card says exactly what V4.55 said. There are no code rooms (KU14).
 
      builders (pure: no DOM, no storage, no network, no clock) return steps: an array of
      batches, each an array of writes {kind: 'set' | 'update' | 'delete', path: [segments],
@@ -76,6 +84,9 @@
   function boardsCore() { return BC0 || WIN.SLBoardsCore || null; }
   /* the word check: with no social-core or no island rules, every name is 'Player' */
   function rudeCheck() { var S = social(); return S ? S.rudeFrom(WC0 || WIN.SLWorldCore || null) : function () { return true; }; }
+  /* chunk KG8: are challenges switched on? The host offers them only while ON.duels is true (cfg.duels), so the card says so by the same test */
+  function duelsOn() { var S = social(); return !!(S && S.ON && S.ON.duels); }
+  function what() { return WHAT[duelsOn() ? 1 : 0]; }
 
   var V = 1;
   var EMAIL_DOMAIN = '@summer-lab.kids', AUTO_TAIL = '.summerlab';   /* as the app signs in (a test compares) */
@@ -86,30 +97,52 @@
   var BATCH_MAX = 400;
   var UID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/, FAM_RE = /^[A-Z0-9]{4,12}$/, LOGIN_RE = /^[a-z0-9_]{1,40}$/;
 
-  var TITLE = '🎮 Game boards and racing together';
+  /* What the card is about, as its title and its notes say it: V4.55's words, and the kids
+     update's while challenges are switched on (SLSocialCore.ON.duels) */
+  var WHAT = ['Game boards and racing together', 'Game boards, racing together and challenges'];
+  /* the family's games.race switch, by the same rule; the field is the same either way */
+  var RACE_LABEL = ['Race together', 'Race together and challenges'];
+  var RACE_HELP = 'On: the children you tick can race each other in Neon Grand Prix and challenge each other in all three island games. Off stops both.';
+  /* chunk KG8: what a challenge shares (games.json design.copy.parent, without the code-room
+     line: there are no code rooms, KU14). Drawn after the Race together line while challenges
+     are switched on; copy-checked by tests/control-social.test.js (KU19). */
+  var CHALLENGE_TEXT = Object.freeze([
+    'Challenges: your ticked children can challenge each other in the three island games. They play the same game at the same time on their own devices ' +
+      'and see each other’s shown name, picture, colour and score, as in Race together. Your family gets a pop-up with a 4-letter code; nothing is typed but that code.',
+    'A child in a class can also challenge the other children in that class while the class has races switched on. A class challenge always goes through ' +
+      'a relay and has no pop-up: your child tells the class the 4-letter code. A code works only inside your family or that class, so a child from another ' +
+      'family who hears or guesses it cannot join.',
+    'Challenges go on and off with the Race together and challenges switch below, and they use the relay whenever races do. Unticking a child, ' +
+      'New race key, Off and closing a class end a challenge that is being played within about a minute, as they end races.',
+    'A challenge round counts like any other round for personal bests and the boards. Its results show who came 1st, 2nd and 3rd, with kind words ' +
+      'for everyone else, and each 1st place counts on the family’s 🏆 table of first places. Your daily game-time limit applies on each device.'
+  ]);
   var PARENT_TEXT = Object.freeze([
-    'What other children see: a first name, the avatar picture, the profile colour, game times and scores, and in a race where each kart is on the track.',
+    'What other children see: a first name, the avatar picture, the profile colour, game times and scores, how many races they came 1st in, and in a race where each kart is on the track.',
     'The name shown is the letters at the start of the username, 12 at most. Check the Shown as text beside each child; if it contains a surname, choose Player. A child cannot change the name others see.',
     'What they never see: age, email, messages, photos, location, how long anyone has played, how much game time anyone has left, points or learning progress. There is no chat and nowhere to type a message.',
     'Who sees it: only the accounts you tick. An account is only as private as its password: unless you set one, a child\'s account opens with just its username, and someone who knows that username could sign in and see what your child sees. That is why a child can be ticked only after you set a password for them here.',
-    'In Race together the other children can see that your child is playing at that moment.',
+    'In Race together the other children can see that your child is playing at that moment. The results show who came 1st, 2nd and 3rd, with kind words for everyone else. Under Leaderboards, 🏆 Challenge wins counts how many races each child came 1st in, this week and in all, for your family and for a class: only children with a win are listed, never anyone with none.'
+  ].concat(CHALLENGE_TEXT, [
+    'The Race together switch also covers the four learning challenges (Flags, Times Tables, Debate and the 1% Challenge): your ticked children can challenge each other in them only inside your family or their class, while races are on there, and they see each other\'s scores but never a name. A challenge being played ends within about a minute when you untick your child, switch races off, close the class or press New race key.',
     'Each child you tick sees two numbers at the top of the app: how many of your family are online and, if they are in a class, how many of that class are online. Numbers only, never names. You see who in your own family is online here in the Control Centre; the person who runs a class is not shown who is online.',
     'The class number is counted from a time-stamp kept under a random tag, so nobody can tell from it which child is online. Inside your own family, a child with technical know-how could find out which brother or sister is online and which part of the app they have open; the app itself shows only the number.',
     'A class is run by whoever created it. The person who runs this app approves each class runner by hand, but the app itself cannot check that anyone is a teacher or an adult. Only join a class whose code came from someone you know. That person sees your child\'s first name, picture, colour, scores and your family code. You can take your child out here at any time.',
     'Devices are linked through a free public link-up server (PeerJS) and, when needed, relay servers run by other companies. They see each device\'s network address. They do not see names, and race data is encrypted between the devices.',
     'In a family race the devices link directly, so each device learns the network address of the others, in both directions. If any of these devices are in another home, switch on \'Some of these devices are in other homes\' and everything goes through a relay instead; that can be slower. Class races always use the relay.',
     'Your daily game-time limit applies to each child on their own device, in shared races too. The limit is kept on each device and counts per device.',
-    'Boards are kept in the app\'s existing Google Firebase database. Races are not kept anywhere. No new service is used. There is no advertising and no tracking. The person who runs this app can see everything kept in its database.',
-    'Scores are not proof. They are worked out on each child\'s own device. The app throws away impossible ones and you can remove any entry here, but a determined child with technical know-how could post a made-up one.',
+    'Boards and Challenge wins are kept in the app\'s existing Google Firebase database. Races themselves are not kept anywhere. No new service is used. There is no advertising and no tracking. The person who runs this app can see everything kept in its database.',
+    'Scores and wins are not proof. They are worked out on each child\'s own device. The app throws away impossible ones and you can remove any board entry here, but a determined child with technical know-how could post a made-up one.',
     'The \'Off\' setting is remembered in each device\'s browser storage so it still applies when signed out. Browser storage is not secure: a child who clears or edits it can bring the on-this-device board back.',
-    'Your own account is the key to these switches. It must have a real password, and so must each child you tick. If you are ever worried about who can join a race, press New race key.'
-  ]);
-  var DERIVED_LINE = 'Game boards and racing together are set up here once your own account has a real password. At the moment it opens ' +
+    'Your own account is the key to these switches. It must have a real password, and so must each child you tick. If you are ever worried about who can join a race, press New race key. Unticking a child, switching Race together off, New race key and closing a class stop new races at once and end a race that is already going within about a minute.'
+  ]));
+  /* (each begins with WHAT, so it is built when drawn) */
+  var DERIVED_LINE = ' are set up here once your own account has a real password. At the moment it opens ' +
     'with just its username, so a child could open this page. Set one with 🔑 Set password in the game’s account box, then sign in here with it.';
   var RULES_NOTE = 'One more step: publish the updated security rules (firestore.rules) in the Firebase console.';
   /* chunk RV1: what a grown-up who is not an admin is told while the rules refuse the card (not
      published yet, or switched off with the off file): nothing they can do, and nothing is lost */
-  var OFF_NOTE = 'Game boards and racing together are switched off for everyone just now. Your settings here are kept and come back when they are switched on again.';
+  var OFF_NOTE = ' are switched off for everyone just now. Your settings here are kept and come back when they are switched on again.';
   var NEW_NOTE = 'new: tick only if this is your child';
   /* chunk RV1b: the tick also decides the class (unticking takes the child out of it); the
      plan's own words while classes are switched off */
@@ -135,6 +168,9 @@
     'A class race always goes through a relay, so no home learns another home\'s network address. Up to 3 races of 5 can run at once.',
     'Children in this class see how many of the class are online: a number, never names. It shows only while the class board or class races are on. You are not shown who is online.'
   ]);
+  /* chunk KG8: a class's challenges follow its Race together switch; drawn after CLASS_TEXT while challenges are switched on */
+  var CLASS_CHALLENGE = 'Race together also lets the children in this class challenge each other in the three island games, always through the relay. ' +
+    'They see each other’s shown name, picture, colour and score. A child tells the class a 4-letter code; there is no pop-up.';
   var WAIT_LINE = 'Only add a child when their grown-up has given you their family code themselves.';
   var NAME_HELP = 'A name for your own list: letters and spaces, 24 at most. It is never shown to children or other parents and cannot be changed later. ' +
     'You can run ' + MAX_CLASSES + ' classes at most, each with up to ' + MAX_KIDS + ' children.';
@@ -549,7 +585,7 @@
     var done = Promise.resolve(), none = { ready: done, idle: function () { return done; }, update: function () {} };
     el.textContent = '';
     /* the grown-up's own account still opens with its username: no card, one line (D8) */
-    if (d.usedDerived) { add(el, 'p', DERIVED_LINE, 'muted'); return none; }
+    if (d.usedDerived) { add(el, 'p', what() + DERIVED_LINE, 'muted'); return none; }
     if (!S || !B || !fdb || !d.firebase || typeof code !== 'string' || !FAM_RE.test(code)) return none;
     var rude = rudeCheck(), now = typeof d.now === 'function' ? d.now : function () { return Date.now(); };
     var famRef = fdb.doc('families/' + code), rosterRef = fdb.doc('families/' + code + '/private/roster'), keyRef = fdb.doc('families/' + code + '/private/games');
@@ -601,7 +637,8 @@
       delete st.change.boards; delete st.change.race;
       return famRef.get().then(function (snap) { st.cfg = S.gamesCfg(snap.data()); }).then(null, function () { return null; }).then(function () {
         drawAll();
-        say(d.isAdmin ? RULES_NOTE + ' Until then the children’s devices keep boards on this device only and have no Race together; the settings here are kept.' : OFF_NOTE);
+        say(d.isAdmin ? RULES_NOTE + ' Until then the children’s devices keep boards on this device only and have no Race together' + (duelsOn() ? ' or challenges' : '') +
+          '; the settings here are kept.' : what() + OFF_NOTE);
       });
     }
     function readCards() {
@@ -1035,7 +1072,11 @@
       choice('Boards', 'boards', [['off', 'Off'], ['device', 'This device only'], ['family', 'Family board']], S.ON.boards ? null : 'family');
       add(modesBox, 'div', MODES_HELP, 'muted');
       choice('Order on the family board', 'order', [['ranked', 'Ranked'], ['az', 'A to Z, no places']], null);
-      choice('Race together', 'race', [[false, 'Off'], [true, 'On']], S.ON.race ? null : true);
+      /* chunk KG8: the family's challenges follow games.race, so this one switch carries both names (the field
+         keeps its own). Its On stays open while races or challenges are switched on for everyone. */
+      var duels = duelsOn();
+      choice(RACE_LABEL[duels ? 1 : 0], 'race', [[false, 'Off'], [true, 'On']], S.ON.race || duels ? null : true);
+      if (duels) add(modesBox, 'div', RACE_HELP, 'muted');
       var lab = add(modesBox, 'label'), relay = input(lab, 'checkbox');
       relay.checked = mode('relay') === true; relay.setAttribute('data-relay', code);
       add(lab, 'span', ' Some of these devices are in other homes: always use the relay');
@@ -1078,14 +1119,14 @@
     function drawBoard() {
       boardBox.textContent = '';
       boardBox.setAttribute('style', 'margin-top:12px;');
-      if (st.noRules) { warn(boardBox, d.isAdmin ? RULES_NOTE : OFF_NOTE); drawBests(); return; }
+      if (st.noRules) { warn(boardBox, d.isAdmin ? RULES_NOTE : what() + OFF_NOTE); drawBests(); return; }
       add(boardBox, 'b', 'The family board');
       var any = boardLines(boardBox, st.cfg.boards === 'family' ? st.cards : [], { roster: st.roster, isRude: rude, games: st.cfg }, B.weekKey(today()), removeOne);
       if (!any) add(boardBox, 'div', st.cfg.boards === 'family' ? 'No entries yet.' : 'The family board is not switched on.', 'empty');
       var tools = add(boardBox, 'div');
       tools.setAttribute('style', 'margin-top:10px;');
       button(tools, 'New race key', 'btn-ghost', function () {
-        run(function () { return freshKey().then(function () { say('New race key set. A race lobby that is open now needs opening again.'); }); });
+        run(function () { return freshKey().then(function () { say('New race key set. A race lobby that is open now closes within about a minute and needs opening again.'); }); });
       }).setAttribute('data-gs', 'newkey');
       add(tools, 'span', ' Press this if you are ever worried about who can join. ', 'muted');
       button(tools, 'Delete the family board', 'btn-ghost', function () {
@@ -1101,13 +1142,13 @@
     }
     function drawAll() {
       el.textContent = '';
-      var h = add(el, 'h2', TITLE + ' ');
+      var h = add(el, 'h2', '🎮 ' + what() + ' ');
       add(h, 'span', 'code ' + code, 'pill');
       var card = add(el, 'div', '', 'card'), about = add(card, 'details');
       if (!st.folded) about.setAttribute('open', '');
       about.addEventListener('toggle', function () { st.folded = !about.hasAttribute('open'); });
       add(about, 'summary', 'What this switches on, and who sees what: please read').setAttribute('style', 'font-weight:700;cursor:pointer;');
-      PARENT_TEXT.forEach(function (t) { add(about, 'p', t, 'muted'); });
+      PARENT_TEXT.forEach(function (t) { if (duelsOn() || CHALLENGE_TEXT.indexOf(t) < 0) add(about, 'p', t, 'muted'); });
       rowsBox = add(card, 'div'); modesBox = add(card, 'div'); boardBox = add(card, 'div');
       drawRows(); drawModes(); drawBoard();
     }
@@ -1381,7 +1422,7 @@
       var tools = add(box, 'div');
       tools.setAttribute('style', 'margin-top:8px;');
       button(tools, 'New race key', 'btn-ghost', function () {
-        run(function () { return freshKey(c).then(function () { say('New race key set for ' + nameOf(c) + '. A race lobby that is open now needs opening again.'); }); });
+        run(function () { return freshKey(c).then(function () { say('New race key set for ' + nameOf(c) + '. A race lobby that is open now closes within about a minute and needs opening again.'); }); });
       }).setAttribute('data-newkey', c.id);
       add(tools, 'span', ' ');
       button(tools, 'Close this class', 'btn-ghost', function () { close(c); }).setAttribute('data-close', c.id);
@@ -1391,6 +1432,7 @@
       add(el, 'h2', CLASSES_TITLE);
       var card = add(el, 'div', '', 'card');
       CLASS_TEXT.forEach(function (t) { add(card, 'p', t, 'muted'); });
+      if (duelsOn()) add(card, 'p', CLASS_CHALLENGE, 'muted');
       if (st.noRules) { warn(card, RULES_NOTE); return; }
       var form = add(card, 'div'), lab = add(form, 'label', 'Create a class: '), nm = input(lab, 'text');
       nm.setAttribute('placeholder', 'a name for your own list'); nm.setAttribute('maxlength', '24'); nm.setAttribute('data-gs', 'clsname');
@@ -1426,7 +1468,7 @@
   }
 
   var API = {
-    V: V, EMAIL_DOMAIN: EMAIL_DOMAIN, PROBE_APP: PROBE_APP, PARENT_TEXT: PARENT_TEXT, MAX_CLASSES: MAX_CLASSES, MAX_KIDS: MAX_KIDS,
+    V: V, EMAIL_DOMAIN: EMAIL_DOMAIN, PROBE_APP: PROBE_APP, PARENT_TEXT: PARENT_TEXT, CHALLENGE_TEXT: CHALLENGE_TEXT, MAX_CLASSES: MAX_CLASSES, MAX_KIDS: MAX_KIDS,
     saveFamily: saveFamily, untick: untick, removeEntry: removeEntry, deleteFamilyBoard: deleteFamilyBoard, newRaceKey: newRaceKey,
     joinClass: joinClass, leaveClass: leaveClass, classCreate: classCreate, classAdd: classAdd, classRemove: classRemove,
     classSwitch: classSwitch, classClose: classClose,

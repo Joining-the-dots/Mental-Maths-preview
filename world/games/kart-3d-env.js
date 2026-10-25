@@ -10,12 +10,13 @@
    track's; Starlight Twist its own, with the star field out by day).
 
    buildEnv(ctx) → env
-     ctx {THREE, kit, core, track, rect, tier, budget, quality, reduced}
+     ctx {THREE, kit, core, track, rect, tier, budget, quality, reduced, SL3D?}
      env.group, env.fog, env.hemi, env.sun
      env.apply(preset)                       colours, intensities, fog, star / cone strength
      env.update(dt, t, camera, cones)        sea clock, sky follows the camera, cone aims
        cones {encore, spot (0..1), snap (0..1), target: Vector3|null, standX, standZ, gantry}
      env.setConeMounts(stand[3], gantry[2]), env.setReduced(on), env.setQuality(q), env.hasShadows(), env.dispose()
+     env.voxGain()                           the vox exposure fit of the lights (crisp CR5: ctx.SL3D's K.vox)
    ================================================================ */
 
 export function buildEnv(ctx) {
@@ -124,6 +125,11 @@ export function buildEnv(ctx) {
   sun.position.set(rect.cx - 21, 42, rect.cz + 27);
   sun.target.position.set(rect.cx, 0, rect.cz);
   group.add(hemi, sun, sun.target);
+  /* crisp CR5: the drivers are voxel rigs (mascots, land gear) lit by these two lights. 0.87 under
+     the white build lights; the light arc's presets refit it in apply() (SOUNDCHECK's warm sun
+     already keeps a lit top face under its token, so the race itself runs at 1) */
+  const voxFit = voxFitter(ctx.SL3D, ctx.tier, hemi, sun);
+  voxFit.apply();
   const wantShadows = !!(ctx.quality ? ctx.quality.shadows : ctx.budget && ctx.budget.shadows);
   if (wantShadows && ctx.budget && ctx.budget.shadowMapSize) {
     sun.castShadow = true;
@@ -174,11 +180,13 @@ export function buildEnv(ctx) {
     const starK = Math.max(p.encore, look.stars || 0);    /* a look may keep the (steady) stars out by day */
     starMat.opacity = starK; stars.visible = starK > 0.01;
     coneStrength = p.k;
+    voxFit.apply();                                     /* the lights changed: refit the vox gain */
   }
 
   /* aims every cone: Encore sweeps ±25° at 0.12 Hz round its home aim; a Spotlight pulls the
      3 stand cones onto the kart (and a P1 snap pulls the first one) */
   function update(dt, t, camera, c) {
+    voxFit.apply();                                     /* every rendered frame: a lease grant puts 1 back */
     if (!reduced) seaT += dt;
     seaU.uTime.value = seaT;
     if (camera) { sky.position.copy(camera.position); stars.position.copy(camera.position); }
@@ -224,11 +232,59 @@ export function buildEnv(ctx) {
     },
     /* true when there is a static shadow map to re-render (the caller sets renderer.shadowMap.needsUpdate) */
     hasShadows() { return !!sun.castShadow; },
+    /* the vox gain this scene's lights were fitted to (QA; 1 without a fit) */
+    voxGain() { return voxFit.gain(); },
     dispose() {
+      voxFit.reset();                                   /* the next holder starts from today's look */
       if (group.parent) group.parent.remove(group);
       if (sun.shadow && sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
       disposables.forEach((d) => { try { d.dispose(); } catch (e) { /* gone */ } });
       group.clear();
+    }
+  };
+}
+
+/* ---------------- the vox exposure fit (crisp CR5; contracts.vox) ----------------
+   A voxel rig (a driver that is a mascot or wears land gear, later the child's character) is drawn
+   by the island's shared 'pixel-vox' program, whose uVoxGain scales its lit colour. Fitted to these
+   two lights (K.vox.fitGain on the island kit K = SL3D.kit(tier)), a lit top face never comes out
+   brighter than its palette token. Refitted only when a light changes, written every frame (the
+   stage puts the gain back to 1 at each lease grant). Feature-detected: no SL3D, an older vox-gl
+   or a stub has no fit and keeps today's look. */
+function voxFitter(SL3D, tier, hemi, sun) {
+  let V = null;
+  try { V = SL3D && typeof SL3D.kit === 'function' ? SL3D.kit(tier).vox : null; } catch (e) { V = null; }
+  const on = !!V && typeof V.fitGain === 'function' && typeof V.setGain === 'function';
+  const was = new Float64Array(9).fill(NaN), cur = new Float64Array(9);
+  let gain = 1;
+  /* the lights' fingerprint: intensities, linear colours and the sun's height (its direction's y) */
+  const changed = () => {
+    const hc = hemi.color, sc = sun.color, p = sun.position, t = sun.target ? sun.target.position : null;
+    const dx = p.x - (t ? t.x : 0), dy = p.y - (t ? t.y : 0), dz = p.z - (t ? t.z : 0);
+    cur[0] = hemi.intensity; cur[1] = hc.r; cur[2] = hc.g; cur[3] = hc.b;
+    cur[4] = sun.intensity; cur[5] = sc.r; cur[6] = sc.g; cur[7] = sc.b;
+    cur[8] = dy / (Math.sqrt(dx * dx + dy * dy + dz * dz) || 1);
+    let diff = false;
+    /* a tolerance, not ===: rounding noise in lights recomputed every frame never forces a refit */
+    for (let i = 0; i < 9; i++) if (!(Math.abs(cur[i] - was[i]) <= 1e-9)) { was[i] = cur[i]; diff = true; }
+    return diff;
+  };
+  return {
+    on,
+    gain: () => gain,
+    /* refit if a light changed, then write the gain (→ the gain written) */
+    apply() {
+      if (!on) return 1;
+      try {
+        if (changed()) { const g = Number(V.fitGain(hemi, sun)); gain = g > 0 && g < Infinity ? g : 1; }
+      } catch (e) { gain = 1; }
+      try { V.setGain(gain); } catch (e) { /* the hub is gone */ }
+      return gain;
+    },
+    /* today's look for whoever renders next */
+    reset() {
+      gain = 1; was.fill(NaN);
+      if (on) { try { V.setGain(1); } catch (e) { /* the hub is gone */ } }
     }
   };
 }

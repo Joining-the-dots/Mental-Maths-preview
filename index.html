@@ -87,7 +87,7 @@
 <meta name="robots" content="noindex, nofollow"><script>window.SL_QA_COPY = true;document.addEventListener("DOMContentLoaded",function(){var b=document.createElement("div");b.textContent="PREVIEW · nothing is saved";b.style.cssText="position:fixed;left:8px;bottom:8px;z-index:2147483647;background:#ff5a8a;color:#fff;font:700 13px system-ui,sans-serif;padding:6px 10px;border-radius:999px;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,.25)";document.body.appendChild(b);});</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
-<title>Conway Family Learning Lab — Live V4.56</title>
+<title>Conway Family Learning Lab — Live V4.57</title>
 <!-- My Island 3D: Three.js (MIT) pinned from jsDelivr; loaded lazily with import('three')
      only when the island opens. The service worker caches it for offline use. -->
 <script type="importmap">
@@ -3088,7 +3088,225 @@ function slWakeRelease() {
   try { if (_slWake) _slWake.release(); } catch (e) {}
   _slWake = null;
 }
+
+/* V4.54.1: everything a challenge peer sends is UNTRUSTED — a room word is
+   one of ~50, so a stranger on the public PeerJS server can join or host.
+   The games rebuild what they show from their OWN data where they can;
+   anything received that still reaches innerHTML goes through slPeerText.
+   slPeerText(s, max) → HTML-escaped text, at most max characters (default 120)
+   slPeerInt(n, lo, hi) → n when it is a whole number in [lo, hi], else null
+   slPeerCall(fn, msg) → runs a message handler; a malformed message is
+   dropped instead of throwing into the connection. */
+function slPeerText(s, max) {
+  var t = (typeof s === 'string') ? s : ((typeof s === 'number' && isFinite(s)) ? String(s) : '');
+  var m = (typeof max === 'number' && max >= 0) ? Math.floor(max) : 120;
+  if (t.length > m) t = t.slice(0, m);
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function slPeerInt(n, lo, hi) {
+  if (typeof n !== 'number' || !isFinite(n) || Math.floor(n) !== n) return null;
+  return (n < lo || n > hi) ? null : n;
+}
+function slPeerCall(fn, msg) {
+  try { fn(msg); } catch (e) { try { console.warn('challenge: message ignored', e); } catch (e2) {} }
+}
+
+/* V4.55 (James, 24 Oct 2026: family and class only). The four learning challenges open and
+   join rooms only inside a family or a class a grown-up set up, as Race together does:
+   world/games/learn-rooms.js (loaded with social-core.js on the first tap) reads who the
+   child may play with, and the room's address hashes that group's race key with the game
+   and the code word, so a code word on its own finds nothing. A class room, and a family
+   room whose grown-up said some devices are in other homes, links through the relay only.
+   While a challenge is open the race key is read again about every 45 s: a grown-up who
+   unticks the child, switches challenges off, makes a new race key or closes the class
+   ends it within a minute, and so does a profile switch or a sign-out. Names still never
+   travel. With no group there is no room address, so nothing is opened or joined.
+   slLcGate(game)            the setup sheet: a line while it checks, then who with (a choice
+                             when there are two), or the one reason line and no Start / Join
+   slLcEnsure(statusId, p)   Promise → true when a room can be opened or joined now (p 'family':
+                             the family pop-up's Join, always the family's room)
+   slLcRoom(game, code)      the room address in the chosen group (throws without one)
+   slLcOpts()                the PeerJS options for the chosen group (relay-only when it must)
+   slLcAnnounce(game, code)  the family pop-up, for a family room only
+   slLcWatch(cleanup) / slLcUnwatch()   end the challenge (cleanup + a kind line) on a change
+   slLcMissing(code, where)  the 'can't find' line */
+var SL_LC_UI = {
+  flags:  { setup: 'fcSetupOverlay', host: 'fcStartHost', join: 'fcStartJoin' },
+  tt:     { setup: 'tcSetupOverlay', host: 'tcStartHost', join: 'tcStartJoin' },
+  debate: { setup: 'dbSetupOverlay', host: 'dbStartHost', join: 'dbStartJoin' },
+  onepct: { setup: 'op2SetupOverlay', host: 'op2StartHost', join: 'op2StartJoin' }
+};
+/* the lines this page needs before learn-rooms.js has loaded (it has the rest) */
+var SL_LC_T = { offline: 'Challenges need the internet.', checking: 'Checking who you can play with…',
+  check: 'Can’t check who you can play with just now. Try again.', pick: 'Play with:', ok: 'OK' };
+var slLc = { kind: '', groups: [], stop: null, loading: null, seq: 0 };
+function slLcText(k) {
+  var R = window.SLLearnRooms;
+  return (R && R.T && typeof R.T[k] === 'string') ? R.T[k] : (SL_LC_T[k] || '');
+}
+function slLcLabel(g) { return g.kind === 'family' ? g.label : '🏫 ' + g.label; }
+/* social-core.js and learn-rooms.js, each once (social-core's tag id is kart.js's own, so the
+   two loaders share it). A file that fails is taken out, so a later tap tries again. */
+function slLcLoad() {
+  if (window.SLSocialCore && window.SLLearnRooms) return Promise.resolve(true);
+  if (slLc.loading) return slLc.loading;
+  var files = [['SLSocialCore', 'social-core.js', 'slSocialCoreJs'], ['SLLearnRooms', 'learn-rooms.js', 'slLearnRoomsJs']];
+  var all = Promise.all(files.map(function (f) {
+    return new Promise(function (res) {
+      if (window[f[0]]) return res(true);
+      var sc = document.getElementById(f[2]);
+      if (!sc) {
+        sc = document.createElement('script'); sc.id = f[2]; sc.async = false;
+        sc.src = 'world/games/' + f[1] + '?v=' + (window.SL_WORLD_VER || '1');
+        document.head.appendChild(sc);
+      }
+      sc.addEventListener('load', function () { if (!window[f[0]]) { try { sc.remove(); } catch (e) {} } res(!!window[f[0]]); });
+      sc.addEventListener('error', function () { try { sc.remove(); } catch (e) {} res(false); });
+    });
+  }));
+  var late = new Promise(function (res) { setTimeout(function () { res([false]); }, 15000); });
+  slLc.loading = Promise.race([all, late]).then(function (ok) {
+    slLc.loading = null;
+    return ok.every(Boolean) && !!window.SLSocialCore && !!window.SLLearnRooms;
+  });
+  return slLc.loading;
+}
+/* who the child may play with, read afresh → {ok, text}. prefer 'family': that room or nothing */
+function slLcCheck(prefer) {
+  var seq = ++slLc.seq;
+  return slLcLoad().then(function (ok) {
+    var R = window.SLLearnRooms;
+    if (!ok || !R) return { ok: false, text: SL_LC_T.offline };
+    return R.open().then(function (r) {
+      if (seq !== slLc.seq) return { ok: false, text: '' };
+      var kinds = r.groups.map(function (g) { return g.kind; });
+      slLc.groups = r.groups;
+      if (prefer && kinds.indexOf(prefer) >= 0) slLc.kind = prefer;
+      else if (kinds.indexOf(slLc.kind) < 0) slLc.kind = kinds[0] || '';
+      if (prefer === 'family' && kinds.indexOf('family') < 0) return { ok: false, text: R.T.notswitched };
+      return { ok: !!slLc.kind, text: slLc.kind ? '' : R.T.notswitched };
+    }, function (x) {
+      if (seq !== slLc.seq) return { ok: false, text: '' };
+      slLc.groups = []; slLc.kind = '';
+      return { ok: false, text: (x && typeof x.text === 'string' && x.text) || slLcText('check') };
+    });
+  });
+}
+function slLcHas(kind) {
+  var R = window.SLLearnRooms;
+  return !!kind && !!R && R.groups().some(function (g) { return g.kind === kind; });
+}
+function slLcEl(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text) n.textContent = text;
+  return n;
+}
+function slLcGate(game) {
+  var ui = SL_LC_UI[game], ov = ui && document.getElementById(ui.setup);
+  var hb = ui && document.getElementById(ui.host), jb = ui && document.getElementById(ui.join);
+  if (!ov || !hb || !jb) return;
+  var row = hb.parentNode, box = ov.querySelector('.sl-lc-gate');
+  if (!box) {
+    box = slLcEl('div', 'sl-lc-gate');
+    box.setAttribute('role', 'status');
+    row.parentNode.insertBefore(box, row);
+  }
+  hb.disabled = true; jb.disabled = true; row.style.display = '';
+  box.textContent = slLcText('checking');
+  slLcCheck(null).then(function (r) {
+    if (!ov.classList.contains('show')) return;
+    box.textContent = '';
+    if (!r.ok) { box.appendChild(slLcEl('p', 'sl-lc-why', r.text || slLcText('check'))); row.style.display = 'none'; return; }
+    hb.disabled = false; jb.disabled = false;
+    var gs = slLc.groups;
+    if (gs.length < 2) { box.appendChild(slLcEl('p', 'sl-lc-who', 'Just for ' + (gs[0].kind === 'family' ? 'your family' : slLcLabel(gs[0])) + '.')); return; }
+    var line = slLcEl('div', 'sl-lc-picks');
+    line.setAttribute('role', 'group'); line.setAttribute('aria-label', 'Play with');
+    line.appendChild(slLcEl('span', '', SL_LC_T.pick));
+    gs.forEach(function (g) {
+      var b = slLcEl('button', 'sl-lc-pick', slLcLabel(g));
+      b.type = 'button';
+      b.setAttribute('aria-pressed', g.kind === slLc.kind ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        slLc.kind = g.kind;
+        Array.prototype.forEach.call(line.querySelectorAll('.sl-lc-pick'), function (x) {
+          x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+        });
+      });
+      line.appendChild(b);
+    });
+    box.appendChild(line);
+  });
+}
+function slLcSay(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+function slLcEnsure(statusId, prefer) {
+  var R = window.SLLearnRooms;
+  if (prefer !== 'family' && R && R.alive() && slLcHas(slLc.kind)) return Promise.resolve(true);
+  slLcSay(statusId, slLcText('checking'));
+  return slLcCheck(prefer === 'family' ? 'family' : null).then(function (r) {
+    if (!r.ok) slLcSay(statusId, r.text || slLcText('check'));
+    return r.ok;
+  });
+}
+function slLcRoom(game, code) { return window.SLLearnRooms.room(slLc.kind, game, code); }
+function slLcOpts() {
+  var R = window.SLLearnRooms;
+  return R.peerOpts(SL_PEER_OPTS, R.relay(slLc.kind));
+}
+function slLcAnnounce(game, code) {
+  try { if (slLc.kind === 'family' && window.cloudAnnounceChallenge) window.cloudAnnounceChallenge(game, code); } catch (e) {}
+}
+function slLcUnwatch() {
+  var s = slLc.stop;
+  slLc.stop = null;
+  if (s) { try { s(); } catch (e) {} }
+}
+function slLcWatch(cleanup) {
+  slLcUnwatch();
+  var R = window.SLLearnRooms, stop = null;
+  if (!R) return;
+  stop = R.watch(slLc.kind, function (w) {
+    if (slLc.stop !== stop) return;
+    slLc.stop = null;
+    try { cleanup(); } catch (e) {}
+    slLcNotice(w && w.text);
+  });
+  slLc.stop = stop;
+}
+/* one kind line and OK, built from DOM nodes and text */
+function slLcNotice(text) {
+  if (!text) return;
+  var ov = slLcEl('div', 'overlay show sl-lc-notice'), md = slLcEl('div', 'modal'), act = slLcEl('div', 'modal-actions');
+  var ok = slLcEl('button', 'btn btn-primary', SL_LC_T.ok);
+  md.setAttribute('role', 'dialog'); md.setAttribute('aria-modal', 'true');
+  md.appendChild(slLcEl('h2', '', '🤝 Challenge'));
+  md.appendChild(slLcEl('p', 'sub', text));
+  ok.type = 'button';
+  ok.addEventListener('click', function () { try { ov.remove(); } catch (e) {} });
+  act.appendChild(ok); md.appendChild(act); ov.appendChild(md);
+  document.body.appendChild(ov);
+  try { ok.focus(); } catch (e) {}
+}
+function slLcMissing(code, where) {
+  var g = null;
+  slLc.groups.forEach(function (x) { if (x.kind === slLc.kind) g = x; });
+  return 'Can’t find a game with code ' + code + '. Ask your friend to KEEP their waiting screen open, read the code off their screen right now, and check you’re both in ' + where +
+    (slLc.groups.length > 1 && g ? ' and both playing with ' + slLcLabel(g) : '') + '. Both devices need the latest update.';
+}
 </script>
+<style>
+  /* V4.55: who a learning challenge is with (slLcGate) */
+  .sl-lc-gate { margin: 10px 0 0; font-weight: 700; color: var(--ink-soft); font-size: 14px; min-height: 20px; }
+  .sl-lc-gate p { margin: 0; }
+  .sl-lc-gate .sl-lc-why { color: #7a4b00; background: #fff6e0; border-radius: 12px; padding: 10px 12px; }
+  .sl-lc-picks { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .sl-lc-pick { border: 2px solid #6c5ce7; background: #fff; color: #6c5ce7; border-radius: 999px;
+    padding: 7px 14px; font: inherit; font-weight: 800; cursor: pointer; min-height: 40px; }
+  .sl-lc-pick[aria-pressed="true"] { background: #6c5ce7; color: #fff; }
+  .sl-lc-notice { z-index: 10003; }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <!-- V28: Three.js (r128 — last UMD release, so no ES module gymnastics).
@@ -3099,7 +3317,7 @@ function slWakeRelease() {
   <div class="brand">
     <span class="logo">🧪</span>
     Conway Family Learning Lab
-    <span style="font-family: 'Fredoka', sans-serif; font-size: 13px; font-weight: 600; color: var(--ink-soft); -webkit-text-fill-color: var(--ink-soft); background: var(--neutral); padding: 2px 8px; border-radius: 999px; margin-left: 6px; letter-spacing: 0.5px;">Live V4.56</span>
+    <span style="font-family: 'Fredoka', sans-serif; font-size: 13px; font-weight: 600; color: var(--ink-soft); -webkit-text-fill-color: var(--ink-soft); background: var(--neutral); padding: 2px 8px; border-radius: 999px; margin-left: 6px; letter-spacing: 0.5px;">Live V4.57</span>
   </div>
 
   <button class="user-pill" id="userPill" title="Switch player">
@@ -3111,7 +3329,7 @@ function slWakeRelease() {
 
   <div class="stats">
     <button class="lab-timer-pill" id="labTimerPill" type="button" title="Your Lab session timer — tap to stop" style="display:none;">⏱️ <span id="labTimerText">00:00</span></button>
-    <span class="points-pill" id="pointsPill" title="Points to spend in the Shop">⭐ <span id="pointsCount">0</span></span>
+    <span class="points-pill" id="pointsPill" title="Points to spend in 🎁 My rewards">⭐ <span id="pointsCount">0</span></span>
     <div class="stat" title="Cells mastered out of 10,000"><b id="stMastered">0</b>mastered</div>
     <div class="stat" title="Accuracy this session"><b id="stAcc">—</b>accuracy</div>
     <div class="stat" title="Current streak of correct answers"><b id="stStreak">0</b>streak</div>
@@ -3134,7 +3352,7 @@ function slWakeRelease() {
   <button class="app-tab" data-app="story" style="display:none;">✍️ Story</button>
   <button class="app-tab" data-app="chess" style="display:none;">♟️ Chess</button>
   <button class="app-tab" data-app="world">🏝️ My Island</button>
-  <button class="app-tab" data-app="shop">🎁 Shop</button>
+  <button class="app-tab" data-app="shop">🎁 My rewards</button>
 </div>
 
 <div class="maths-subtabs" id="mathsSubtabs">
@@ -3247,7 +3465,7 @@ function slWakeRelease() {
 <div id="problemsView" class="hidden">
   <div class="pb-intro">
     <h2>🧩 Problem solving</h2>
-    <p>Multi-step word problems — read carefully, work it out on paper if you need to, then type your answer. Every one you get right earns points for the Shop.</p>
+    <p>Multi-step word problems — read carefully, work it out on paper if you need to, then type your answer. Every one you get right earns points for 🎁 My rewards.</p>
     <div class="pb-stats-row">
       <div class="pb-stat"><b id="pbSolvedStat">0</b> / <span id="pbTotalStat">50</span> solved</div>
       <div class="pb-stat">Streak: <b id="pbStreakStat">0</b></div>
@@ -3524,7 +3742,7 @@ function slWakeRelease() {
 <div class="overlay" id="fcSetupOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <h2>🤝 Challenge a friend</h2>
-    <p class="sub">Race a friend on a different device. 10 flags, first to tap the correct answer wins the point.</p>
+    <p class="sub">Race someone from your family or class on another device. 10 flags, first to tap the correct answer wins the point.</p>
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button class="btn btn-primary" id="fcStartHost" style="flex:1; padding:14px;">📡 Start a challenge</button>
       <button class="btn btn-primary" id="fcStartJoin" style="flex:1; padding:14px; background:linear-gradient(135deg,#ff9f43,#ee5a24);">🔑 Join a challenge</button>
@@ -3759,7 +3977,7 @@ function slWakeRelease() {
 
 <div id="shopView" class="hidden">
   <div class="shop-head">
-    <h2>🎁 Reward Shop</h2>
+    <h2>🎁 My rewards</h2>
     <div class="shop-head-right">
       <button class="shop-request-btn" id="shopReqBtn" type="button">💌 Make a request</button>
       <div class="shop-balance">⭐ <span id="shopBalance">0</span> points</div>
@@ -4652,7 +4870,7 @@ function slWakeRelease() {
 <div class="overlay" id="tcSetupOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <h2>🤝 Times Tables challenge</h2>
-    <p class="sub">Race a friend on a different device. 10 multiplications, first to tap the correct answer wins the point.</p>
+    <p class="sub">Race someone from your family or class on another device. 10 multiplications, first to tap the correct answer wins the point.</p>
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button class="btn btn-primary" id="tcStartHost" style="flex:1; padding:14px;">📡 Start a challenge</button>
       <button class="btn btn-primary" id="tcStartJoin" style="flex:1; padding:14px; background:linear-gradient(135deg,#ff9f43,#ee5a24);">🔑 Join a challenge</button>
@@ -9698,9 +9916,12 @@ ftQuizOverlay.addEventListener('click', (e) => { if (e.target === ftQuizOverlay)
 const FC_CODE_WORDS = ['FROG','BEAR','MOON','TREE','FIRE','LION','FISH','GOLD',
   'KITE','RAIN','SNOW','STAR','DUCK','CAKE','KING','ROCK','WAVE','DEER','HERO',
   'PINK','MILK','BIRD','CORN','HARP','JADE','BOOK','LAMP','PLUM','WOLF','SWAN',
-  'MINT','PEAR','OWL2','HOPS','RICE','DUNE','ROSE','LIME','SAND','GEMS','LAKE',
+  'MINT','PEAR','OWLS','HOPS','RICE','DUNE','ROSE','LIME','SAND','GEMS','LAKE',
   'PEAK','MOSS','BUZZ','BOLT','GAZE','SAGE','TIDE','OPAL','VINE'];
-const FC_PEER_PREFIX = 'ttq-';   // namespace our app's peers
+/* V4.55: OWLS replaced OWL2, so no code needs the number keyboard. OWL2 is still accepted for
+   one more release (typed, and in the family pop-up: codeOk's OLD list), as duel-core does. */
+/* V4.55: rooms live inside the family or class (slLcRoom('flags', code)), no longer at
+   'ttq-' + code on the public link-up server */
 const FC_QUESTIONS = 10;
 
 let fcPeer = null;          // local Peer instance
@@ -9730,6 +9951,7 @@ const fcGameOverlay  = document.getElementById('fcGameOverlay');
 document.getElementById('flagsChallengeBtn').addEventListener('click', () => {
   if (!fcCheckPeerJS()) return;
   fcSetupOverlay.classList.add('show');
+  slLcGate('flags');   /* V4.55: family and class only */
 });
 document.getElementById('fcSetupClose').addEventListener('click', () => fcSetupOverlay.classList.remove('show'));
 
@@ -9753,6 +9975,7 @@ document.getElementById('fcJoinInput').addEventListener('keydown', (e) => {
 });
 
 function fcCleanupAndClose() {
+  slLcUnwatch();
     slWakeRelease();
   try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
   try { if (fcConn) fcConn.close(); } catch (e) {}
@@ -9765,12 +9988,20 @@ function fcCleanupAndClose() {
 function fcHostStart() {
   fcRole = 'host';
   const code = fcRandomCode();
-  document.getElementById('fcHostCode').textContent = code;
+  document.getElementById('fcHostCode').textContent = '— — — —';
   document.getElementById('fcHostStatus').textContent = 'Connecting…';
   fcHostOverlay.classList.add('show');
 
-  // Try this peer ID; if taken, regenerate code and try again (rare).
-  fcOpenHostPeer(code, 0);
+  /* V4.55: the room opens inside the family or class picked on the setup sheet; its code
+     shows once there is a room to give it to */
+  slLcEnsure('fcHostStatus').then(function (ok) {
+    if (!ok || fcRole !== 'host' || fcPeer) return;
+    document.getElementById('fcHostCode').textContent = code;
+    document.getElementById('fcHostStatus').textContent = 'Connecting…';
+    slLcWatch(fcCleanupAndClose);
+    // Try this room; if taken, regenerate code and try again (rare).
+    fcOpenHostPeer(code, 0);
+  });
 }
 
 function fcOpenHostPeer(code, attempt) {
@@ -9778,7 +10009,9 @@ function fcOpenHostPeer(code, attempt) {
     document.getElementById('fcHostStatus').textContent = 'Network busy. Please try again.';
     return;
   }
-  fcPeer = new Peer(FC_PEER_PREFIX + code, SL_PEER_OPTS);
+  let room;
+  try { room = slLcRoom('flags', code); } catch (e) { document.getElementById('fcHostStatus').textContent = slLcText('check'); return; }
+  fcPeer = new Peer(room, slLcOpts());
   /* watchdog: if this peer hasn't reached the server in 8s, tear it down
      and retry (a wedged websocket otherwise spins forever) */
   (function (p) {
@@ -9793,7 +10026,7 @@ function fcOpenHostPeer(code, attempt) {
   slWakeLock();
   fcPeer.on('open', () => {
     document.getElementById('fcHostStatus').textContent = 'Waiting for your friend to join…';
-    try { if (window.cloudAnnounceChallenge) cloudAnnounceChallenge('flags', code); } catch (e) {}
+    slLcAnnounce('flags', code);   /* V4.55: the family pop-up, for a family room only */
   });
   fcPeer.on('error', (err) => {
     if (err && (err.type === 'unavailable-id' || /taken/i.test(err.message || ''))) {
@@ -9813,7 +10046,7 @@ function fcOpenHostPeer(code, attempt) {
       try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
       fcHostInitGame();
     });
-    conn.on('data', (msg) => fcHandleMessage(msg));
+    conn.on('data', (msg) => slPeerCall(fcHandleMessage, msg));
     conn.on('close', () => fcHandleDisconnect());
   });
 }
@@ -9846,11 +10079,12 @@ function fcHostInitGame() {
     hostScore: 0,
     guestScore: 0,
     myName,
-    theirName: '?',
+    theirName: 'Friend',
     myAnswer: null, theirAnswer: null,
     locked: false,
   };
-  fcConn.send({ type: 'init', questions, hostName: myName });
+  /* V4.54.1: names never travel — the other device may be a stranger */
+  fcConn.send({ type: 'init', questions, hostName: 'Friend' });
 }
 
 /* ----- Guest flow ----- */
@@ -9862,15 +10096,22 @@ function fcJoinStart() {
   setTimeout(() => document.getElementById('fcJoinInput').focus(), 80);
 }
 
-function fcGuestConnect() {
+/* prefer 'family': the family pop-up's Join (V4.55: only inside the family or class) */
+function fcGuestConnect(prefer) {
   const code = document.getElementById('fcJoinInput').value.trim().toUpperCase();
   if (code.length !== 4) {
     document.getElementById('fcJoinStatus').textContent = 'Please enter a 4-letter code.';
     return;
   }
+  slLcEnsure('fcJoinStatus', prefer).then(function (ok) { if (ok && fcRole === 'guest') fcGuestDial(code); });
+}
+function fcGuestDial(code) {
+  let room;
+  try { room = slLcRoom('flags', code); } catch (e) { document.getElementById('fcJoinStatus').textContent = slLcText('check'); return; }
   document.getElementById('fcJoinStatus').textContent = 'Connecting…';
   slWakeLock();
-  fcPeer = new Peer(SL_PEER_OPTS);   // anonymous peer for guest
+  slLcWatch(fcCleanupAndClose);
+  fcPeer = new Peer(slLcOpts());   // anonymous peer for guest
   (function (p) {
     setTimeout(function () {
       if (p !== fcPeer || p.destroyed || p.open) return;
@@ -9885,7 +10126,7 @@ function fcGuestConnect() {
     function attempt() {
       tries++;
       let done = false;
-      const c = fcPeer.connect(FC_PEER_PREFIX + code);
+      const c = fcPeer.connect(room);
       fcConn = c;
       function giveUpOrRetry() {
         if (done || c.open || fcConn !== c) return;
@@ -9895,17 +10136,15 @@ function fcGuestConnect() {
           if (st) st.textContent = 'No answer from ' + code + ' — trying again (' + (tries + 1) + ' of 3)…';
           setTimeout(attempt, 1500);
         } else if (st) {
-          st.textContent = 'Can\u2019t find a game with code ' + code + '. Ask your friend to KEEP their waiting screen open, read the code off their screen right now, and check you\u2019re both in FLAGS.';
+          st.textContent = slLcMissing(code, 'FLAGS');
         }
       }
       slFcFail = giveUpOrRetry;
       c.on('open', () => {
-        const u = ensureUser(); migrateUser(u);
-        const myName = (u && u.name) || 'Guest';
-        c.send({ type: 'hello', guestName: myName });
+        c.send({ type: 'hello', guestName: 'Friend' });   /* V4.54.1: no names over the wire */
         if (st) st.textContent = 'Connected!';
       });
-      c.on('data', (msg) => fcHandleMessage(msg));
+      c.on('data', (msg) => slPeerCall(fcHandleMessage, msg));
       c.on('close', () => fcHandleDisconnect());
       c.on('error', giveUpOrRetry);
       setTimeout(giveUpOrRetry, 8000);
@@ -9918,24 +10157,53 @@ function fcGuestConnect() {
   });
 }
 
+/* V4.54.1: the host's questions are rebuilt from the app's OWN flags data.
+   A question whose country or options aren't ours rejects the whole game
+   (dropping just one would shift every later question number). */
+function fcSafeQuestions(list) {
+  if (!Array.isArray(list) || list.length < 1 || list.length > 30) return null;
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
+    if (!q || typeof q !== 'object' || typeof q.countryId !== 'string') return null;
+    const c = window.flagById(q.countryId);
+    if (!c || !Array.isArray(q.optionIds) || q.optionIds.length < 2 || q.optionIds.length > 6) return null;
+    const ids = [];
+    for (let j = 0; j < q.optionIds.length; j++) {
+      const o = (typeof q.optionIds[j] === 'string') ? window.flagById(q.optionIds[j]) : null;
+      if (!o) return null;
+      ids.push(o.id);
+    }
+    const ci = slPeerInt(q.correctIdx, 0, ids.length - 1);
+    if (ci === null || ids[ci] !== c.id) return null;
+    out.push({ countryId: c.id, flag: c.flag, correctIdx: ci, optionIds: ids });
+  }
+  return out;
+}
+
 /* ----- Shared message handler ----- */
 function fcHandleMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'hello' && fcRole === 'host') {
-    if (fcGame) fcGame.theirName = msg.guestName || 'Friend';
-    return;
+    return;   /* V4.54.1: the other player always shows as "Friend" */
   }
   if (msg.type === 'init' && fcRole === 'guest') {
+    const qs = fcSafeQuestions(msg.questions);
+    if (!qs) {
+      const st = document.getElementById('fcJoinStatus');
+      if (st) st.textContent = 'That game didn’t look right — ask your friend to start a new one.';
+      return;
+    }
     const u = ensureUser(); migrateUser(u);
     fcGame = {
       role: 'guest',
-      questions: msg.questions,
+      questions: qs,
       qIdx: 0,
       attempt: 1,
       hostScore: 0,   // mirrored from host
       guestScore: 0,
       myName: (u && u.name) || 'Guest',
-      theirName: msg.hostName || 'Friend',
+      theirName: 'Friend',
       myAnswer: null, theirAnswer: null,
       locked: false,
     };
@@ -9944,37 +10212,50 @@ function fcHandleMessage(msg) {
     fcRenderQuestion();
     return;
   }
+  if (!fcGame) return;
+  const n = fcGame.questions.length;
   if (msg.type === 'ready' && fcRole === 'host') {
     fcOpenGameOverlay();
     fcRenderQuestion();
     return;
   }
   if (msg.type === 'answer') {
-    fcRecordPeerAnswer(msg.qIdx, msg.attempt, msg.optionIdx, msg.t);
+    const qi = slPeerInt(msg.qIdx, 0, n - 1), at = slPeerInt(msg.attempt, 1, 2), oi = slPeerInt(msg.optionIdx, 0, 9);
+    if (qi === null || at === null || oi === null) return;
+    fcRecordPeerAnswer(qi, at, oi, slPeerInt(msg.t, 0, 9e15) || 0);
     return;
   }
   if (msg.type === 'result' && fcRole === 'guest') {
-    fcGame.hostScore = msg.hostScore;
-    fcGame.guestScore = msg.guestScore;
-    fcShowResult(msg.winner, msg.correctIdx);
+    const hs = slPeerInt(msg.hostScore, 0, n), gs = slPeerInt(msg.guestScore, 0, n);
+    const ci = slPeerInt(msg.correctIdx, 0, 9);
+    if (hs === null || gs === null || ci === null) return;
+    fcGame.hostScore = hs;
+    fcGame.guestScore = gs;
+    fcShowResult(msg.winner === 'host' ? 'host' : (msg.winner === 'guest' ? 'guest' : null), ci);
     return;
   }
   if (msg.type === 'next' && fcRole === 'guest') {
-    fcGame.qIdx = msg.qIdx;
-    fcGame.attempt = msg.attempt;
+    const qi = slPeerInt(msg.qIdx, 0, n - 1), at = slPeerInt(msg.attempt, 1, 2);
+    if (qi === null || at === null) return;
+    fcGame.qIdx = qi;
+    fcGame.attempt = at;
     fcGame.myAnswer = null; fcGame.theirAnswer = null; fcGame.locked = false;
     fcRenderQuestion();
     return;
   }
   if (msg.type === 'retry' && fcRole === 'guest') {
-    fcGame.attempt = msg.attempt;
+    const at = slPeerInt(msg.attempt, 1, 2);
+    if (at === null) return;
+    fcGame.attempt = at;
     fcGame.myAnswer = null; fcGame.theirAnswer = null; fcGame.locked = false;
     fcRenderQuestion(/*retry*/true);
     return;
   }
   if (msg.type === 'end' && fcRole === 'guest') {
-    fcGame.hostScore = msg.hostScore;
-    fcGame.guestScore = msg.guestScore;
+    const hs = slPeerInt(msg.hostScore, 0, n), gs = slPeerInt(msg.guestScore, 0, n);
+    if (hs === null || gs === null) return;
+    fcGame.hostScore = hs;
+    fcGame.guestScore = gs;
     fcShowFinal();
     return;
   }
@@ -10003,7 +10284,7 @@ function fcRenderQuestion(isRetry) {
   document.getElementById('fcMeScore').textContent = (g.role === 'host' ? g.hostScore : g.guestScore);
   document.getElementById('fcThemScore').textContent = (g.role === 'host' ? g.guestScore : g.hostScore);
   document.getElementById('fcAttempt').textContent = isRetry ? 'Both got it wrong — second try!' : (g.attempt === 2 ? 'Second attempt' : '');
-  document.getElementById('fcPrompt').innerHTML = `<div class="ft-prompt-flag">${q.flag}</div><div class="ft-prompt-sub">Which country?</div>`;
+  document.getElementById('fcPrompt').innerHTML = `<div class="ft-prompt-flag">${slPeerText(q.flag, 32)}</div><div class="ft-prompt-sub">Which country?</div>`;
   document.getElementById('fcMePick').textContent = `You: —`;
   document.getElementById('fcMePick').className = 'me';
   document.getElementById('fcThemPick').textContent = `${g.theirName}: —`;
@@ -10145,7 +10426,7 @@ function fcShowResult(winner, correctIdx) {
     const wonByMe = (winner === 'host' && g.role === 'host') || (winner === 'guest' && g.role === 'guest');
     fb.innerHTML = wonByMe
       ? `<span style="color:#1a8a4f;">🎉 Point to you!</span>`
-      : `<span style="color:#7a6a2e;">Point to ${g.theirName}.</span>`;
+      : `<span style="color:#7a6a2e;">Point to ${slPeerText(g.theirName, 24)}.</span>`;
   }
 }
 
@@ -10155,7 +10436,7 @@ function fcShowFinal() {
   g.locked = true;
   const my = (g.role === 'host' ? g.hostScore : g.guestScore);
   const their = (g.role === 'host' ? g.guestScore : g.hostScore);
-  const verdict = my > their ? '🏆 You won!' : (my < their ? `${g.theirName} won — rematch?` : `Tied at ${my}!`);
+  const verdict = my > their ? '🏆 You won!' : (my < their ? `${slPeerText(g.theirName, 24)} won — rematch?` : `Tied at ${my}!`);
   document.getElementById('fcPrompt').innerHTML = `<div class="ft-prompt-flag">🤝</div>
     <div class="ft-prompt-text">${my} vs ${their}</div>
     <div class="ft-prompt-sub">${verdict}</div>`;
@@ -17391,7 +17672,8 @@ const TC_CODE_WORDS = ['LION','BEAR','WOLF','HARE','MOLE','TIGR','SEAL','STAR',
   'MOON','RAIN','SNOW','TREE','LEAF','VINE','ROSE','FERN','FROG','TOAD','GOAT',
   'CRAB','WASP','MOTH','LARK','SWAN','DOVE','PINE','BUZZ','JADE','MINT','CORN',
   'LIME','SAGE','PEAR','PLUM','RICE','OATS','HOPS','HARP','GOLD','BIKE'];
-const TC_PEER_PREFIX = 'ttq-tt-';
+/* V4.55: rooms live inside the family or class (slLcRoom('tt', code)), no longer at
+   'ttq-tt-' + code on the public link-up server */
 const TC_QUESTIONS = 10;
 let tcPeer = null, tcConn = null, tcRole = null, tcGame = null;
 
@@ -17412,6 +17694,7 @@ const tcGameOverlay  = document.getElementById('tcGameOverlay');
 document.getElementById('ttChallengeBtn').addEventListener('click', () => {
   if (!tcCheckPeerJS()) return;
   tcSetupOverlay.classList.add('show');
+  slLcGate('tt');   /* V4.55: family and class only */
 });
 document.getElementById('tcSetupClose').addEventListener('click', () => tcSetupOverlay.classList.remove('show'));
 document.getElementById('tcStartHost').addEventListener('click', () => { tcSetupOverlay.classList.remove('show'); tcHostStart(); });
@@ -17423,6 +17706,7 @@ document.getElementById('tcJoinConnect').addEventListener('click', () => tcGuest
 document.getElementById('tcJoinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tcGuestConnect(); });
 
 function tcCleanupAndClose() {
+  slLcUnwatch();
     slWakeRelease();
   try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
   try { if (tcConn) tcConn.close(); } catch (e) {}
@@ -17434,14 +17718,24 @@ function tcCleanupAndClose() {
 function tcHostStart() {
   tcRole = 'host';
   const code = tcRandomCode();
-  document.getElementById('tcHostCode').textContent = code;
+  document.getElementById('tcHostCode').textContent = '— — — —';
   document.getElementById('tcHostStatus').textContent = 'Connecting…';
   tcHostOverlay.classList.add('show');
-  tcOpenHostPeer(code, 0);
+  /* V4.55: the room opens inside the family or class picked on the setup sheet; its code
+     shows once there is a room to give it to */
+  slLcEnsure('tcHostStatus').then(function (ok) {
+    if (!ok || tcRole !== 'host' || tcPeer) return;
+    document.getElementById('tcHostCode').textContent = code;
+    document.getElementById('tcHostStatus').textContent = 'Connecting…';
+    slLcWatch(tcCleanupAndClose);
+    tcOpenHostPeer(code, 0);
+  });
 }
 function tcOpenHostPeer(code, attempt) {
   if (attempt >= 5) { document.getElementById('tcHostStatus').textContent = 'Network busy. Please try again.'; return; }
-  tcPeer = new Peer(TC_PEER_PREFIX + code, SL_PEER_OPTS);
+  let room;
+  try { room = slLcRoom('tt', code); } catch (e) { document.getElementById('tcHostStatus').textContent = slLcText('check'); return; }
+  tcPeer = new Peer(room, slLcOpts());
   /* watchdog: if this peer hasn't reached the server in 8s, tear it down
      and retry (a wedged websocket otherwise spins forever) */
   (function (p) {
@@ -17454,7 +17748,7 @@ function tcOpenHostPeer(code, attempt) {
   })(tcPeer);
   slKeepAlive(tcPeer, 'tcHostStatus');
   slWakeLock();
-  tcPeer.on('open', () => { document.getElementById('tcHostStatus').textContent = 'Waiting for your friend to join…'; try { if (window.cloudAnnounceChallenge) cloudAnnounceChallenge('tt', code); } catch (e) {} });
+  tcPeer.on('open', () => { document.getElementById('tcHostStatus').textContent = 'Waiting for your friend to join…'; slLcAnnounce('tt', code); });
   tcPeer.on('error', (err) => {
     if (err && (err.type === 'unavailable-id' || /taken/i.test(err.message || ''))) {
       try { tcPeer.destroy(); } catch (e) {}
@@ -17468,7 +17762,7 @@ function tcOpenHostPeer(code, attempt) {
   tcPeer.on('connection', (conn) => {
     tcConn = conn;
     conn.on('open', () => { document.getElementById('tcHostStatus').textContent = 'Friend connected! Starting…'; try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {} tcHostInitGame(); });
-    conn.on('data', (msg) => tcHandleMessage(msg));
+    conn.on('data', (msg) => slPeerCall(tcHandleMessage, msg));
     conn.on('close', () => tcHandleDisconnect());
   });
 }
@@ -17504,8 +17798,9 @@ function tcHostInitGame() {
   const u = ensureUser(); migrateUser(u);
   const myName = (u && u.name) || 'You';
   tcGame = { role: 'host', questions, qIdx: 0, attempt: 1, hostScore: 0, guestScore: 0,
-    myName, theirName: '?', myAnswer: null, theirAnswer: null, locked: false };
-  tcConn.send({ type: 'init', questions, hostName: myName });
+    myName, theirName: 'Friend', myAnswer: null, theirAnswer: null, locked: false };
+  /* V4.54.1: names never travel — the other device may be a stranger */
+  tcConn.send({ type: 'init', questions, hostName: 'Friend' });
 }
 
 function tcJoinStart() {
@@ -17515,12 +17810,19 @@ function tcJoinStart() {
   tcJoinOverlay.classList.add('show');
   setTimeout(() => document.getElementById('tcJoinInput').focus(), 80);
 }
-function tcGuestConnect() {
+/* prefer 'family': the family pop-up's Join (V4.55: only inside the family or class) */
+function tcGuestConnect(prefer) {
   const code = document.getElementById('tcJoinInput').value.trim().toUpperCase();
   if (code.length !== 4) { document.getElementById('tcJoinStatus').textContent = 'Please enter a 4-letter code.'; return; }
+  slLcEnsure('tcJoinStatus', prefer).then(function (ok) { if (ok && tcRole === 'guest') tcGuestDial(code); });
+}
+function tcGuestDial(code) {
+  let room;
+  try { room = slLcRoom('tt', code); } catch (e) { document.getElementById('tcJoinStatus').textContent = slLcText('check'); return; }
   document.getElementById('tcJoinStatus').textContent = 'Connecting…';
   slWakeLock();
-  tcPeer = new Peer(SL_PEER_OPTS);
+  slLcWatch(tcCleanupAndClose);
+  tcPeer = new Peer(slLcOpts());
   (function (p) {
     setTimeout(function () {
       if (p !== tcPeer || p.destroyed || p.open) return;
@@ -17535,7 +17837,7 @@ function tcGuestConnect() {
     function attempt() {
       tries++;
       let done = false;
-      const c = tcPeer.connect(TC_PEER_PREFIX + code);
+      const c = tcPeer.connect(room);
       tcConn = c;
       function giveUpOrRetry() {
         if (done || c.open || tcConn !== c) return;
@@ -17545,17 +17847,15 @@ function tcGuestConnect() {
           if (st) st.textContent = 'No answer from ' + code + ' — trying again (' + (tries + 1) + ' of 3)…';
           setTimeout(attempt, 1500);
         } else if (st) {
-          st.textContent = 'Can\u2019t find a game with code ' + code + '. Ask your friend to KEEP their waiting screen open, read the code off their screen right now, and check you\u2019re both in TIMES TABLES.';
+          st.textContent = slLcMissing(code, 'TIMES TABLES');
         }
       }
       slTcFail = giveUpOrRetry;
       c.on('open', () => {
-        const u = ensureUser(); migrateUser(u);
-        const myName = (u && u.name) || 'Guest';
-        c.send({ type: 'hello', guestName: myName });
+        c.send({ type: 'hello', guestName: 'Friend' });   /* V4.54.1: no names over the wire */
         if (st) st.textContent = 'Connected!';
       });
-      c.on('data', (msg) => tcHandleMessage(msg));
+      c.on('data', (msg) => slPeerCall(tcHandleMessage, msg));
       c.on('close', () => tcHandleDisconnect());
       c.on('error', giveUpOrRetry);
       setTimeout(giveUpOrRetry, 8000);
@@ -17568,35 +17868,77 @@ function tcGuestConnect() {
   });
 }
 
+/* V4.54.1: a host's question is only accepted when it is a real sum — a and
+   b whole numbers 0-100, every option a whole number, and the marked answer
+   exactly a × b. Anything else rejects the whole game. */
+function tcSafeQuestions(list) {
+  if (!Array.isArray(list) || list.length < 1 || list.length > 30) return null;
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
+    if (!q || typeof q !== 'object') return null;
+    const a = slPeerInt(q.a, 0, 100), b = slPeerInt(q.b, 0, 100);
+    if (a === null || b === null || !Array.isArray(q.options) || q.options.length < 2 || q.options.length > 6) return null;
+    const opts = q.options.map((v) => slPeerInt(v, 0, 100000));
+    if (opts.indexOf(null) >= 0) return null;
+    const ci = slPeerInt(q.correctIdx, 0, opts.length - 1);
+    if (ci === null || opts[ci] !== a * b) return null;
+    out.push({ a, b, correctIdx: ci, options: opts });
+  }
+  return out;
+}
+
 function tcHandleMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
-  if (msg.type === 'hello' && tcRole === 'host') { if (tcGame) tcGame.theirName = msg.guestName || 'Friend'; return; }
+  if (msg.type === 'hello' && tcRole === 'host') { return; }   /* V4.54.1: always shown as "Friend" */
   if (msg.type === 'init' && tcRole === 'guest') {
+    const qs = tcSafeQuestions(msg.questions);
+    if (!qs) {
+      const st = document.getElementById('tcJoinStatus');
+      if (st) st.textContent = 'That game didn’t look right — ask your friend to start a new one.';
+      return;
+    }
     const u = ensureUser(); migrateUser(u);
-    tcGame = { role: 'guest', questions: msg.questions, qIdx: 0, attempt: 1, hostScore: 0, guestScore: 0,
-      myName: (u && u.name) || 'Guest', theirName: msg.hostName || 'Friend',
+    tcGame = { role: 'guest', questions: qs, qIdx: 0, attempt: 1, hostScore: 0, guestScore: 0,
+      myName: (u && u.name) || 'Guest', theirName: 'Friend',
       myAnswer: null, theirAnswer: null, locked: false };
     tcConn.send({ type: 'ready' });
     tcOpenGameOverlay(); tcRenderQuestion(); return;
   }
+  if (!tcGame) return;
+  const n = tcGame.questions.length;
   if (msg.type === 'ready' && tcRole === 'host') { tcOpenGameOverlay(); tcRenderQuestion(); return; }
-  if (msg.type === 'answer') { tcRecordPeerAnswer(msg.qIdx, msg.attempt, msg.optionIdx, msg.t); return; }
+  if (msg.type === 'answer') {
+    const qi = slPeerInt(msg.qIdx, 0, n - 1), at = slPeerInt(msg.attempt, 1, 2), oi = slPeerInt(msg.optionIdx, 0, 9);
+    if (qi === null || at === null || oi === null) return;
+    tcRecordPeerAnswer(qi, at, oi, slPeerInt(msg.t, 0, 9e15) || 0);
+    return;
+  }
   if (msg.type === 'result' && tcRole === 'guest') {
-    tcGame.hostScore = msg.hostScore; tcGame.guestScore = msg.guestScore;
-    tcShowResult(msg.winner, msg.correctIdx); return;
+    const hs = slPeerInt(msg.hostScore, 0, n), gs = slPeerInt(msg.guestScore, 0, n);
+    const ci = slPeerInt(msg.correctIdx, 0, 9);
+    if (hs === null || gs === null || ci === null) return;
+    tcGame.hostScore = hs; tcGame.guestScore = gs;
+    tcShowResult(msg.winner === 'host' ? 'host' : (msg.winner === 'guest' ? 'guest' : null), ci); return;
   }
   if (msg.type === 'next' && tcRole === 'guest') {
-    tcGame.qIdx = msg.qIdx; tcGame.attempt = msg.attempt;
+    const qi = slPeerInt(msg.qIdx, 0, n - 1), at = slPeerInt(msg.attempt, 1, 2);
+    if (qi === null || at === null) return;
+    tcGame.qIdx = qi; tcGame.attempt = at;
     tcGame.myAnswer = null; tcGame.theirAnswer = null; tcGame.locked = false;
     tcRenderQuestion(); return;
   }
   if (msg.type === 'retry' && tcRole === 'guest') {
-    tcGame.attempt = msg.attempt;
+    const at = slPeerInt(msg.attempt, 1, 2);
+    if (at === null) return;
+    tcGame.attempt = at;
     tcGame.myAnswer = null; tcGame.theirAnswer = null; tcGame.locked = false;
     tcRenderQuestion(true); return;
   }
   if (msg.type === 'end' && tcRole === 'guest') {
-    tcGame.hostScore = msg.hostScore; tcGame.guestScore = msg.guestScore;
+    const hs = slPeerInt(msg.hostScore, 0, n), gs = slPeerInt(msg.guestScore, 0, n);
+    if (hs === null || gs === null) return;
+    tcGame.hostScore = hs; tcGame.guestScore = gs;
     tcShowFinal(); return;
   }
 }
@@ -17620,7 +17962,7 @@ function tcRenderQuestion(isRetry) {
   document.getElementById('tcMeScore').textContent = (g.role === 'host' ? g.hostScore : g.guestScore);
   document.getElementById('tcThemScore').textContent = (g.role === 'host' ? g.guestScore : g.hostScore);
   document.getElementById('tcAttempt').textContent = isRetry ? 'Both got it wrong — second try!' : (g.attempt === 2 ? 'Second attempt' : '');
-  document.getElementById('tcPrompt').innerHTML = `<div class="ft-prompt-text" style="font-size:36px;">${q.a} × ${q.b}</div><div class="ft-prompt-sub">Tap the answer</div>`;
+  document.getElementById('tcPrompt').innerHTML = `<div class="ft-prompt-text" style="font-size:36px;">${slPeerText(q.a, 4)} × ${slPeerText(q.b, 4)}</div><div class="ft-prompt-sub">Tap the answer</div>`;
   document.getElementById('tcMePick').textContent = `You: —`;
   document.getElementById('tcMePick').className = 'me';
   document.getElementById('tcThemPick').textContent = `${g.theirName}: —`;
@@ -17710,7 +18052,7 @@ function tcShowResult(winner, correctIdx) {
   if (winner == null) fb.innerHTML = `<span style="color:#c0392b;">No point — both got it wrong twice.</span>`;
   else {
     const wonByMe = (winner === 'host' && g.role === 'host') || (winner === 'guest' && g.role === 'guest');
-    fb.innerHTML = wonByMe ? `<span style="color:#1a8a4f;">🎉 Point to you!</span>` : `<span style="color:#7a6a2e;">Point to ${g.theirName}.</span>`;
+    fb.innerHTML = wonByMe ? `<span style="color:#1a8a4f;">🎉 Point to you!</span>` : `<span style="color:#7a6a2e;">Point to ${slPeerText(g.theirName, 24)}.</span>`;
   }
 }
 function tcShowFinal() {
@@ -17719,7 +18061,7 @@ function tcShowFinal() {
   g.locked = true;
   const my = (g.role === 'host' ? g.hostScore : g.guestScore);
   const their = (g.role === 'host' ? g.guestScore : g.hostScore);
-  const verdict = my > their ? '🏆 You won!' : (my < their ? `${g.theirName} won — rematch?` : `Tied at ${my}!`);
+  const verdict = my > their ? '🏆 You won!' : (my < their ? `${slPeerText(g.theirName, 24)} won — rematch?` : `Tied at ${my}!`);
   document.getElementById('tcPrompt').innerHTML = `<div class="ft-prompt-text" style="font-size:32px;">🤝 ${my} vs ${their}</div><div class="ft-prompt-sub">${verdict}</div>`;
   document.getElementById('tcOptions').innerHTML = '';
   document.getElementById('tcAttempt').textContent = '';
@@ -24809,7 +25151,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
 <div class="overlay" id="dbSetupOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <h2>🎤 Challenge to Debate</h2>
-    <p class="sub">Debate a friend on another device. You both get the same surprise topic — one argues FOR, one AGAINST. Prep, speeches, then free debate!</p>
+    <p class="sub">Debate someone from your family or class on another device. You both get the same surprise topic — one argues FOR, one AGAINST. Prep, speeches, then free debate!</p>
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button class="btn btn-primary" id="dbStartHost" style="flex:1; padding:14px;">📡 Start a debate</button>
       <button class="btn btn-primary" id="dbStartJoin" style="flex:1; padding:14px; background:linear-gradient(135deg,#ff9f43,#ee5a24);">🔑 Join a debate</button>
@@ -24970,7 +25312,8 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     {"emoji": "🏛️", "text": "Museums are more interesting than theme parks"}
   ];
 
-  var DB_PEER_PREFIX = 'ttq-db-';
+  /* V4.55: rooms live inside the family or class (slLcRoom('debate', code)), no longer at
+     'ttq-db-' + code on the public link-up server */
   var DB_PREP_SECS = 300, DB_ARG_SECS = 120;
 
   var dbPeer = null, dbConn = null, dbRole = null, dbG = null, dbTick = null;
@@ -24996,9 +25339,11 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
       return;
     }
     setupO.classList.add('show');
+    slLcGate('debate');   /* V4.55: family and class only */
   };
 
   function cleanup() {
+    slLcUnwatch();
     slWakeRelease();
     try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
     try { if (dbConn) dbConn.close(); } catch (e) {}
@@ -25022,7 +25367,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     setupO.classList.remove('show');
     joinStart();
     document.getElementById('dbJoinInput').value = code;
-    guestConnect();
+    guestConnect('family');   /* the pop-up only ever shows a family room */
   };
   document.getElementById('dbJoinInput').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') guestConnect();
@@ -25032,17 +25377,27 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   function hostStart() {
     dbRole = 'host';
     var code = codeWord();
-    document.getElementById('dbHostCode').textContent = code;
+    document.getElementById('dbHostCode').textContent = '— — — —';
     document.getElementById('dbHostStatus').textContent = 'Connecting…';
     hostO.classList.add('show');
-    openHostPeer(code, 0);
+    /* V4.55: the room opens inside the family or class picked on the setup sheet; its code
+       shows once there is a room to give it to */
+    slLcEnsure('dbHostStatus').then(function (ok) {
+      if (!ok || dbRole !== 'host' || dbPeer) return;
+      document.getElementById('dbHostCode').textContent = code;
+      document.getElementById('dbHostStatus').textContent = 'Connecting…';
+      slLcWatch(cleanup);
+      openHostPeer(code, 0);
+    });
   }
   function openHostPeer(code, attempt) {
     if (attempt >= 5) {
       document.getElementById('dbHostStatus').textContent = 'Network busy. Please try again.';
       return;
     }
-    dbPeer = new Peer(DB_PEER_PREFIX + code, SL_PEER_OPTS);
+    var room;
+    try { room = slLcRoom('debate', code); } catch (e) { document.getElementById('dbHostStatus').textContent = slLcText('check'); return; }
+    dbPeer = new Peer(room, slLcOpts());
   /* watchdog: if this peer hasn't reached the server in 8s, tear it down
      and retry (a wedged websocket otherwise spins forever) */
   (function (p) {
@@ -25057,7 +25412,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   slWakeLock();
     dbPeer.on('open', function () {
       document.getElementById('dbHostStatus').textContent = 'Waiting for your opponent to join…';
-      try { if (window.cloudAnnounceChallenge) cloudAnnounceChallenge('debate', code); } catch (e) {}
+      slLcAnnounce('debate', code);   /* V4.55: the family pop-up, for a family room only */
     });
     dbPeer.on('error', function (err) {
       if (err && (err.type === 'unavailable-id' || /taken/i.test(err.message || ''))) {
@@ -25075,20 +25430,21 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
         document.getElementById('dbHostStatus').textContent = 'Opponent connected! Starting…';
         try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
       });
-      conn.on('data', handleMsg);
+      conn.on('data', function (msg) { slPeerCall(handleMsg, msg); });
       conn.on('close', handleDisconnect);
     });
   }
 
-  function hostInit(guestName) {
+  function hostInit() {
     var topic = DB_TOPICS[Math.floor(Math.random() * DB_TOPICS.length)];
     var hostFor = Math.random() < 0.5;
     dbG = {
       role: 'host', topic: topic, meFor: hostFor,
-      myName: myName(), theirName: guestName || 'Opponent',
+      myName: myName(), theirName: 'Friend',
       phase: null, meReady: false, themReady: false, endsAt: 0, freeStart: 0, awarded: false
     };
-    dbConn.send({ type: 'init', topic: topic, hostFor: hostFor, hostName: dbG.myName });
+    /* V4.54.1: names never travel — the other device may be a stranger */
+    dbConn.send({ type: 'init', topic: topic, hostFor: hostFor, hostName: 'Friend' });
     openGame();
     setPhase('prep', DB_PREP_SECS, true);
   }
@@ -25101,15 +25457,22 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     joinO.classList.add('show');
     setTimeout(function () { document.getElementById('dbJoinInput').focus(); }, 80);
   }
-  function guestConnect() {
+  /* prefer 'family': the family pop-up's Join (V4.55: only inside the family or class) */
+  function guestConnect(prefer) {
     var code = document.getElementById('dbJoinInput').value.trim().toUpperCase();
     if (code.length !== 4) {
       document.getElementById('dbJoinStatus').textContent = 'Please enter a 4-letter code.';
       return;
     }
+    slLcEnsure('dbJoinStatus', prefer).then(function (ok) { if (ok && dbRole === 'guest') guestDial(code); });
+  }
+  function guestDial(code) {
+    var room;
+    try { room = slLcRoom('debate', code); } catch (e) { document.getElementById('dbJoinStatus').textContent = slLcText('check'); return; }
     document.getElementById('dbJoinStatus').textContent = 'Connecting…';
   slWakeLock();
-    dbPeer = new Peer(SL_PEER_OPTS);
+    slLcWatch(cleanup);
+    dbPeer = new Peer(slLcOpts());
   (function (p) {
     setTimeout(function () {
       if (p !== dbPeer || p.destroyed || p.open) return;
@@ -25124,7 +25487,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
       function attempt() {
         tries++;
         var done = false;
-        var c = dbPeer.connect(DB_PEER_PREFIX + code);
+        var c = dbPeer.connect(room);
         dbConn = c;
         function giveUpOrRetry() {
           if (done || c.open || dbConn !== c) return;
@@ -25134,15 +25497,15 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
             if (st) st.textContent = 'No answer from ' + code + ' — trying again (' + (tries + 1) + ' of 3)…';
             setTimeout(attempt, 1500);
           } else if (st) {
-            st.textContent = 'Can\u2019t find a game with code ' + code + '. Ask your friend to KEEP their waiting screen open, read the code off their screen right now, and check you\u2019re both in DEBATE.';
+            st.textContent = slLcMissing(code, 'DEBATE');
           }
         }
         slDbFail = giveUpOrRetry;
         c.on('open', function () {
-          c.send({ type: 'hello', guestName: myName() });
+          c.send({ type: 'hello', guestName: 'Friend' });   /* V4.54.1: no names over the wire */
           if (st) st.textContent = 'Connected!';
         });
-        c.on('data', handleMsg);
+        c.on('data', function (msg) { slPeerCall(handleMsg, msg); });
         c.on('close', handleDisconnect);
         c.on('error', giveUpOrRetry);
         setTimeout(giveUpOrRetry, 8000);
@@ -25156,13 +25519,27 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   }
 
   /* ----- messages ----- */
+  /* V4.54.1: the topic must be one of OUR topics — the local copy is what
+     gets shown, so a stranger can't push their own text or HTML */
+  function localTopic(t) {
+    if (!t || typeof t !== 'object' || typeof t.text !== 'string') return null;
+    for (var i = 0; i < DB_TOPICS.length; i++) if (DB_TOPICS[i].text === t.text) return DB_TOPICS[i];
+    return null;
+  }
+  var DB_PHASES = ['prep', 'arg1', 'arg2', 'free', 'done'];
   function handleMsg(msg) {
     if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'hello' && dbRole === 'host') { hostInit(msg.guestName); return; }
+    if (msg.type === 'hello' && dbRole === 'host') { hostInit(); return; }
     if (msg.type === 'init' && dbRole === 'guest') {
+      var topic = localTopic(msg.topic);
+      if (!topic) {
+        var st = document.getElementById('dbJoinStatus');
+        if (st) st.textContent = 'That debate didn’t look right — ask your friend to start a new one.';
+        return;
+      }
       dbG = {
-        role: 'guest', topic: msg.topic, meFor: !msg.hostFor,
-        myName: myName(), theirName: msg.hostName || 'Opponent',
+        role: 'guest', topic: topic, meFor: msg.hostFor !== true,
+        myName: myName(), theirName: 'Friend',
         phase: null, meReady: false, themReady: false, endsAt: 0, freeStart: 0, awarded: false
       };
       openGame();
@@ -25175,7 +25552,11 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
       if (dbRole === 'host') hostMaybeAdvance(); else renderStatus();
       return;
     }
-    if (msg.type === 'phase') { setPhase(msg.phase, msg.secs, false); return; }
+    if (msg.type === 'phase' && dbRole === 'guest') {   /* only the host referees */
+      var ph = DB_PHASES[DB_PHASES.indexOf(msg.phase)], secs = slPeerInt(msg.secs, 0, 3600);
+      if (!ph || secs === null) return;
+      setPhase(ph, secs, false); return;
+    }
     if (msg.type === 'endfree') {
       if (dbRole === 'host') { broadcastPhase('done', 0); }
       return;
@@ -25256,7 +25637,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     gameO.classList.add('show');
     var t = dbG.topic || { emoji:'❓', text:'…' };
     document.getElementById('dbTopicBox').innerHTML =
-      '<div class="db-topic-emoji">' + t.emoji + '</div>' +
+      '<div class="db-topic-emoji">' + slPeerText(t.emoji, 16) + '</div>' +
       '<div class="db-topic-text">' + esc(t.text) + '</div>';
     var sides = document.getElementById('dbSides');
     sides.innerHTML =
@@ -29173,7 +29554,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
         '<div class="op-home-how"><b>How it works:</b> ⏱️ 40 seconds on the clock, and a wrong answer knocks you out — ' +
         'exactly like the show. Two lifelines per game: <span class="op-chipdemo">🛟 Pass</span> skips a question — or plays ' +
         'ITSELF to save your first wrong answer — and <span class="op-chipdemo">⏱️ +20s</span> buys thinking time. ' +
-        'Harder questions earn more ⭐ for the Shop. Survive all 15 — and crack that final 1% question — to join the Club! 🎉</div>' +
+        'Harder questions earn more ⭐ for 🎁 My rewards. Survive all 15 — and crack that final 1% question — to join the Club! 🎉</div>' +
       '</div>';
     document.getElementById('opPlaySolo').addEventListener('click', soloStart);
     document.getElementById('opPlayVs').addEventListener('click', function () {
@@ -29182,6 +29563,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
         return;
       }
       document.getElementById('op2SetupOverlay').classList.add('show');
+      slLcGate('onepct');   /* V4.55: family and class only */
     });
   };
 
@@ -29419,7 +29801,8 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
      Each player has one Pass (stay in, no points) and one +50% time.
      Winner: whoever survives longer; if level, most points.
      answer codes: 0..3 = option, -1 = timeout, -2 = pass, -3 = already out */
-  var OP2_PREFIX = 'ttq-1p-';
+  /* V4.55: rooms live inside the family or class (slLcRoom('onepct', code)), no longer at
+     'ttq-1p-' + code on the public link-up server */
   var p2Peer = null, p2Conn = null, p2Role = null, p2G = null, p2Iv = null;
 
   var s2O = document.getElementById('op2SetupOverlay');
@@ -29428,6 +29811,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   var g2O = document.getElementById('op2GameOverlay');
 
   function p2Cleanup() {
+    slLcUnwatch();
     slWakeRelease();
     try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
     p2DropLobby();
@@ -29462,35 +29846,17 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     s2O.classList.remove('show');
     p2JoinStart();
     document.getElementById('op2JoinInput').value = code;
-    p2GuestConnect();
+    p2GuestConnect('family');   /* the pop-up only ever shows a family room */
   };
   document.getElementById('op2JoinInput').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') p2GuestConnect();
   });
 
-  /* V48.3: the host also holds a well-known "lobby" peer; a joining
-     player's device asks it for the waiting game's code so the code box
-     fills itself in. If two games run at once, only the first host owns
-     the lobby — the second game falls back to typing the code. */
+  /* V4.54.1: the V48.3 global "lobby" peer (which handed a waiting game's
+     code to ANY device that asked — a stranger included) is switched off.
+     Players always type the code from their friend's screen. p2DropLobby
+     stays so cleanup paths are unchanged. */
   var p2Lobby = null;
-  function p2RegisterLobby() {
-    try {
-      p2Lobby = new Peer(OP2_PREFIX + 'lobby', SL_PEER_OPTS);
-      p2Lobby.on('connection', function (conn) {
-        conn.on('open', function () {
-          try {
-            var code = (document.getElementById('op2HostCode').textContent || '').trim();
-            /* only advertise a code that is really live right now — a stale
-               tab must not hand out a dead code */
-            if (/^[A-Z]{4}$/.test(code) && p2Role === 'host' && p2Peer && p2Peer.open &&
-                !p2Conn && h2O.classList.contains('show')) conn.send({ type: 'code', code: code });
-          } catch (e) {}
-          setTimeout(function () { try { conn.close(); } catch (e) {} }, 900);
-        });
-      });
-      p2Lobby.on('error', function () { /* lobby already owned by another host — fine */ });
-    } catch (e) {}
-  }
   function p2DropLobby() {
     try { if (p2Lobby) p2Lobby.destroy(); } catch (e) {}
     p2Lobby = null;
@@ -29499,18 +29865,27 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   function p2HostStart() {
     p2Role = 'host';
     var code = p2Code();
-    document.getElementById('op2HostCode').textContent = code;
+    document.getElementById('op2HostCode').textContent = '— — — —';
     document.getElementById('op2HostStatus').textContent = 'Connecting…';
     h2O.classList.add('show');
-    p2OpenHostPeer(code, 0);
-    p2RegisterLobby();
+    /* V4.55: the room opens inside the family or class picked on the setup sheet; its code
+       shows once there is a room to give it to */
+    slLcEnsure('op2HostStatus').then(function (ok) {
+      if (!ok || p2Role !== 'host' || p2Peer) return;
+      document.getElementById('op2HostCode').textContent = code;
+      document.getElementById('op2HostStatus').textContent = 'Connecting…';
+      slLcWatch(p2Cleanup);
+      p2OpenHostPeer(code, 0);
+    });
   }
   function p2OpenHostPeer(code, attempt) {
     if (attempt >= 5) {
       document.getElementById('op2HostStatus').textContent = 'Network busy. Please try again.';
       return;
     }
-    p2Peer = new Peer(OP2_PREFIX + code, SL_PEER_OPTS);
+    var room;
+    try { room = slLcRoom('onepct', code); } catch (e) { document.getElementById('op2HostStatus').textContent = slLcText('check'); return; }
+    p2Peer = new Peer(room, slLcOpts());
   /* watchdog: if this peer hasn't reached the server in 8s, tear it down
      and retry (a wedged websocket otherwise spins forever) */
   (function (p) {
@@ -29525,7 +29900,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
   slWakeLock();
     p2Peer.on('open', function () {
       document.getElementById('op2HostStatus').textContent = 'Waiting for your friend to join…';
-      try { if (window.cloudAnnounceChallenge) cloudAnnounceChallenge('onepct', code); } catch (e) {}
+      slLcAnnounce('onepct', code);   /* V4.55: the family pop-up, for a family room only */
     });
     p2Peer.on('error', function (err) {
       if (err && (err.type === 'unavailable-id' || /taken/i.test(err.message || ''))) {
@@ -29544,7 +29919,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
         try { if (window.cloudRetractChallenge) cloudRetractChallenge(); } catch (e) {}
         p2HostInit();
       });
-      conn.on('data', p2HandleMsg);
+      conn.on('data', function (msg) { slPeerCall(p2HandleMsg, msg); });
       conn.on('close', p2HandleDisconnect);
     });
   }
@@ -29569,53 +29944,35 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
       if (q) { used[qKey(q)] = true; usedQs.push(q); markAsked(q); }
       return q;
     }).filter(Boolean);
-    p2G = newP2State('host', questions, p2Name(), '?');
+    p2G = newP2State('host', questions, p2Name(), 'Friend');
     p2DropLobby();
-    p2Conn.send({ type: 'init', questions: questions, hostName: p2G.myName });
+    /* V4.54.1: names never travel — the other device may be a stranger */
+    p2Conn.send({ type: 'init', questions: questions, hostName: 'Friend' });
   }
   function p2JoinStart() {
     p2Role = 'guest';
     document.getElementById('op2JoinInput').value = '';
-    document.getElementById('op2JoinStatus').textContent = 'Looking for a waiting game…';
+    /* V4.54.1: no stranger matchmaking — the code is always typed in */
+    document.getElementById('op2JoinStatus').textContent = 'Type the 4-letter code from your friend’s screen.';
     j2O.classList.add('show');
     setTimeout(function () { document.getElementById('op2JoinInput').focus(); }, 80);
-    /* V48.3: ask the host's lobby for the code so it fills itself in */
-    try {
-      var disc = new Peer(SL_PEER_OPTS);
-      var done = false;
-      function finish(code) {
-        if (done) return;
-        done = true;
-        try { disc.destroy(); } catch (e) {}
-        var inp = document.getElementById('op2JoinInput');
-        var st = document.getElementById('op2JoinStatus');
-        if (code && inp && !inp.value.trim()) {
-          inp.value = code;
-          if (st) st.textContent = '✨ Found a waiting game: ' + code + ' — press Join!';
-        } else if (st && st.textContent.indexOf('Looking') === 0) {
-          st.textContent = 'Type the 4-letter code from your friend’s screen.';
-        }
-      }
-      disc.on('open', function () {
-        var c = disc.connect(OP2_PREFIX + 'lobby');
-        c.on('data', function (msg) {
-          if (msg && msg.type === 'code' && /^[A-Z]{4}$/.test(String(msg.code || ''))) finish(msg.code);
-        });
-        c.on('error', function () { finish(null); });
-      });
-      disc.on('error', function () { finish(null); });
-      setTimeout(function () { finish(null); }, 3500);
-    } catch (e) {}
   }
-  function p2GuestConnect() {
+  /* prefer 'family': the family pop-up's Join (V4.55: only inside the family or class) */
+  function p2GuestConnect(prefer) {
     var code = document.getElementById('op2JoinInput').value.trim().toUpperCase();
     if (code.length !== 4) {
       document.getElementById('op2JoinStatus').textContent = 'Please enter a 4-letter code.';
       return;
     }
+    slLcEnsure('op2JoinStatus', prefer).then(function (ok) { if (ok && p2Role === 'guest') p2GuestDial(code); });
+  }
+  function p2GuestDial(code) {
+    var room;
+    try { room = slLcRoom('onepct', code); } catch (e) { document.getElementById('op2JoinStatus').textContent = slLcText('check'); return; }
     document.getElementById('op2JoinStatus').textContent = 'Connecting…';
   slWakeLock();
-    p2Peer = new Peer(SL_PEER_OPTS);
+    slLcWatch(p2Cleanup);
+    p2Peer = new Peer(slLcOpts());
   (function (p) {
     setTimeout(function () {
       if (p !== p2Peer || p.destroyed || p.open) return;
@@ -29630,7 +29987,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
       function attempt() {
         tries++;
         var done = false;
-        var c = p2Peer.connect(OP2_PREFIX + code);
+        var c = p2Peer.connect(room);
         p2Conn = c;
         function giveUpOrRetry() {
           if (done || c.open || p2Conn !== c) return;
@@ -29640,15 +29997,15 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
             if (st) st.textContent = 'No answer from ' + code + ' — trying again (' + (tries + 1) + ' of 3)…';
             setTimeout(attempt, 1500);
           } else if (st) {
-            st.textContent = 'Can\u2019t find a game with code ' + code + '. Ask your friend to KEEP their waiting screen open, read the code off their screen right now, and check you\u2019re both in the 1% CHALLENGE.';
+            st.textContent = slLcMissing(code, 'the 1% CHALLENGE');
           }
         }
         slP2Fail = giveUpOrRetry;
         c.on('open', function () {
-          c.send({ type: 'hello', guestName: p2Name() });
+          c.send({ type: 'hello', guestName: 'Friend' });   /* V4.54.1: no names over the wire */
           if (st) st.textContent = 'Connected!';
         });
-        c.on('data', p2HandleMsg);
+        c.on('data', function (msg) { slPeerCall(p2HandleMsg, msg); });
         c.on('close', p2HandleDisconnect);
         c.on('error', giveUpOrRetry);
         setTimeout(giveUpOrRetry, 8000);
@@ -29661,65 +30018,122 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     });
   }
 
+  /* V4.54.1: a question from the other device is only accepted when it is
+     one of OUR bank's questions (same text + picture + stage, i.e. the same
+     qKey) — and the LOCAL copy is what gets shown. q.vis is raw picture
+     HTML, so a received copy must never reach the screen. */
+  var p2BankIdx = null;
+  function p2LocalQ(rq) {
+    if (!rq || typeof rq !== 'object' || typeof rq.q !== 'string' || rq.q.length > 2000) return null;
+    if (rq.vis != null && (typeof rq.vis !== 'string' || rq.vis.length > 50000)) return null;
+    if (STAGES.indexOf(rq.stage) < 0) return null;
+    if (!p2BankIdx) {
+      p2BankIdx = {};
+      OP_BANK.forEach(function (bq) { var k = qKey(bq); (p2BankIdx[k] = p2BankIdx[k] || []).push(bq); });
+    }
+    var k = qKey(rq);
+    var hits = Object.prototype.hasOwnProperty.call(p2BankIdx, k) ? p2BankIdx[k] : [];
+    for (var i = 0; i < hits.length; i++) if (hits[i].stage === rq.stage) return hits[i];
+    return null;
+  }
+  function p2SafeQuestions(list) {
+    if (!Array.isArray(list) || list.length < 1 || list.length > STAGES.length * 2) return null;
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var lq = p2LocalQ(list[i]);
+      if (!lq) return null;
+      out.push(lq);
+    }
+    return out;
+  }
+  /* scores / knock-out points from the host: whole numbers in sane ranges */
+  function p2SafeTally(msg) {
+    var t = {
+      hostScore: slPeerInt(msg.hostScore, 0, 10000), guestScore: slPeerInt(msg.guestScore, 0, 10000),
+      hostOutAt: slPeerInt(msg.hostOutAt, -1, 999), guestOutAt: slPeerInt(msg.guestOutAt, -1, 999)
+    };
+    if (t.hostScore === null || t.guestScore === null || t.hostOutAt === null || t.guestOutAt === null) return null;
+    t.hostAlive = msg.hostAlive === true; t.guestAlive = msg.guestAlive === true;
+    return t;
+  }
+  function p2ApplyTally(t) {
+    p2G.hostScore = t.hostScore; p2G.guestScore = t.guestScore;
+    p2G.hostAlive = t.hostAlive; p2G.guestAlive = t.guestAlive;
+    p2G.hostOutAt = t.hostOutAt; p2G.guestOutAt = t.guestOutAt;
+  }
+
   function p2HandleMsg(msg) {
     if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'hello' && p2Role === 'host') {
-      if (p2G) p2G.theirName = msg.guestName || 'Friend';
-      return;
+      return;   /* V4.54.1: the other player always shows as "Friend" */
     }
     if (msg.type === 'init' && p2Role === 'guest') {
-      p2G = newP2State('guest', msg.questions, p2Name(), msg.hostName || 'Friend');
+      var qs = p2SafeQuestions(msg.questions);
+      if (!qs) {
+        var st = document.getElementById('op2JoinStatus');
+        if (st) st.textContent = 'That game didn’t look right — ask your friend to start a new one.';
+        return;
+      }
+      p2G = newP2State('guest', qs, p2Name(), 'Friend');
       p2Conn.send({ type: 'ready' });
       p2OpenGame();
       p2Render();
       return;
     }
+    if (!p2G) return;
+    var n = p2G.questions.length;
     if (msg.type === 'ready' && p2Role === 'host') {
       p2OpenGame();
       p2Render();
       return;
     }
-    if (!p2G) return;
     if (msg.type === 'answer' && p2Role === 'host') {
-      if (msg.qIdx !== p2G.qIdx || p2G.locked) return;
-      p2G.theirAnswer = { idx: msg.idx };
-      if (typeof msg.passLeft === 'boolean') p2G.theirPassLeft = msg.passLeft;
-      document.getElementById('op2ThemPick').textContent = p2G.theirName + ': ' + (msg.idx === -2 ? '⏭️ passed' : '✅ answered');
+      var ai = slPeerInt(msg.idx, -3, 9);
+      if (ai === null || msg.qIdx !== p2G.qIdx || p2G.locked) return;
+      p2G.theirAnswer = { idx: ai };
+      if (typeof msg.passLeft === 'boolean') p2G.theirPassLeft = (msg.passLeft === true);
+      document.getElementById('op2ThemPick').textContent = p2G.theirName + ': ' + (ai === -2 ? '⏭️ passed' : '✅ answered');
       p2HostMaybeResolve();
       return;
     }
     if (msg.type === 'peeranswered' && p2Role === 'guest') {
-      document.getElementById('op2ThemPick').textContent = p2G.theirName + ': ' + (msg.pass ? '⏭️ passed' : '✅ answered');
+      document.getElementById('op2ThemPick').textContent = p2G.theirName + ': ' + (msg.pass === true ? '⏭️ passed' : '✅ answered');
       return;
     }
     if (msg.type === 'result' && p2Role === 'guest') {
-      p2G.hostScore = msg.hostScore; p2G.guestScore = msg.guestScore;
-      p2G.hostAlive = msg.hostAlive; p2G.guestAlive = msg.guestAlive;
-      p2G.hostOutAt = msg.hostOutAt; p2G.guestOutAt = msg.guestOutAt;
-      if (typeof msg.roundLives === 'number') p2G.roundLives = msg.roundLives;
-      if (msg.guestAutoPass) { p2G.passUsed = true; updateLifelineBtns('op2', p2G); }
-      p2G._autoPassSelf = !!msg.guestAutoPass;
-      p2ShowResult(msg.correctIdx, msg.hostPick, msg.guestPick, msg.lifeSaved);
+      var rt = p2SafeTally(msg);
+      var ci = slPeerInt(msg.correctIdx, 0, 9), hp = slPeerInt(msg.hostPick, -3, 9), gp = slPeerInt(msg.guestPick, -3, 9);
+      var rl = (typeof msg.roundLives === 'number') ? slPeerInt(msg.roundLives, 0, 3) : p2G.roundLives;
+      if (!rt || ci === null || hp === null || gp === null || rl === null) return;
+      p2ApplyTally(rt);
+      p2G.roundLives = rl;
+      if (msg.guestAutoPass === true) { p2G.passUsed = true; updateLifelineBtns('op2', p2G); }
+      p2G._autoPassSelf = msg.guestAutoPass === true;
+      p2ShowResult(ci, hp, gp, msg.lifeSaved === true);
       return;
     }
     if (msg.type === 'retryq' && p2Role === 'guest') {
-      p2G.questions[msg.qIdx] = msg.question;
-      p2G.qIdx = msg.qIdx;
-      p2G.roundLives = msg.roundLives;
+      var rqi = slPeerInt(msg.qIdx, 0, n - 1), rq = p2LocalQ(msg.question), rrl = slPeerInt(msg.roundLives, 0, 3);
+      if (rqi === null || !rq || rrl === null) return;
+      p2G.questions[rqi] = rq;
+      p2G.qIdx = rqi;
+      p2G.roundLives = rrl;
       p2G.myAnswer = null; p2G.theirAnswer = null; p2G.locked = false;
       p2Render();
       return;
     }
     if (msg.type === 'next' && p2Role === 'guest') {
-      p2G.qIdx = msg.qIdx;
+      var nqi = slPeerInt(msg.qIdx, 0, n - 1);
+      if (nqi === null) return;
+      p2G.qIdx = nqi;
       p2G.myAnswer = null; p2G.theirAnswer = null; p2G.locked = false;
       p2Render();
       return;
     }
     if (msg.type === 'end' && p2Role === 'guest') {
-      p2G.hostScore = msg.hostScore; p2G.guestScore = msg.guestScore;
-      p2G.hostAlive = msg.hostAlive; p2G.guestAlive = msg.guestAlive;
-      p2G.hostOutAt = msg.hostOutAt; p2G.guestOutAt = msg.guestOutAt;
+      var et = p2SafeTally(msg);
+      if (!et) return;
+      p2ApplyTally(et);
       p2Final();
       return;
     }
@@ -29748,7 +30162,7 @@ tcGameOverlay.addEventListener('click', (e) => { if (e.target === tcGameOverlay)
     document.getElementById('op2Progress').textContent = 'Question ' + (g.qIdx + 1) + ' of ' + g.questions.length;
     document.getElementById('op2MeScore').textContent = (g.role === 'host' ? g.hostScore : g.guestScore);
     document.getElementById('op2ThemScore').textContent = (g.role === 'host' ? g.guestScore : g.hostScore);
-    document.getElementById('op2StageChip').innerHTML = '<span>The ' + q.stage + '% question · ⭐' + STAGE_PTS[q.stage] + '</span>';
+    document.getElementById('op2StageChip').innerHTML = '<span>The ' + slPeerText(q.stage, 3) + '% question · ⭐' + slPeerText(STAGE_PTS[q.stage], 3) + '</span>';
     document.getElementById('op2Lives').textContent =
       '❤️'.repeat(Math.max(0, g.roundLives)) + '🖤'.repeat(3 - Math.max(0, g.roundLives)) + ' team lives';
     document.getElementById('op2Q').textContent = q.q;
@@ -31893,7 +32307,7 @@ var SPELL_BANKS = {
    profile-switch detection, cross-tab state sync, guarded deep links.
    It never awards or changes points.
    ================================================================ */
-window.SL_WORLD_VER = '5';
+window.SL_WORLD_VER = '6';
 /* FREE TEST MODE for My Island (James, 2026-10-02): island items cost 0 and the
    children's ⭐ are never used; each free item is tagged `trial: true` in the
    island ledger so it can be kept or cleared when testing ends.
@@ -31968,25 +32382,39 @@ window.SL_WORLD_TRIAL = true;
       document.head.appendChild(lk);
     });
   }
+  /* the world files' query: the release's ?v= (a QA profile always fresh) */
+  function worldQuery() {
+    var v = '?v=' + window.SL_WORLD_VER;
+    try { if (localStorage.getItem('slQaMode') === '1') v += '&qa=' + Date.now(); } catch (e) {}   /* QA only: always fresh */
+    return v;
+  }
   window.slLoadWorld = function () {
     if (window.SLWorld) return Promise.resolve();
     if (!loading) {
-      var v = '?v=' + window.SL_WORLD_VER;
-      try { if (localStorage.getItem('slQaMode') === '1') v += '&qa=' + Date.now(); } catch (e) {}   /* QA only: always fresh */
+      var v = worldQuery();
       /* Island Encore restyle, then the Pixel Blocks skin right after it (loaded once; html-body-scoped
-         rules beat the injected ones). The island waits for both sheets (4 s cap) so it never shows
-         dark glass before the light blocks. */
+         rules beat the injected ones), then the Pet Corner's sheet (kids update, KU21). The island waits
+         for the sheets (4 s cap) so it never shows dark glass before the light blocks. */
       var sheets = Promise.race([
-        Promise.all([loadCss('slwEncoreCss', 'world/island-encore.css' + v), loadCss('slwPixelCss', 'world/island-pixel.css' + v)]),
+        Promise.all([loadCss('slwEncoreCss', 'world/island-encore.css' + v), loadCss('slwPixelCss', 'world/island-pixel.css' + v), loadCss('slwCareCss', 'world/pet-care.css' + v)]),
         new Promise(function (res) { setTimeout(res, 4000); })
       ]);
+      /* The kids update (plan-ku KU21): people-core registers its characters, wear and hooks straight
+         after world-core, before any normalize and before island-shop (the Wardrobe tab); pet care's
+         rules follow it. The pets' 2D art loads beside the other 2D art and the Pet Corner with the
+         world UI, so a care card can show at once. The people's shapes, 2D art and sheets come later
+         through slLoadPeople, the photo files through slLoadPhoto and the Pet Shop on first use. */
       loading = loadScript('world/world-core.js' + v)
+        .then(function () { return loadScript('world/people-core.js' + v); })
+        .then(function () { return loadScript('world/pet-care.js' + v); })
         .then(function () { return loadScript('world/world-copy.js' + v); })
         .then(function () { return loadScript('world/world-isles-ui.js' + v); })
         .then(function () { return loadScript('world/island-shop.js' + v); })
         .then(function () { return loadScript('world/world-art.js' + v); })
         .then(function () { return loadScript('world/world-art-crew.js' + v); })
         .then(function () { return loadScript('world/world-art-lands.js' + v); })
+        .then(function () { return loadScript('world/world-art-pets.js' + v); })
+        .then(function () { return loadScript('world/pet-care-ui.js' + v); })
         .then(function () { return loadScript('world/world-look.js' + v); })
         .then(function () { return loadScript('world/sound.js' + v); })
         .then(function () { return loadScript('world/music.js' + v); })
@@ -31996,8 +32424,30 @@ window.SL_WORLD_TRIAL = true;
     }
     return loading;
   };
+  /* Optional parts that load when they are first needed (kids update, KU21), each once and in
+     order. A load that fails is forgotten, so the next call tries again (the island decides when). */
+  function loadOnce(list, css) {
+    var p = null;
+    return function () {
+      if (!p) {
+        var v = worldQuery();
+        var sheet = css ? Promise.race([loadCss(css[0], css[1] + v), new Promise(function (res) { setTimeout(res, 4000); })]) : null;
+        p = list.reduce(function (chain, src) {
+          return chain.then(function () { return loadScript(src + v); });
+        }, Promise.resolve()).then(function () { return sheet; }).catch(function (e) { p = null; throw e; });
+      }
+      return p;
+    };
+  }
+  /* the characters' shapes, their 2D art and the character sheets (with their stylesheet): the first
+     time a character is drawn, the character card shows or the Wardrobe draws */
+  window.slLoadPeople = loadOnce(['world/people-shapes-body.js', 'world/people-shapes-hair.js', 'world/people-shapes-wear.js',
+    'world/people-shapes-acc.js', 'world/world-art-people.js', 'world/people-ui.js'], ['slwPeopleCss', 'world/people-ui.css']);
+  /* 'Start from a photo' and the mirror: only when one of their buttons is tapped (never by the island) */
+  window.slLoadPhoto = loadOnce(['world/photo-cartoon.js', 'world/photo-cartoon-ui.js']);
   window.slOpenWorld = function () {
     var host = document.getElementById('worldView');
+    try { if (window.slCareBanner) window.slCareBanner.hide(); } catch (e) {}   /* [KU-CARE] the reminder has done its job */
     if (!host) return Promise.resolve();
     if (!window.SLWorld) host.innerHTML = '<div style="padding:40px;text-align:center;font-weight:800;color:#6c5ce7;">Loading your island…</div>';
     return window.slLoadWorld().then(function () { window.SLWorld.render(); }).catch(function () {
@@ -32034,6 +32484,7 @@ window.SL_WORLD_TRIAL = true;
         var userChanged = lastShown.user !== null && lastShown.user !== name;
         lastShown.user = name; lastShown.pts = pts;
         if (window.SLWorld) { if (userChanged) window.SLWorld.onUserChanged(); else window.SLWorld.onPointsChanged(); }
+        if (userChanged && window.slCareBanner) window.slCareBanner.check();   /* [KU-CARE] the new player's own pets */
       } catch (e) {}
       return r;
     };
@@ -32099,7 +32550,121 @@ window.SL_WORLD_TRIAL = true;
   #pointsPill .sl-plus { position: absolute; left: 50%; top: -6px; transform: translateX(-50%); font-weight: 800; font-size: 13px;
     color: #1e9e54; pointer-events: none; animation: slPlusUp 1s ease-out forwards; white-space: nowrap; }
   @keyframes slPlusUp { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -22px); } }
+  /* [KU-CARE] the hungry-pet reminder: one slim, still line under the app tabs (no animation, no sound) */
+  #slCareBanner { position: relative; z-index: 1;   /* above the theme's soft background blobs (slTheme body::before) */
+    display: flex; align-items: center; gap: 10px; margin: 10px 4px 0; padding: 6px 6px 6px 14px;
+    background: #fff4d6; border: 2px solid #f0c75e; border-radius: 16px; color: #4a3500; font-weight: 800; font-size: 15px; line-height: 1.3; }
+  #slCareBanner .slcb-paw { font-size: 20px; flex: none; }
+  #slCareBanner .slcb-text { flex: 1 1 auto; min-width: 0; }
+  #slCareBanner button { font-family: inherit; font-weight: 800; font-size: 15px; border: none; border-radius: 999px; cursor: pointer;
+    min-height: 44px; min-width: 44px; flex: none; }
+  #slCareBanner .slcb-go { background: #6c5ce7; color: #fff; padding: 0 20px; }
+  #slCareBanner .slcb-x { background: transparent; color: #6b5300; font-size: 18px; }
+  #slCareBanner button:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
 </style>
+<script>
+/* [KU-CARE] The kids update's home-screen reminder (pets.json decisions 24 and ui.child 12; plan-ku KU19,
+   KU-R1). Once per app session, on the learning screens, when a pet at home is hungry or worse: the
+   save's care3.alert.lv is 2 or more (pet-care.js keeps alert up to date at every care write, so this
+   needs no world script) and no pet sitter is on. Never for peckish, never on My Island, no sound and
+   no notification. 'Feed {name}' ('Feed my pets' for two or more) opens My Island and leaves a note in
+   memory (window.slCareFeed) for the island to open the Pet Corner on that pet with its food open
+   (F-KU2); the ✕ closes it for this session. The name is the child's own
+   pet's, shown on their own device as text. Its two strings are pets.json care.app.one and
+   care.app.many, in their own table. Nothing here writes the save or any storage. */
+(function () {
+  'use strict';
+  var CARE_APP = Object.freeze({
+    one: '{name} is hungry. Feed them on My Island.',
+    many: '{n} pets are hungry. Feed them on My Island.'
+  });
+  var UI = Object.freeze({ feed: 'Feed', feedAll: 'Feed my pets', later: 'Not now' });
+  var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  var done = {};                 /* the profiles reminded this app session (memory only) */
+  var el = null;
+  function plain(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  function who() { try { return state.activeUser || null; } catch (e) { return null; } }
+  function worldOf() {
+    try { var u = typeof currentUser === 'function' ? currentUser() : null; return u && plain(u.world) ? u.world : null; } catch (e) { return null; }
+  }
+  /* the island day, as the island counts it (the family's time zone when the save has one) */
+  function today(w) {
+    var tz = w && plain(w.arcadeCfg) && typeof w.arcadeCfg.tz === 'string' ? w.arcadeCfg.tz : 'Europe/London';
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+    catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+  /* SLPetCare.sitterOn's rule, read straight from the save: on, and no end date or not past it */
+  function sitterOn(cc, day) {
+    var s = plain(cc.cfg) && plain(cc.cfg.sitter) ? cc.cfg.sitter : null;
+    if (!s || s.on !== true) return false;
+    return s.until == null || !DAY_RE.test(s.until) || day <= s.until;
+  }
+  /* the pet's own name: the world core's when it is loaded, else the save's records, else the core's own fallback */
+  function nameOf(w, id) {
+    try {
+      var C = window.SLWorldCore, p = C && typeof C.crewPet === 'function' ? C.crewPet(w, id) : null;
+      if (p && typeof p.name === 'string' && p.name.trim()) return p.name.trim();
+    } catch (e) {}
+    var lists = [Array.isArray(w.pets) ? w.pets : [], plain(w.crew3) && Array.isArray(w.crew3.pets) ? w.crew3.pets : []];
+    for (var i = 0; i < lists.length; i++) {
+      for (var k = 0; k < lists[i].length; k++) {
+        var r = lists[i][k];
+        if (plain(r) && r.id === id && typeof r.name === 'string' && r.name.trim()) return r.name.trim();
+      }
+    }
+    return 'Buddy';
+  }
+  /* the line to show for this save, or null */
+  function lineFor(w) {
+    var cc = w && plain(w.care3) ? w.care3 : null, a = cc && plain(cc.alert) ? cc.alert : null;
+    if (!a || typeof a.lv !== 'number' || a.lv < 2 || !Array.isArray(a.ids)) return null;
+    var ids = a.ids.filter(function (id) { return typeof id === 'string' && id; });
+    if (!ids.length || sitterOn(cc, today(w))) return null;
+    return ids.length === 1 ? CARE_APP.one.replace('{name}', nameOf(w, ids[0])) : CARE_APP.many.replace('{n}', String(ids.length));
+  }
+  /* its button: 'Feed' and the pet's name, for that pet, or 'Feed my pets' (the Corner At home) */
+  function goFor(w) {
+    var a = w && plain(w.care3) && plain(w.care3.alert) && Array.isArray(w.care3.alert.ids) ? w.care3.alert.ids.filter(function (id) { return typeof id === 'string' && id; }) : [];
+    return a.length === 1 ? { label: UI.feed + ' ' + nameOf(w, a[0]), id: a[0] } : { label: UI.feedAll, id: null };
+  }
+  function hide() {
+    var p = who();
+    if (p) done[p] = true;
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    el = null;
+  }
+  function onIsland() { try { return typeof getActiveApp === 'function' && getActiveApp() === 'world'; } catch (e) { return false; } }
+  function check() {
+    var p = who();
+    if (el && el.getAttribute('data-for') !== p) { el.parentNode && el.parentNode.removeChild(el); el = null; }
+    if (!p || done[p] || el) return;
+    if (onIsland()) { done[p] = true; return; }
+    var wo = worldOf(), line = lineFor(wo), tabs = document.getElementById('appTabs');
+    if (!line || !tabs || !tabs.parentNode) return;
+    done[p] = true;
+    el = document.createElement('div');
+    el.id = 'slCareBanner';
+    el.setAttribute('role', 'status');
+    el.setAttribute('data-for', p);
+    var paw = document.createElement('span'); paw.className = 'slcb-paw'; paw.setAttribute('aria-hidden', 'true'); paw.textContent = '🐾';
+    var text = document.createElement('span'); text.className = 'slcb-text'; text.textContent = line;
+    var to = goFor(wo);
+    var go = document.createElement('button'); go.type = 'button'; go.className = 'slcb-go'; go.textContent = to.label;
+    var x = document.createElement('button'); x.type = 'button'; x.className = 'slcb-x'; x.textContent = '✕';
+    x.setAttribute('aria-label', UI.later); x.title = UI.later;
+    go.addEventListener('click', function () {
+      hide();
+      window.slCareFeed = { who: p, id: to.id, at: Date.now() };   /* memory only: the island reads it once (pets.feedAsk) */
+      if (typeof setActiveApp === 'function') setActiveApp('world');
+    });
+    x.addEventListener('click', hide);
+    el.appendChild(paw); el.appendChild(text); el.appendChild(go); el.appendChild(x);
+    tabs.parentNode.insertBefore(el, tabs.nextSibling);
+  }
+  window.slCareBanner = { check: check, hide: hide, lineFor: lineFor, goFor: goFor, TEXT: CARE_APP };
+  setTimeout(check, 1500);
+})();
+</script>
 <style>
   .cl-section { border: 2px dashed #d9d2ee; border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; }
   .cl-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -32410,6 +32975,8 @@ window.SL_WORLD_TRIAL = true;
       var famP;
       if (opts.familyCode) {
         var code = opts.familyCode.trim().toUpperCase();
+        /* [V4.55-FR] after the rules' second step (firestoreRules.followUpFR.phase2) a new account
+           may read only a code that is free, so a refusal here means the code is in use */
         famP = db.collection('families').doc(code).get().then(function (s) {
           if (!s.exists) {
             var err = new Error('That family code was not found — check it with whoever started the family.');
@@ -32417,13 +32984,20 @@ window.SL_WORLD_TRIAL = true;
             throw err;
           }
           return { code: code, isNew: false };
+        }, function (e) {
+          if (e && e.code === 'permission-denied') return { code: code, isNew: false };
+          throw e;
         });
       } else {
         var famName = (opts.familyName || 'My family').trim();
         var tryCreate = function (attempt) {
           var newCode = genFamilyCode();
           var ref = db.collection('families').doc(newCode);
-          return ref.get().then(function (s) {
+          /* [V4.55-FR] a refusal (after followUpFR.phase2) means this code is in use: try another */
+          return ref.get().then(null, function (e) {
+            if (e && e.code === 'permission-denied') return { exists: true };
+            throw e;
+          }).then(function (s) {
             if (s.exists) {
               if (attempt >= 6) { var e2 = new Error('Could not make a family code — try again.'); e2._rollback = true; throw e2; }
               return tryCreate(attempt + 1);
@@ -32886,6 +33460,24 @@ window.SL_WORLD_TRIAL = true;
     onepct: { emoji: '🏆', name: '1% Challenge' },
     debate: { emoji: '🎤', name: 'Debate' }
   };
+  /* [KU-CHALLENGE] the kids update's family challenges in the three island games (games.json
+     challenges.popupsFit, plan-ku KU20): they pop up like the 1% Challenge's, with a word from the
+     Flags list (codeOk's FC_CODE_WORDS, the same list as SLDuelCore.WORDS). A V4.55 or V4.56 page has
+     no entry for them, so it drops them. Join opens My Island and the game on its join sheet. */
+  GAME_META.course = { emoji: '🐾', name: 'Debut Run challenge' };
+  GAME_META.penalty = { emoji: '⚽', name: 'challenge in Encore Shootout' };   /* 'started a …': never 'a Encore' */
+  GAME_META.kart = { emoji: '🏎️', name: 'Neon Grand Prix challenge' };
+  var ISLAND_GAMES = { course: 1, penalty: 1, kart: 1 };
+  /* SLWorld.joinChallenge(game, word) brings My Island up, then the game; the island loads first when it is not in yet */
+  function joinIslandGame(game, code) {
+    var go = function () {
+      var W = window.SLWorld;
+      if (W && typeof W.joinChallenge === 'function') W.joinChallenge(game, code);
+    };
+    if (window.SLWorld || typeof window.slLoadWorld !== 'function') return go();
+    window.slLoadWorld().then(go, function () {});
+  }
+  /* [/KU-CHALLENGE] */
 
   function me() { return auth.currentUser; }
   function myName() {
@@ -33185,9 +33777,10 @@ window.SL_WORLD_TRIAL = true;
 
   /* ---------------- challenge broadcast ---------------- */
   var myChallengeDoc = null;
-  /* [V4.55-PRESENCE] the announcement carries no username and no family code. RV1a: only an
-     account that is family itself announces (only its own family's devices show it), and the
-     announcement is taken back after CH_MAX_AGE_MS, when no device shows it any more. */
+  /* [V4.55-PRESENCE] the announcement carries no username. RV1a: only an account that is family
+     itself announces (only its own family's devices show it), and the announcement is taken
+     back after CH_MAX_AGE_MS, when no device shows it any more. [V4.55-FR] it names the family:
+     the rules let only that family's accounts and its grown-up read it (firestoreRules.followUpFR). */
   window.cloudAnnounceChallenge = function (game, code) {
     if (!me() || !db) return;
     window.cloudRetractChallenge();
@@ -33196,7 +33789,7 @@ window.SL_WORLD_TRIAL = true;
     myChallengeDoc = ref;
     ref.set({
       game: game, code: code, host: 'A player', hostUid: me().uid,
-      familyCode: '', at: Date.now(), status: 'open'
+      familyCode: myFamily(), at: Date.now(), status: 'open'
     }).catch(function () { if (myChallengeDoc === ref) myChallengeDoc = null; });
     setTimeout(function () { if (myChallengeDoc === ref) window.cloudRetractChallenge(); }, CH_MAX_AGE_MS);
   };
@@ -33269,16 +33862,19 @@ window.SL_WORLD_TRIAL = true;
   window.addEventListener('beforeunload', function () { window.cloudRetractChallenge(); });
 
   function joinFnFor(game, code) {
+    /* [KU-CHALLENGE] Debut Run, Encore Shootout and Neon Grand Prix: through My Island */
+    if (ISLAND_GAMES[game] === 1) return function () { try { joinIslandGame(game, code); } catch (e) { console.warn('join failed', e); } };
+    /* [/KU-CHALLENGE] */
     return function () {
       try {
         if (game === 'flags' && typeof fcJoinStart === 'function') {
           fcJoinStart();
           document.getElementById('fcJoinInput').value = code;
-          fcGuestConnect();
+          fcGuestConnect('family');   /* the pop-up only ever shows a family room */
         } else if (game === 'tt' && typeof tcJoinStart === 'function') {
           tcJoinStart();
           document.getElementById('tcJoinInput').value = code;
-          tcGuestConnect();
+          tcGuestConnect('family');   /* the pop-up only ever shows a family room */
         } else if (game === 'onepct' && typeof window.op2JoinWithCode === 'function') {
           window.op2JoinWithCode(code);
         } else if (game === 'debate' && typeof window.dbJoinWithCode === 'function') {
@@ -33293,9 +33889,9 @@ window.SL_WORLD_TRIAL = true;
      itself picks its codes from (flags, debate and 1% use the Flags words), so a pop-up
      never carries text someone typed */
   function codeOk(game, code) {
-    var W;
+    var W, OLD = game === 'tt' ? [] : ['OWL2'];   /* V4.55: OWL2 became OWLS; accepted one more release */
     try { W = game === 'tt' ? TC_CODE_WORDS : FC_CODE_WORDS; } catch (e) { return false; }
-    return typeof code === 'string' && /^[A-Z0-9]{4}$/.test(code) && Array.isArray(W) && W.indexOf(code) >= 0;
+    return typeof code === 'string' && /^[A-Z0-9]{4}$/.test(code) && Array.isArray(W) && (W.indexOf(code) >= 0 || OLD.indexOf(code) >= 0);
   }
   /* [V4.55-PRESENCE] RV1a: 'show' only for an open challenge of a game this page knows, with
      its own kind of code, at most CH_MAX_AGE_MS old and not ahead of this clock by more than
@@ -33326,11 +33922,31 @@ window.SL_WORLD_TRIAL = true;
       joinFnFor(d.game, d.code), id, 120000);
   }
   /* [V4.55-PRESENCE] the pop-up names nobody and comes only from this account's own family
-     (RV1a): 'Someone in your family', never the name or the family code in the announcement */
-  function watchChallenges() {
-    if (chUnsub || !me()) return;
+     (RV1a): 'Someone in your family', never the name or the family code in the announcement.
+     [V4.55-FR] the rules let an account read only the announcements of the family its own
+     account document names, so the listener asks for exactly those: no order and no limit (a
+     family has a handful), so no extra index is needed. It starts once the family is known
+     (the account document arrives a little after the sign-in) and first takes back this
+     account's own announcements that a closed tab left behind. */
+  function watchChallenges(tries) {
+    if (chUnsub || !me() || me().isAnonymous) return;
+    var fam = myFamily(), g = gen, n = tries || 0, q;
+    if (!fam) {
+      if (n < RETRIES) setTimeout(function () { if (g === gen) watchChallenges(n + 1); }, RETRY_MS);
+      return;
+    }
     try {
-      chUnsub = db.collection('challenges').orderBy('at', 'desc').limit(8)
+      q = db.collection('challenges').where('familyCode', '==', fam);
+      q.where('hostUid', '==', me().uid).get().then(function (qs) {
+        qs.docs.forEach(function (s) {
+          var at = Number((s.data() || {}).at) || 0;
+          if (myChallengeDoc && myChallengeDoc.id === s.id) return;
+          if (!(Date.now() - at < CH_MAX_AGE_MS)) s.ref.delete().catch(function () {});
+        });
+      }).catch(function () {});
+    } catch (e) { return; }
+    try {
+      chUnsub = q
         .onSnapshot(function (snap) {
           snap.docChanges().forEach(function (ch) {
             var d = ch.doc.data(), id = ch.doc.id;
@@ -34471,9 +35087,23 @@ window.SL_WORLD_TRIAL = true;
     document.body.appendChild(d);
     setTimeout(function () { try { d.remove(); } catch (e) {} }, 1250);
   }
-  var chip = null;
+  var chip = null, chipMode = '';
+  /* V4.55 (QA 24 Oct, item 4): the chip steps aside while anything sits over the page (an
+     island sheet or pop-up, the welcome slides, the character maker, a game), so it never
+     covers Skip, “That’s me” or Play. The idle ‘Start your Daily 30!’ also waits while a
+     learning activity is open; the running clock stays beside those. The stylesheet's
+     :has() rules hide it at once on newer browsers; this catches older ones within a second. */
+  var COVER = '[data-sl-modal], .slw-ov, .slw-cele, .slg';
+  function chipCovered() {
+    try {
+      if (window.slGameBusy || document.querySelector(COVER)) return true;
+      return chipMode === 'idle' && !!document.querySelector('.overlay.show');
+    } catch (e) { return false; }
+  }
+  function coverChip() { if (chip) chip.style.display = chipCovered() ? 'none' : ''; }
   function dropChip() { if (chip) { try { chip.remove(); } catch (e) {} chip = null; } }
   function setChip(text, mode) {
+    chipMode = mode;
     if (!chip) {
       chip = document.createElement('div');
       chip.className = 'd30-chip';
@@ -34488,6 +35118,7 @@ window.SL_WORLD_TRIAL = true;
     }
     chip.textContent = text;
     chip.classList.toggle('idle', mode === 'idle');
+    coverChip();
   }
   function fmt(ms) {
     var t = Math.max(0, Math.ceil(ms / 1000));
@@ -34751,7 +35382,7 @@ window.SL_WORLD_TRIAL = true;
   }
 
   /* ---------- the loop ---------- */
-  setInterval(function () {
+  function tick() {
     ensureWrap();
     var u = cur();
     if (!u) { dropChip(); return; }
@@ -34798,7 +35429,8 @@ window.SL_WORLD_TRIAL = true;
     if (document.querySelector('.overlay.show')) return;   /* mid-activity — wait for a quiet moment */
     if (!offered[u.name]) { offer(false); return; }
     setChip('🚀 Start your Daily 30!', 'idle');
-  }, 1000);
+  }
+  setInterval(function () { tick(); coverChip(); }, 1000);
 })();
 </script>
 <style>
@@ -34807,6 +35439,10 @@ window.SL_WORLD_TRIAL = true;
     padding: 9px 14px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,0.3);
     user-select: none; -webkit-user-select: none; font-family: 'Baloo 2', sans-serif; }
   .d30-chip.idle { animation: slRush3Pulse 1.6s ease-in-out infinite; }
+  /* V4.55: never over a sheet, a pop-up or a game (the Daily 30 loop does the same for
+     browsers without :has(), within a second) */
+  body:has([data-sl-modal], .slw-ov, .slw-cele, .slg) > .d30-chip,
+  body:has(.overlay.show) > .d30-chip.idle { display: none; }
   .d30-board { position: fixed; inset: 0; z-index: 10002; background: rgba(20,11,51,0.72);
     display: flex; align-items: center; justify-content: center; padding: 16px; }
   .d30-panel { background: linear-gradient(160deg,#170d3d,#241155 55%,#0d0a2a); color: #fff;

@@ -11,7 +11,8 @@
      sound(name, vol, step, pan)          pan -1..1 (island: panFor(x, w))
      sound.at(x, width)(name, vol, step)  the same, panned by island x
      sound.pet(petId, vol, pan)           the pet's own voice (PET_VOICE: the four
-                                          V4.54 pets and the ten land mascots)
+                                          V4.54 pets, the ten land mascots and the
+                                          kids update's fourteen)
 
    My Island v3 adds six act sounds for the sky islands (synth only, never a
    file, none of them ducks the music), each under 1 s:
@@ -39,9 +40,27 @@
      neigh     pony: a whinny 900 -> 1,300 -> 600 Hz (11 Hz vibrato), two hoof taps
      peep      penguin chick: two bright chirps 1,500 -> 2,000 Hz
      arf       seal pup: two soft honks with a 20 Hz wobble, then a quiet pop
-   PET_VOICE maps all 14 pets to their voice. VOICE_STEPS is the pinned order
-   'voice' plays by step (0-13; the first four are V4.54's, so old cues keep
-   their pet): the games read it to find a pet's step.
+   The kids update (kids-update pets.json catalogue.sounds) adds a voice for
+   each of its fourteen new pets, every one a short original synth call under
+   0.6 s and quieter than the puppy's 'yip' (the hamster borrows 'squeak'):
+     wheek     guinea pig: two rising squeals 900 -> 1,650 and 950 -> 1,750 Hz
+     hum       tortoise: a soft low hum 196 -> 208 -> 185 Hz with a 4 Hz sway
+     tweet     budgie: three quick high chirps (2.2-3.1 kHz), 70-80 ms apart
+     chirp     otter: two squeaks that rise and settle (1,300 -> 1,900 -> 1,500 Hz)
+     honk      flamingo: two soft nasal honks 420 -> 380, 400 -> 350 Hz
+     eee       sloth: one gentle high 'eee' 1,650 -> 1,800 -> 1,700 Hz, 5 Hz vibrato
+     croak     toucan: two low wooden croaks 200 -> 160 Hz with a 28 Hz rattle
+     huff      red panda: a breathy huff, then a little two-note twitter
+     snuffle   hedgehog: four tiny sniffs, each softer than the last
+     bleat     goat kid: a soft 'meh-eh' 560 -> 600 -> 520 Hz with a 7 Hz bleat
+     coo       peacock: one round coo 600 -> 760 -> 560 Hz
+     snort     reindeer: two breathy snorts over a low thump
+     chuff     snow leopard cub: three soft breathy puffs (the big cats' greeting)
+   and 'munch' for eating: three soft crunches at 1.5 Hz (the 'eat' nods),
+   rung out by 1.5 s. PET_VOICE maps all 28 pets to their voice. VOICE_STEPS is
+   the pinned order 'voice' plays by step (0-27; the first four are V4.54's,
+   the next ten the mascots', then the kids update's fourteen in catalogue order,
+   so old cues keep their pet): the games read it to find a pet's step.
 
    Classic UMD: window.SLSound in the browser, module.exports in Node
    (where create(fakeGlobal) builds an instance against stubs).
@@ -67,14 +86,21 @@
     'yip', 'mew', 'thump', 'trill', 'voice',
     'splash', 'creak', 'zip', 'chain', 'squeak', 'musicbox',
     'drum', 'xylo', 'dong',
-    'click', 'kee', 'chatter', 'chirrup', 'churr', 'hoot', 'quack', 'neigh', 'peep', 'arf'];
+    'click', 'kee', 'chatter', 'chirrup', 'churr', 'hoot', 'quack', 'neigh', 'peep', 'arf',
+    'wheek', 'hum', 'tweet', 'chirp', 'honk', 'eee', 'croak', 'huff', 'snuffle', 'bleat', 'coo', 'snort', 'chuff', 'munch'];
   var PET_VOICE = { pet_puppy: 'yip', pet_kitten: 'mew', pet_bunny: 'thump', pet_dragon: 'trill',
     pet_crab: 'click', pet_gull: 'kee', pet_capybara: 'chirrup', pet_monkey: 'chatter', pet_squirrel: 'churr',
-    pet_owl: 'hoot', pet_duckling: 'quack', pet_pony: 'neigh', pet_penguin: 'peep', pet_seal: 'arf' };
-  /* 'voice' with step 0-13, in the pinned order of plan-v3 catalogAdditions.sounds.voiceSteps:
-     the four V4.54 pets keep steps 0-3, the mascots follow land by land */
+    pet_owl: 'hoot', pet_duckling: 'quack', pet_pony: 'neigh', pet_penguin: 'peep', pet_seal: 'arf',
+    pet_hamster: 'squeak', pet_guineapig: 'wheek', pet_tortoise: 'hum', pet_budgie: 'tweet', pet_otter: 'chirp',
+    pet_flamingo: 'honk', pet_sloth: 'eee', pet_toucan: 'croak', pet_redpanda: 'huff', pet_hedgehog: 'snuffle',
+    pet_goatkid: 'bleat', pet_peacock: 'coo', pet_reindeer: 'snort', pet_snowleopard: 'chuff' };
+  /* 'voice' with step 0-27: 0-13 in the pinned order of plan-v3 catalogAdditions.sounds.voiceSteps
+     (the four V4.54 pets keep steps 0-3, the mascots follow land by land), then the kids update's
+     fourteen as steps 14-27 in catalogue order (steps 0-13 never move) */
   var VOICE_STEPS = ['yip', 'mew', 'thump', 'trill',
-    'click', 'kee', 'chirrup', 'chatter', 'churr', 'hoot', 'quack', 'neigh', 'peep', 'arf'];
+    'click', 'kee', 'chirrup', 'chatter', 'churr', 'hoot', 'quack', 'neigh', 'peep', 'arf',
+    'squeak', 'wheek', 'hum', 'tweet', 'chirp', 'honk', 'eee', 'croak', 'huff', 'snuffle', 'bleat', 'coo', 'snort', 'chuff'];
+  var MUNCH_HZ = 1.5;                                      /* 'munch': three crunches, one per 'eat' nod */
   var DRUM_HZ = [110, 150, 200];                           /* 'drum' with step 0-2: the three log drums */
   /* 'musicbox' with step 0-2: SCALE indexes, onsets (s) and accents; every phrase
      rings out by 0.9 s. The jig is plucked (the castle maypole), the others are bells. */
@@ -379,6 +405,81 @@
         glide(ctx, t, [[330, 0], [250, 0.11]], { wave: 'triangle', vol: 0.1 * v, lp: 1400, fade: 0.07, wobble: 20, depth: 0.3 });
         glide(ctx, t + 0.15, [[330, 0], [250, 0.11]], { wave: 'triangle', vol: 0.09 * v, lp: 1400, fade: 0.07, wobble: 20, depth: 0.3 });
         if (has('_pluck')) g._pluck(ctx, 1320, t + 0.31, { vol: 0.06 * v, dur: 0.1 });
+        return true;
+      }
+
+      /* ---- the kids update's voices (pets.json catalogue.sounds: each under 0.6 s, quieter than 'yip'). Levels
+         are set by ear on the rendered rack (P1.3's render check): the tones peak at 0.4-0.7 of the yip; a
+         band-passed breath loses most of its energy in the filter, so the noise calls start a little higher */
+      if (name === 'wheek') {                   /* guinea pig: two rising squeals, 0.13 s each, 40 ms apart */
+        glide(ctx, t, [[900, 0], [1500, 0.09], [1650, 0.13]], { wave: 'triangle', vol: 0.07 * v, lp: 4200, fade: 0.08 });
+        glide(ctx, t + 0.17, [[950, 0], [1600, 0.1], [1750, 0.13]], { wave: 'triangle', vol: 0.065 * v, lp: 4200, fade: 0.08 });
+        return true;
+      }
+      if (name === 'hum') {                     /* tortoise: a soft low hum, 0.42 s, a slow 4 Hz sway in the loudness */
+        glide(ctx, t, [[196, 0], [208, 0.18], [185, 0.42]], { wave: 'triangle', vol: 0.07 * v, lp: 1100, fade: 0.3, wobble: 4, depth: 0.2 });
+        return true;
+      }
+      if (name === 'tweet') {                   /* budgie: three quick high chirps, the last a touch longer */
+        if (has('_slide')) {
+          g._slide(ctx, 2200, 2800, t, 40, { wave: 'triangle', vol: 0.06 * v });
+          g._slide(ctx, 2500, 3100, t + 0.07, 40, { wave: 'triangle', vol: 0.055 * v });
+          g._slide(ctx, 2100, 2700, t + 0.15, 50, { wave: 'triangle', vol: 0.06 * v });
+        }
+        return true;
+      }
+      if (name === 'chirp') {                   /* otter: two squeaks that rise and settle, 0.12 s each */
+        glide(ctx, t, [[1300, 0], [1900, 0.05], [1500, 0.12]], { wave: 'triangle', vol: 0.07 * v, lp: 5000, fade: 0.08 });
+        glide(ctx, t + 0.18, [[1400, 0], [2000, 0.05], [1600, 0.12]], { wave: 'triangle', vol: 0.065 * v, lp: 5000, fade: 0.08 });
+        return true;
+      }
+      if (name === 'honk') {                    /* flamingo: two soft nasal honks, darkened so they never blare */
+        glide(ctx, t, [[420, 0], [380, 0.15]], { wave: 'sawtooth', vol: 0.05 * v, lp: 1100, q: 2, fade: 0.1 });
+        glide(ctx, t + 0.22, [[400, 0], [350, 0.15]], { wave: 'sawtooth', vol: 0.045 * v, lp: 1100, q: 2, fade: 0.1 });
+        return true;
+      }
+      if (name === 'eee') {                     /* sloth: one gentle high 'eee', 0.42 s, a slow 5 Hz vibrato */
+        glide(ctx, t, [[1650, 0], [1800, 0.15], [1700, 0.42]], { wave: 'sine', vol: 0.05 * v, lp: 4000, fade: 0.3, vib: 5, vibDepth: 12 });
+        return true;
+      }
+      if (name === 'croak') {                   /* toucan: two low wooden croaks with a 28 Hz rattle in the loudness */
+        glide(ctx, t, [[200, 0], [160, 0.1]], { wave: 'sawtooth', vol: 0.07 * v, lp: 800, q: 1.5, fade: 0.06, wobble: 28, depth: 0.4 });
+        glide(ctx, t + 0.15, [[190, 0], [150, 0.1]], { wave: 'sawtooth', vol: 0.065 * v, lp: 800, q: 1.5, fade: 0.06, wobble: 28, depth: 0.4 });
+        return true;
+      }
+      if (name === 'huff') {                    /* red panda: a breathy huff (noise 900 -> 500 Hz), then a two-note twitter */
+        burst(ctx, t, 0.12, 900, 500, 0.09 * v);
+        if (has('_slide')) { g._slide(ctx, 1300, 1600, t + 0.16, 30, { wave: 'triangle', vol: 0.04 * v }); g._slide(ctx, 1400, 1700, t + 0.22, 30, { wave: 'triangle', vol: 0.035 * v }); }
+        return true;
+      }
+      if (name === 'snuffle') {                 /* hedgehog: four tiny sniffs 80 ms apart, each softer than the last */
+        for (var sn = 0; sn < 4; sn++) burst(ctx, t + sn * 0.08, 0.05, 2200, 1500, (0.09 - sn * 0.012) * v);
+        return true;
+      }
+      if (name === 'bleat') {                   /* goat kid: a soft 'meh-eh', 0.34 s, the 7 Hz bleat in the pitch */
+        glide(ctx, t, [[560, 0], [600, 0.05], [520, 0.34]], { wave: 'triangle', vol: 0.06 * v, lp: 2400, fade: 0.22, vib: 7, vibDepth: 30 });
+        return true;
+      }
+      if (name === 'coo') {                     /* peacock: one round coo, 0.34 s (never the real bird's scream) */
+        glide(ctx, t, [[600, 0], [760, 0.1], [560, 0.34]], { wave: 'sine', vol: 0.06 * v, lp: 2500, fade: 0.24 });
+        return true;
+      }
+      if (name === 'snort') {                   /* reindeer: two breathy snorts (noise 600 -> 300 Hz) over a low thump */
+        burst(ctx, t, 0.14, 600, 300, 0.1 * v);
+        thud(ctx, t + 0.02, 110, 0.12, 0.08 * v);
+        burst(ctx, t + 0.22, 0.1, 560, 300, 0.075 * v);
+        return true;
+      }
+      if (name === 'chuff') {                   /* snow leopard cub: three soft breathy puffs 0.11 s apart */
+        for (var ch = 0; ch < 3; ch++) burst(ctx, t + ch * 0.11, 0.07, 750, 450, (0.1 - ch * 0.012) * v);
+        return true;
+      }
+      if (name === 'munch') {                   /* eating: three soft crunches at MUNCH_HZ (one per 'eat' nod), rung out by 1.5 s */
+        for (var mu = 0; mu < 3; mu++) {
+          var at = t + mu / MUNCH_HZ;
+          burst(ctx, at, 0.06, 2600, 1400, 0.06 * v);
+          burst(ctx, at + 0.05, 0.05, 2000, 1100, 0.045 * v);
+        }
         return true;
       }
 

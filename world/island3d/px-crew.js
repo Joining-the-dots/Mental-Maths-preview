@@ -59,6 +59,15 @@
      makeFan(seed, tier, {night, hero, facing}) → VoxModel
    Node: {voxels: {acc_*: fn(st) → VoxModel}, avatarVoxels, wandVoxels, fanVoxels, …}. Nothing here
    reads, awards or spends anything; no random numbers; the same input gives the same model.
+
+   THE KIDS UPDATE (KU-CH12, plan-ku contracts.avatarInfo): makeAvatar(opts, tier) is the seam for
+   the player's character. When opts.look is a look (a plain object, SLPeopleCore.avatarInfo's look)
+   and SLPxPeople.makePerson exists (px-people.js, KU-CH9), it returns
+     SLPxPeople.makePerson(SL3D, {look, wear, vr, member: the member colour '#RRGGBB', photocard}, tier)
+   (the same AvatarRig shape, plus lk / wr / sig / blinkAt). Without a look, without px-people, or
+   when makePerson throws or returns no rig, it builds today's hoodie avatar byte for byte (pinned
+   by a digest in tests/island-people-actors.test.js). info(clip) reads SLCharacters.avInfo, so the
+   people's clips (sig*, shoot, oops …) report {loop, dur} on the classic avatar too.
    ================================================================ */
 (function (root, factory) {
   var node = typeof module === 'object' && !!module.exports;
@@ -84,6 +93,11 @@
   function look() { return sibling('SLIslandLook', '../world-look.js'); }
   function clips() { return sibling('SLCharacters', './models-characters.js'); }
   function chars() { var PC = sibling('SLPxCharacters', './px-characters.js'); return PC && typeof PC === 'object' ? PC : null; }
+  /* px-people.js (KU-CH9, same wave): detected by its makePerson, looked up when an avatar is built */
+  function people() { var PP = sibling('SLPxPeople', './px-people.js'); return PP && typeof PP.makePerson === 'function' ? PP : null; }
+  /* a look the seam hands over: a plain object (SLPeopleCore.avatarInfo's look); anything else → classic */
+  function lookOf(o) { var lk = o && o.look; return lk && typeof lk === 'object' && !Array.isArray(lk) ? lk : null; }
+  function plainOr(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
 
   var VERSION = 1, GC = 0.05, DEG = Math.PI / 180;
   /* catalogue order; slot = CATALOG slot = LOOK socket */
@@ -541,8 +555,20 @@
     return group;
   }
 
+  /* KU-CH12: the player's character through px-people (null → the classic avatar) */
+  function personOf(SL3D, opts, tier) {
+    var lk = lookOf(opts), PP = lk ? people() : null, p = null;
+    if (!PP) return null;
+    try {
+      p = PP.makePerson(SL3D, { look: lk, wear: plainOr(opts.wear), vr: plainOr(opts.vr), member: memberOf(opts.color), photocard: !!opts.photocard }, tier);
+    } catch (e) { p = null; }
+    return p && p.root && typeof p.setPose === 'function' ? p : null;
+  }
+
   function makeAvatar(SL3D, opts, tier) {
     opts = opts || {};
+    var person = personOf(SL3D, opts, tier);
+    if (person) return person;
     var K = SL3D.kit(tier), T = K.THREE, V = K.vox, CH = clips(), hex = memberOf(opts.color);
     var emoji = typeof opts.emoji === 'string' && opts.emoji ? opts.emoji : '';
     if (emoji && !opts.photocard) { try { V.atlas().setUser({ avatar: emoji }); } catch (e) { /* the face stays a plain hood */ } }
@@ -592,7 +618,10 @@
         CH.sampleAvatar(clip, t, pose, o2);
         return setPose(pose), pose;
       },
-      info: function (clip) { var c = CH && CH.CLIP_INFO[clip]; return c ? { loop: c.loop, dur: CH.durOf(clip, o2) } : null; },
+      info: function (clip) {
+        if (CH && typeof CH.avInfo === 'function') return CH.avInfo(clip, o2);      /* the people's clips too (KU-CH12) */
+        var c = CH && CH.CLIP_INFO[clip]; return c ? { loop: c.loop, dur: CH.durOf(clip, o2) } : null;
+      },
       dispose: function () { if (disposed) return; disposed = true; vr.dispose(); }
     };
     showWand();
@@ -614,6 +643,6 @@
     AV: AV, AV_BONES: AV_BONES, WAND: WAND, FAN_KINDS: FAN_KINDS, FAN_DAY: FAN_DAY, FAN_NIGHT: FAN_NIGHT, FAN_STICK: FAN_STICK,
     voxels: voxels, accVoxels: accVoxels, jointsOf: function (id, sock) { return ACCS[id] ? ACCS[id].joints(sock) : {}; }, socketsOf: socketsOf, sockOf: sockOf,
     avatarBones: avatarBones, avatarVoxels: avatarVoxels, wandVoxels: wandVoxels, fanLook: fanLook, fanVoxels: fanVoxels, shadeOf: shadeOf,
-    fill: fill, register: register, build: { makeAvatar: makeAvatar, makeWand: makeWand }
+    fill: fill, register: register, build: { makeAvatar: makeAvatar, makeWand: makeWand }, lookOf: lookOf
   };
 }));

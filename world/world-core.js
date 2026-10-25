@@ -4,8 +4,8 @@
    require(). Everything that decides money, ownership, placement,
    arcade time or personal bests lives here so it can be tested.
 
-   Points: the island spends the app's EXISTING spendable balance
-   (u.points). It never touches u.pointsEarned (lifetime), never awards
+   Points: with wallet 'stars' the island spends the app's EXISTING spendable
+   balance (u.points); with 'coins' it spends w.coins instead (F-KU4, below). It never touches u.pointsEarned (lifetime), never awards
    points, and keeps an audit ledger of every purchase in u.world.
 
    v3 (My Island in the sky): Home Island stays exactly as V4.54 (w.placed,
@@ -18,6 +18,30 @@
    gear. w.pets, w.activePet and every pet's acc hold ONLY V4.54 ids, always:
    mascots and land gear live in w.crew3, which an old client never reads, so
    it can never meet a pet or an accessory it does not know.
+
+   Kids update (KU-CH2): a plug-in seam. Another module (people-core.js)
+   registers its own one-off items with defineItems(); they go into BY_ID
+   (so purchase, the ledger, test mode and the merge treat them like any
+   item), never into CATALOG. Their owner's hooks run inside normalize (N14)
+   and mergeWorlds (M3d). A savings goal on such an item is w.goalK. With no
+   plug-in registered, everything here behaves exactly as before the seam.
+
+   Kids update (P1.1): 14 more pets (4 for Home, 2 per land, all kept in crew3
+   like the mascots) and 6 pet foods in the catalogue, the pet cap (CARE,
+   petRoom: by default at most 3 pets owned, the starter counts), and the
+   care3 block that remembers home, the Pet Hotel, the Pet Rescue, the pantry
+   and the stars. Food is bought through purchase() like everything else, but
+   fills the pantry and is never in w.owned. Every rule that uses time is in
+   pet-care.js (SLPetCare); here are the data, the cap, the repair (N13) and
+   the merge (M3c). A save with no care3 is left exactly as it is.
+
+   Kids update (F-KU4): two wallets. Learning earns ⭐ (u.points, for 🎁 My rewards, never
+   changed here) AND, at the same rate, 🪙 island coins (w.coins, through earnCoins). With
+   ECONOMY.wallet 'coins' every island purchase (things, land, pets, food, wear, characters)
+   is paid in coins at coinPrice(), and u.points is never touched by the island; with 'stars'
+   (the default until the hosts show coins) everything is exactly as before. Free test mode
+   charges nothing in either wallet. w.coins is absent until the first coin write; an old
+   save starts at 0 coins and keeps everything it owns (docs/island3d/v3/kids-update/wallets.md).
    ================================================================ */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -31,9 +55,15 @@
   /* ---------------- economy (see docs/REWARDS_WORLD.md §3) ---------------- */
   var ECONOMY = {
     sessionPts: 120,          /* representative ~25-minute learning session */
-    confirmAt: 300,           /* purchases at/above this ask "are you sure?" */
+    confirmAt: 300,           /* purchases at/above this ask "are you sure?" (in the wallet's own money) */
     ledgerCloudCap: 1000,
-    trialMaxCopies: 0         /* free test mode: no cap on copies (0 = unlimited; the cloud copy keeps the last 1,000 ledger rows) */
+    trialMaxCopies: 0,        /* free test mode: no cap on copies (0 = unlimited; the cloud copy keeps the last 1,000 ledger rows) */
+    /* F-KU4: a learning day ≈ one Daily 30, which pays about two sessions' worth (§3: a
+       Daily-30 session pays 2-2.5×). Every coin price is set from sessionPts and this. */
+    daySessions: 2,
+    /* what island things are paid with: 'stars' (u.points, V4.57 and before) | 'coins' (w.coins).
+       A call's opts.wallet overrides it. The hosts switch it to 'coins' when they show 🪙 (F-KU5). */
+    wallet: 'stars'
   };
 
   /* ---------------- land ---------------- */
@@ -132,7 +162,7 @@
      kind:   decor (per copy) | path (per copy, ground) | fun (unique, interactive)
              house (the home itself) | style (unique, selectable house look)
              pet | acc (pet accessory) | land | attraction | variant (game course/track)
-             cosmetic (ball / stadium / kart)
+             cosmetic (ball / stadium / kart) | food (pet food: fills the pantry, never owned)
      slot:   for style/cosmetic/variant — what it replaces when selected
              (style slots: wall | roof | door | detail | shape — 'shape' is the whole
              house form; the roof then dresses that shape's crown)
@@ -146,6 +176,8 @@
      joins:   castle_wall picks a piece from its neighbours (render-only)
      A pet with an isle is a land's mascot and an acc with an isle is land gear: both need
      their land, and both are kept in w.crew3, never in w.pets (see the crew section).
+     A pet with isle 'home' (the kids update's Home pets) is kept in crew3 the same way and
+     needs no land.
      The shop shelves and the act facts are tables (ISLE_SHELVES, ACT_INFO), not fields. */
   var CATALOG = [
     /* ---- starter (free, granted once) ---- */
@@ -431,10 +463,147 @@
     { id: 'acc_ice_earmuffs', kind: 'acc', slot: 'hat', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Fluffy earmuffs', price: 120, desc: 'Earmuffs for frosty days. They fit every pet, ears or no ears.' },
     { id: 'acc_ice_bells', kind: 'acc', slot: 'neck', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Sleigh-bell collar', price: 150, desc: 'A red collar with three golden bells that bob when your pet hops.' },
     { id: 'acc_ice_goggles', kind: 'acc', slot: 'face', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Snow goggles', price: 200, desc: 'Chunky snow goggles with a sunset lens. Ready for the slopes.' },
-    { id: 'acc_ice_pack', kind: 'acc', slot: 'back', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Penguin backpack', price: 260, desc: 'A backpack shaped like a penguin. Yes, a penguin can wear it too.' }
+    { id: 'acc_ice_pack', kind: 'acc', slot: 'back', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Penguin backpack', price: 260, desc: 'A backpack shaped like a penguin. Yes, a penguin can wear it too.' },
+
+    /* ---- kids update (P1.1, pets.json catalogue.new): 14 more pets. Each has an isle, so it
+       lives in crew3 like a land's mascot; the four 'home' pets need no land. ---- */
+    { id: 'pet_hamster', kind: 'pet', cat: 'pets', isle: 'home', requires: [], name: 'Hamster', price: 650, desc: 'A round golden hamster with stuffed cheeks. It scurries about and hides snacks for later.' },
+    { id: 'pet_guineapig', kind: 'pet', cat: 'pets', isle: 'home', requires: [], name: 'Guinea pig', price: 700, desc: 'A chatty guinea pig in ginger and white patches. When it is happy it jumps for joy.' },
+    { id: 'pet_tortoise', kind: 'pet', cat: 'pets', isle: 'home', requires: [], name: 'Tortoise', price: 800, desc: 'A slow and steady tortoise with a patterned shell. It tucks in for a long rest.' },
+    { id: 'pet_budgie', kind: 'pet', cat: 'pets', isle: 'home', requires: [], name: 'Budgie', price: 750, desc: 'A bright green budgie with a sunny face. It flutters, chirps and loves seeds.' },
+    { id: 'pet_otter', kind: 'pet', cat: 'pets', isle: 'pier', requires: ['land_pier'], name: 'Otter', price: 800, desc: 'A sleek river otter with a cream chin. It flops along and claps its paws.' },
+    { id: 'pet_flamingo', kind: 'pet', cat: 'pets', isle: 'pier', requires: ['land_pier'], name: 'Flamingo', price: 1000, desc: 'A pink flamingo on long legs. It can balance on one leg for ages.' },
+    { id: 'pet_sloth', kind: 'pet', cat: 'pets', isle: 'jungle', requires: ['land_jungle'], name: 'Sloth', price: 950, desc: 'The sleepiest pet on the island. It moves very slowly and loves a long loaf.' },
+    { id: 'pet_toucan', kind: 'pet', cat: 'pets', isle: 'jungle', requires: ['land_jungle'], name: 'Toucan', price: 800, desc: 'A toucan with a huge orange beak. It flutters about looking for fruit.' },
+    { id: 'pet_redpanda', kind: 'pet', cat: 'pets', isle: 'treetop', requires: ['land_treetop'], name: 'Red panda', price: 1150, desc: 'A russet red panda with a stripy tail. It stands up tall to see what is going on.' },
+    { id: 'pet_hedgehog', kind: 'pet', cat: 'pets', isle: 'treetop', requires: ['land_treetop'], name: 'Hedgehog', price: 700, desc: 'A small brown hedgehog with soft spines. It curls into a ball when it is shy.' },
+    { id: 'pet_goatkid', kind: 'pet', cat: 'pets', isle: 'castle', requires: ['land_castle'], name: 'Goat kid', price: 750, desc: 'A bouncy white goat kid with horn nubs. It prances on the spot.' },
+    { id: 'pet_peacock', kind: 'pet', cat: 'pets', isle: 'castle', requires: ['land_castle'], name: 'Peacock', price: 1200, desc: 'A blue peacock with a long green train. It fans its tail to show off.' },
+    { id: 'pet_reindeer', kind: 'pet', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Reindeer calf', price: 900, desc: 'A reindeer calf with velvety antler nubs. It prances in the snow.' },
+    { id: 'pet_snowleopard', kind: 'pet', cat: 'pets', isle: 'ice', requires: ['land_ice'], name: 'Snow leopard cub', price: 1300, desc: 'A fluffy snow leopard cub with spots and a long thick tail. It crouches and pounces.' },
+
+    /* ---- pet food (P1.1, pets.json food.items): bought through purchase(), it fills the
+       pantry (w.care3.pantry) and is never in w.owned. Not placeable, not storable, never a goal
+       or a starter, and not in shopItems() (the Pet Shop lists it through foodItems()). meals:
+       how many meals (or treats) one purchase puts in the pantry; group: who eats it ---- */
+    { id: 'food_biscuits', kind: 'food', cat: 'petfood', name: 'Pet biscuits', price: 20, meals: 5, group: 'biscuits', desc: 'Crunchy biscuits every pet enjoys. A bag of 5 meals.' },
+    { id: 'food_sack', kind: 'food', cat: 'petfood', name: 'Big sack of pet biscuits', price: 50, meals: 15, group: 'biscuits', desc: '15 meals of biscuits. The best value for a busy home.' },
+    { id: 'food_veg', kind: 'food', cat: 'petfood', name: 'Veggie crunch', price: 25, meals: 5, group: 'veg', desc: 'Carrots, peas, leafy greens and bamboo shoots. 5 meals.' },
+    { id: 'food_fish', kind: 'food', cat: 'petfood', name: 'Fish nibbles', price: 25, meals: 5, group: 'fish', desc: 'Small fishy bites for pets who love fish. 5 meals.' },
+    { id: 'food_fruit', kind: 'food', cat: 'petfood', name: 'Fruit and seed mix', price: 25, meals: 5, group: 'fruit', desc: 'Berries, apple pieces and seeds. 5 meals.' },
+    { id: 'food_treats', kind: 'food', cat: 'petfood', name: 'Pet treats', price: 15, meals: 5, group: 'treat', desc: 'A crunchy treat that makes any pet happy. 5 treats. Treats are a snack, not a meal.' }
   ];
   var BY_ID = {};
   CATALOG.forEach(function (it) { BY_ID[it.id] = it; });
+
+  /* ---------------- the plug-in seam (kids update, KU-CH2) ----------------
+     defineItems(source, entries, hooks) → {ok, added, refused: [{id, why}]}
+     Each accepted entry is copied, frozen and put in BY_ID and EXTRA[source], never in CATALOG
+     (CATALOG-iterating shop tabs and tests are unaffected). Refused, with why:
+       bad_entry         not a plain object with a string id, or requires / includes not a list of ids
+       bad_id            an id that would not make a valid tx ('ku_' + id + '_' + n)
+       duplicate         the id is taken (by CATALOG, another plug-in or earlier in this call)
+       bad_kind          a kind outside PLUGIN_KINDS (never a placeable, a pet, an accessory or food)
+       bad_price         not a whole number ≥ 0
+       isle              an entry never carries isle (it means 'a v3 item' to this core)
+       unknown_requires  requires names an id that is not known
+       unknown_includes  includes names an id outside this call (a plug-in never gives away
+                         CATALOG items for free)
+     and for the whole call (id null): bad_source, bad_hooks, bad_entries, and source_taken: one
+     call per source, so a file loaded twice is ignored (the first copy and its hooks stay).
+     hooks, all optional:
+       onPurchase(w, it, entry, opts)   after purchase() has committed (charge, owned, includes, ledger)
+       normalize(w) → changed           N14, the last step of normalize
+       merge(nw, gw, base, baseSrc)     M3d, after M3b and before M4 and the final normalize
+       goalField: 'goalK'               the source's items may be a savings goal (w.goalK)
+     A hook that throws is skipped: the world it was handed is put back exactly as it was and
+     C.issues notes it, so a plug-in can never block a load, a purchase or a merge. */
+  var PLUGIN_KINDS = Object.freeze({ char: 1, wear: 1 });
+  var HOOK_FNS = ['onPurchase', 'normalize', 'merge'];
+  var GOAL_FIELDS = { goalK: 1 };
+  var SOURCE_RE = /^[a-z][a-z0-9_-]{0,31}$/, PLUGIN_ID_RE = /^[a-z][a-z0-9_]{2,47}$/;
+  var EXTRA = {};             /* source -> [frozen entries], in the order they were given */
+  var PLUGINS = [];           /* [{source, hooks, self}] in registration order */
+  var PLUGIN_OF = {};         /* plug-in id -> its PLUGINS row */
+  var ISSUES = [], ISSUE_MAX = 20;
+  function idList(v) { return v == null || (Array.isArray(v) && v.every(function (x) { return typeof x === 'string'; })); }
+  function defineItems(source, entries, hooks) {
+    var out = { ok: false, added: 0, refused: [] };
+    var fail = function (why) { out.refused.push({ id: null, why: why }); return out; };
+    if (typeof source !== 'string' || !SOURCE_RE.test(source)) return fail('bad_source');
+    if (has(EXTRA, source)) { out.ignored = true; return fail('source_taken'); }
+    if (hooks == null) hooks = {};
+    if (!plainObj(hooks) || HOOK_FNS.some(function (k) { return hooks[k] != null && typeof hooks[k] !== 'function'; }) ||
+        (hooks.goalField != null && !has(GOAL_FIELDS, hooks.goalField))) return fail('bad_hooks');
+    if (!Array.isArray(entries)) return fail('bad_entries');
+    var cand = [], seen = {}, known;
+    entries.forEach(function (e) {
+      var id = plainObj(e) && typeof e.id === 'string' ? e.id : null, why = null;
+      if (id === null || !idList(e.requires) || !idList(e.includes)) why = 'bad_entry';
+      else if (!PLUGIN_ID_RE.test(id)) why = 'bad_id';
+      else if (has(BY_ID, id) || has(seen, id)) why = 'duplicate';
+      else if (!has(PLUGIN_KINDS, e.kind)) why = 'bad_kind';
+      else if (!isInt(e.price) || e.price < 0) why = 'bad_price';
+      else if (e.isle != null) why = 'isle';
+      if (id !== null) seen[id] = 1;
+      if (why) out.refused.push({ id: id, why: why }); else cand.push(e);
+    });
+    /* requires may name any known id; includes only ids of this call. Refusing one entry can
+       strand another that names it, so settle until nothing more goes. */
+    for (var again = true; again;) {
+      again = false;
+      known = {};
+      cand.forEach(function (e) { known[e.id] = 1; });
+      cand = cand.filter(function (e) {
+        var why = (e.requires || []).some(function (r) { return !has(known, r) && !has(BY_ID, r); }) ? 'unknown_requires'
+          : (e.includes || []).some(function (r) { return !has(known, r); }) ? 'unknown_includes' : null;
+        if (why) { out.refused.push({ id: e.id, why: why }); again = true; }
+        return !why;
+      });
+    }
+    var row = { source: source, hooks: {}, self: hooks };
+    HOOK_FNS.forEach(function (k) { if (typeof hooks[k] === 'function') row.hooks[k] = hooks[k]; });
+    row.goalField = hooks.goalField || null;
+    EXTRA[source] = cand.map(function (e) {
+      var it = deepFreeze(JSON.parse(JSON.stringify(e)));
+      BY_ID[it.id] = it; PLUGIN_OF[it.id] = row;
+      return it;
+    });
+    Object.freeze(EXTRA[source]);
+    PLUGINS.push(row);
+    out.added = cand.length;
+    out.ok = !out.refused.length;
+    return out;
+  }
+  /* the entries one source registered (or every source's, in registration order) */
+  function extraItems(source) {
+    if (source != null) return has(EXTRA, source) ? EXTRA[source].slice() : [];
+    return [].concat.apply([], PLUGINS.map(function (p) { return EXTRA[p.source]; }));
+  }
+  /* CATALOG, then every plug-in's entries: what N2 walks */
+  function allItems() { return CATALOG.concat(extraItems()); }
+  function pluginOf(itOrId) {
+    var id = typeof itOrId === 'string' ? itOrId : itOrId && itOrId.id;
+    return typeof id === 'string' && has(PLUGIN_OF, id) ? PLUGIN_OF[id] : null;
+  }
+  function noteIssue(p, hook, e) {
+    ISSUES.push({ source: p.source, hook: hook, msg: String(e && e.message || e).slice(0, 200) });
+    if (ISSUES.length > ISSUE_MAX) ISSUES.splice(0, ISSUES.length - ISSUE_MAX);
+  }
+  /* one hook on one world object (w, or the merge's base). If it throws, that object gets back
+     exactly the keys and values it had (same key order), and the issue is noted. */
+  function callHook(p, name, target, args) {
+    var fn = p.hooks[name];
+    if (!fn) return undefined;
+    var snap = JSON.stringify(target);
+    try { return fn.apply(p.self, args); } catch (e) {
+      var back = JSON.parse(snap);
+      Object.keys(target).forEach(function (k) { delete target[k]; });
+      Object.keys(back).forEach(function (k) { target[k] = back[k]; });
+      noteIssue(p, name, e);
+      return undefined;
+    }
+  }
 
   var REPEATABLE = { decor: 1, path: 1 };
   var PLACEABLE = { decor: 1, path: 1, fun: 1, house: 1, attraction: 1, landmark: 1 };
@@ -491,7 +660,8 @@
   deepFreeze(ACT_INFO);
 
   /* the shelves of each land's shop, in shop order: [shelfKey, [ids, cheapest first]] — in a
-     'crew' shelf the mascots come first, then the gear. Every themed item, mascot and piece of
+     'crew' shelf the mascots come first (the land's two kids-update animals, cheapest first,
+     after its first two), then the gear. Every themed item, mascot and piece of
      gear of a land is on exactly one shelf; the land and its landmark are on none. Shelf
      names are copy (shop.shelf.<isle>.<key>, else shop.shelf.<key>). */
   var ISLE_SHELVES = deepFreeze({
@@ -499,29 +669,29 @@
       ['stalls', ['pier_candyfloss', 'pier_popcorn', 'pier_icecream']],
       ['decor', ['pier_deckchair', 'pier_balloons', 'pier_lamppost', 'pier_beachhut']],
       ['paths', ['path_pier']],
-      ['crew', ['pet_crab', 'pet_gull', 'acc_pier_conehat', 'acc_pier_ring', 'acc_pier_snorkel', 'acc_pier_balloon']]],
+      ['crew', ['pet_crab', 'pet_gull', 'pet_otter', 'pet_flamingo', 'acc_pier_conehat', 'acc_pier_ring', 'acc_pier_snorkel', 'acc_pier_balloon']]],
     jungle: [['rides', ['jungle_hammock', 'jungle_drums', 'jungle_vineswing', 'jungle_monkeybars', 'jungle_falls', 'jungle_camp', 'jungle_den', 'jungle_canoe']],
       ['stalls', ['jungle_fruitstall', 'jungle_market', 'jungle_smoothie']],
       ['village', ['jungle_lantern', 'jungle_stilthut', 'jungle_arch', 'jungle_waterwheel']],
       ['wild', ['jungle_parrot', 'jungle_banana', 'jungle_coconut']],
       ['paths', ['path_logs', 'path_bamboo']],
-      ['crew', ['pet_capybara', 'pet_monkey', 'acc_jungle_garland', 'acc_jungle_hat', 'acc_jungle_butterfly', 'acc_jungle_pack']]],
+      ['crew', ['pet_capybara', 'pet_monkey', 'pet_toucan', 'pet_sloth', 'acc_jungle_garland', 'acc_jungle_hat', 'acc_jungle_butterfly', 'acc_jungle_pack']]],
     treetop: [['rides', ['treetop_climbwall', 'treetop_telescope', 'treetop_cargonet', 'treetop_leap', 'treetop_bigslide', 'treetop_zipline']],
       ['play', ['treetop_tunnel', 'treetop_beams', 'treetop_seesaw', 'treetop_tyreswing', 'treetop_bridge', 'treetop_net']],
       ['decor', ['treetop_birdtable', 'treetop_picnic', 'treetop_xylophone', 'treetop_platform', 'treetop_pod']],
       ['paths', ['path_bark']],
-      ['crew', ['pet_squirrel', 'pet_owl', 'acc_treetop_acorn', 'acc_treetop_leafmask', 'acc_treetop_binoculars', 'acc_treetop_leafwings']]],
+      ['crew', ['pet_squirrel', 'pet_owl', 'pet_hedgehog', 'pet_redpanda', 'acc_treetop_acorn', 'acc_treetop_leafmask', 'acc_treetop_binoculars', 'acc_treetop_leafwings']]],
     castle: [['rides', ['castle_flinger', 'castle_maypole', 'castle_joust', 'castle_maze']],
       ['village', ['castle_throne', 'castle_bridge', 'castle_feast', 'castle_gate', 'castle_tower', 'castle_dragon']],
       ['stalls', ['castle_herbs', 'castle_well', 'castle_window', 'castle_stall', 'castle_statue']],
       ['decor', ['castle_wall', 'castle_banner', 'castle_lantern']],
       ['paths', ['path_cobble', 'path_carpet']],
-      ['crew', ['pet_duckling', 'pet_pony', 'acc_castle_ruff', 'acc_castle_visor', 'acc_castle_helm', 'acc_castle_cloak']]],
+      ['crew', ['pet_duckling', 'pet_pony', 'pet_goatkid', 'pet_peacock', 'acc_castle_ruff', 'acc_castle_visor', 'acc_castle_helm', 'acc_castle_cloak']]],
     ice: [['rides', ['ice_slide', 'ice_sled', 'ice_rink', 'ice_skilift']],
       ['village', ['ice_snowhut', 'ice_penguin', 'ice_fishhole', 'ice_cocoa', 'ice_fort', 'ice_choir', 'ice_castle']],
       ['decor', ['ice_snowpenguin', 'ice_pine', 'ice_lantern', 'ice_sculpture', 'ice_snowglobe', 'ice_bear']],
       ['paths', ['path_pebble', 'path_ice']],
-      ['crew', ['pet_penguin', 'pet_seal', 'acc_ice_earmuffs', 'acc_ice_bells', 'acc_ice_goggles', 'acc_ice_pack']]]
+      ['crew', ['pet_penguin', 'pet_seal', 'pet_reindeer', 'pet_snowleopard', 'acc_ice_earmuffs', 'acc_ice_bells', 'acc_ice_goggles', 'acc_ice_pack']]]
   });
 
   /* shape: the City loft is the default house form. Parent switch: set it (and
@@ -549,7 +719,17 @@
   /* ---------------- helpers ---------------- */
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
   function item(id) { return Object.prototype.hasOwnProperty.call(BY_ID, id) ? BY_ID[id] : null; }
-  function isRepeatable(it) { return !!(it && REPEATABLE[it.kind]); }
+  /* bought again and again, each purchase its own ledger row that a merge never collapses:
+     decor and paths (one more copy each time), pet food (meals for the pantry) and a
+     re-adoption ('readopt_<pet id>', a ledger item of its own, never in CATALOG, KU39) */
+  var READOPT = 'readopt_';
+  function isRepeatable(itOrId) {
+    if (typeof itOrId === 'string') {
+      if (itOrId.indexOf(READOPT) === 0 && itOrId.length > READOPT.length) return true;
+      itOrId = item(itOrId);
+    }
+    return !!(itOrId && (REPEATABLE[itOrId.kind] || itOrId.kind === 'food'));
+  }
   function isPlaceable(it) { return !!(it && PLACEABLE[it.kind]); }
   function isStorable(it) { return !!(it && STORABLE[it.kind]); }
   function nowIso(ms) { return new Date(ms == null ? Date.now() : ms).toISOString(); }
@@ -688,7 +868,11 @@
   var DEFAULT_PET_NAMES = Object.freeze({ pet_puppy: 'Biscuit', pet_kitten: 'Mittens', pet_bunny: 'Clover', pet_dragon: 'Ember',
     /* the lands' mascots */
     pet_crab: 'Nipper', pet_gull: 'Chips', pet_capybara: 'Coconut', pet_monkey: 'Mango', pet_squirrel: 'Acorn', pet_owl: 'Bramble',
-    pet_duckling: 'Dabble', pet_pony: 'Pepper', pet_penguin: 'Pebble', pet_seal: 'Splosh' });
+    pet_duckling: 'Dabble', pet_pony: 'Pepper', pet_penguin: 'Pebble', pet_seal: 'Splosh',
+    /* the kids update's 14 (pets.json catalogue.new defaultName) */
+    pet_hamster: 'Peanut', pet_guineapig: 'Pip', pet_tortoise: 'Mossy', pet_budgie: 'Kiwi', pet_otter: 'Ripple', pet_flamingo: 'Coral',
+    pet_sloth: 'Snooze', pet_toucan: 'Tango', pet_redpanda: 'Maple', pet_hedgehog: 'Thistle', pet_goatkid: 'Skip', pet_peacock: 'Sequin',
+    pet_reindeer: 'Juniper', pet_snowleopard: 'Snowdrop' });
   function ensurePetRecord(w, id) {
     for (var i = 0; i < w.pets.length; i++) if (w.pets[i].id === id) return w.pets[i];
     var rec = { id: id, name: DEFAULT_PET_NAMES[id] || 'Buddy', acc: {} };
@@ -866,6 +1050,288 @@
       }
     }
     touch(w, ms); return { ok: true, on: on };
+  }
+
+  /* ---------------- pet care: the core's half (kids update P1.1) ----------------
+     CARE holds the numbers (frozen). ownCap is the pet cap, James's answer to Q1 (8 Oct 2026):
+       'total'  a child owns at most homeMax pets that are not stars, the free starter
+                included (purchaseCheck 'own_full'). Nothing owned is ever taken away: a save
+                that already has more keeps them all, homeMax at home and the rest at the Pet
+                Hotel, and cannot adopt until it owns fewer than homeMax.
+       'home'   any number owned, homeMax at home ('home_full'; the Pet Hotel is always open).
+     petRoom(w) is the one place every screen reads the cap from; purchaseCheck uses it too.
+     A purchase with {noPetCap} skips only the cap: fixtures, the lab and tests use it to make
+     the saves an old client could make (KU37); no file under world/ passes it.
+
+     w.care3 (absent until care starts or the first food purchase; old clients never read it):
+       { v: 1, since: day | null, day: day | null, days, home: [petId], homeAt: ISO,
+         pets: {<petId>: {food, missed, happy, adopted, fedDay, favDay, patDay, playDay,
+                          treatDay, treats, rescue: null | {since, visits, last, waited},
+                          star: null | {day}, arrivedFull?: true, at: ISO}},
+         pantry: {<foodId>: {got, ate}}, stars: [card], cfg: {sitter: {on, until}, farewell,
+         setAt}, done: {<cmdKey>: 1}, alert: {lv, ids} | null, welcome: ISO | null,
+         told?: {farewell: setAt}, at: ISO }
+     A day is 'YYYY-MM-DD' (the host's dayKey). Care has started once care3.day is a day
+     (SLPetCare.start); a block a food purchase made before that holds only the pantry.
+       home    at most homeMax pets, the child's order. A pet at the Pet Rescue keeps its spot.
+       Hotel   every owned pet with a care record that is not at home and not a star
+               (derived, never stored, so a pet can never fall out of every list)
+       star    a pet that passed away (only with the grown-up's switch): still owned, never
+               at home; its species may be adopted again (a 'readopt_<id>' ledger row, KU39)
+       pantry  got and ate only ever go up: what is left is got − ate
+     Before care starts, home is derived: the runner, then the newest pets, up to homeMax.
+     Nothing here reads a clock or rolls a number. */
+  var CARE = deepFreeze({
+    homeMax: 3, foodMax: 3, happyMax: 4, happyStart: 3, warnAt: 2, lastAt: 3, rescueAt: 4, rescueVisits: 3,
+    starAfter: 7, starWarn: 5, treatsPerDay: 2, pantryMax: 40, trialPantryMax: 15, welcomeBag: { food_biscuits: 6 },
+    ownCap: 'total',
+    dayRule: 'island', clockSkewDays: 2
+  });
+  var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  var CARE_CFG0 = { sitter: { on: false, until: null }, farewell: false, setAt: 0 };
+  function isDay(d) { return typeof d === 'string' && DAY_RE.test(d); }
+  function isFood(itOrId) { var it = itemOf(itOrId); return !!(it && it.kind === 'food'); }
+  /* every food, in CATALOG order (what the Pet Shop sells) */
+  function foodItems() { return CATALOG.filter(function (it) { return it.kind === 'food'; }); }
+  function careOf(w) { return w && plainObj(w.care3) ? w.care3 : null; }
+  function careStarted(cc) { return !!cc && isDay(cc.day); }
+  function careRec(cc, id) { return cc && plainObj(cc.pets) && has(cc.pets, id) && plainObj(cc.pets[id]) ? cc.pets[id] : null; }
+  function isStarRec(rec) { return !!rec && plainObj(rec.star); }
+  /* the crew's ids in crewList order (owned, with a record), cheaply */
+  function crewIds(w) {
+    var out = [], c = crew3Of(w);
+    if (!w || !plainObj(w.owned)) return out;
+    (Array.isArray(w.pets) ? w.pets : []).forEach(function (p) { if (plainObj(p) && isOldPet(p.id) && owns(w, p.id) && out.indexOf(p.id) < 0) out.push(p.id); });
+    (c && Array.isArray(c.pets) ? c.pets : []).forEach(function (p) { if (plainObj(p) && isMascot(p.id) && owns(w, p.id) && out.indexOf(p.id) < 0) out.push(p.id); });
+    return out;
+  }
+  function nonStars(w, ids) { var cc = careOf(w); return ids.filter(function (id) { return !isStarRec(careRec(cc, id)); }); }
+  /* before care starts: the runner (crewList's active one), then the newest pets, up to homeMax */
+  function derivedHome(w, ids) {
+    var a = activePetId(w), run = ids.indexOf(a) >= 0 ? a : (ids.length ? ids[0] : null), out = run === null ? [] : [run];
+    for (var i = ids.length - 1; i >= 0 && out.length < CARE.homeMax; i--) if (out.indexOf(ids[i]) < 0) out.push(ids[i]);
+    return out;
+  }
+  /* the pets at home (a pet at the Rescue keeps its spot), in the child's order */
+  function homePets(w) {
+    var cc = careOf(w), ids = nonStars(w, crewIds(w)), out = [];
+    if (!careStarted(cc)) return derivedHome(w, ids);
+    (Array.isArray(cc.home) ? cc.home : []).forEach(function (id) { if (typeof id === 'string' && ids.indexOf(id) >= 0 && out.indexOf(id) < 0) out.push(id); });
+    return out;
+  }
+  /* home spots in use: the home pets, ids this build does not know (a future species keeps its
+     spot) and a pet at the Rescue that a merge left off the list (neglect never frees a spot) */
+  function homeUsed(w) {
+    var cc = careOf(w), home = homePets(w), n = home.length;
+    if (!careStarted(cc)) return n;
+    if (Array.isArray(cc.home)) cc.home.forEach(function (id, i, a) { if (typeof id === 'string' && !item(id) && a.indexOf(id) === i) n++; });
+    crewIds(w).forEach(function (id) { var r = careRec(cc, id); if (r && plainObj(r.rescue) && !isStarRec(r) && home.indexOf(id) < 0) n++; });
+    return n;
+  }
+  /* 'home' | 'hotel' | 'rescue' | 'star', or null (not a pet of this crew, or no record yet).
+     A pet at the Rescue is there whatever the home list says (N13 gives it back its spot). */
+  function petWhere(w, petId) {
+    var ids = crewIds(w);
+    if (typeof petId !== 'string' || ids.indexOf(petId) < 0) return null;
+    var cc = careOf(w), rec = careRec(cc, petId);
+    if (isStarRec(rec)) return 'star';
+    if (careStarted(cc) && rec && plainObj(rec.rescue)) return 'rescue';
+    if (homePets(w).indexOf(petId) >= 0) return 'home';
+    return !careStarted(cc) || rec ? 'hotel' : null;
+  }
+  /* the pet that plays (pets P6): the runner while it is really at home, else the first pet
+     really at home; nobody at home → a pet at the Rescue, then a hotel guest; never a star.
+     Read-only: setActivePet stays the only writer of the runner. */
+  function careRunner(w) {
+    var ids = crewIds(w), home = homePets(w), a = activePetId(w), where = {};
+    var order = home.concat(ids.filter(function (id) { return home.indexOf(id) < 0; }));
+    order.forEach(function (id) { where[id] = petWhere(w, id); });
+    var kinds = ['home', 'rescue', 'hotel'];
+    for (var k = 0; k < kinds.length; k++) {
+      var list = order.filter(function (id) { return where[id] === kinds[k]; });
+      if (list.length) return list.indexOf(a) >= 0 ? a : list[0];
+    }
+    return null;
+  }
+  function pantryCount(w, foodId) {
+    var cc = careOf(w), p = cc && plainObj(cc.pantry) && has(cc.pantry, foodId) ? cc.pantry[foodId] : null;
+    if (!plainObj(p)) return 0;
+    var got = isInt(p.got) && p.got > 0 ? p.got : 0, ate = isInt(p.ate) && p.ate > 0 ? p.ate : 0;
+    return Math.max(0, got - ate);
+  }
+  /* the meals in the pantry, every meal food together (treats are a snack, not a meal) */
+  function pantryMeals(w) {
+    return foodItems().reduce(function (n, f) { return f.group === 'treat' ? n : n + pantryCount(w, f.id); }, 0);
+  }
+  /* the cap, for every screen: {mode, count (pets owned that are not stars), max, canAdopt,
+     atCap, hotelOpen}. 'total': adopt while count < max; the Hotel only for pets above it.
+     'home': always adopt (through 'Make room' when home is full); the Hotel always open. */
+  function petRoom(w) {
+    var count = nonStars(w, crewIds(w)).length, max = CARE.homeMax;
+    if (CARE.ownCap === 'home') return { mode: 'home', count: count, max: max, canAdopt: true, atCap: homeUsed(w) >= max, hotelOpen: true };
+    return { mode: 'total', count: count, max: max, canAdopt: count < max, atCap: count >= max, hotelOpen: count > max };
+  }
+  function isStarPet(w, petId) { return petWhere(w, petId) === 'star'; }
+  /* a pet's tummy as an alert level: 0 fine, 1 peckish, 2 hungry, 3 very hungry or last chance */
+  function careLevel(rec) {
+    var food = isInt(rec.food) ? rec.food : 0, missed = isInt(rec.missed) ? rec.missed : 0;
+    return missed >= CARE.warnAt ? 3 : missed >= 1 ? 2 : food <= 0 ? 1 : 0;
+  }
+  /* care3.alert {lv, ids}: the highest level among the pets really at home, and who is at it
+     (the app-open banner reads it without loading the world scripts) */
+  function careAlert(w) {
+    var cc = careOf(w), lv = 0, ids = [];
+    homePets(w).forEach(function (id) {
+      var rec = careRec(cc, id);
+      if (!rec || plainObj(rec.rescue)) return;
+      var l = careLevel(rec);
+      if (l > lv) { lv = l; ids = [id]; } else if (l === lv && l > 0) ids.push(id);
+    });
+    return { lv: lv, ids: ids };
+  }
+  /* a pet's care record as care start or an adoption makes it: full and happy */
+  function freshPetRec(day, atIso) {
+    return { food: CARE.foodMax, missed: 0, happy: CARE.happyStart, adopted: isDay(day) ? day : null, fedDay: null, favDay: null,
+      patDay: null, playDay: null, treatDay: null, treats: 0, rescue: null, star: null, at: atIso };
+  }
+  /* the block a food purchase makes when care has not started yet: only the pantry is used */
+  function careBlock(w, atIso) {
+    var cc = careOf(w);
+    if (cc) return cc;
+    cc = { v: 1, since: null, day: null, days: 0, home: [], homeAt: atIso, pets: {}, pantry: {}, stars: [],
+      cfg: JSON.parse(JSON.stringify(CARE_CFG0)), done: {}, alert: null, welcome: null, at: atIso };
+    w.care3 = cc;
+    return cc;
+  }
+  /* purchase(): a food goes into the pantry */
+  function careStock(w, it, atIso) {
+    var cc = careBlock(w, atIso);
+    if (!plainObj(cc.pantry)) cc.pantry = {};
+    var p = plainObj(cc.pantry[it.id]) ? cc.pantry[it.id] : (cc.pantry[it.id] = { got: 0, ate: 0 });
+    p.got = (isInt(p.got) && p.got > 0 ? p.got : 0) + it.meals;
+    if (!isInt(p.ate) || p.ate < 0) p.ate = 0;
+    cc.at = atIso;
+    cc.alert = careAlert(w);
+  }
+  /* purchase(): once care has started, a new pet gets its record and a home spot (or the Hotel
+     when home is full, told once). A re-adoption starts afresh; a pet owned again after a
+     grown-up's clean-up gets its old record back. Before care starts, start() makes them all. */
+  function careAdopt(w, id, atIso, readopt) {
+    var cc = careOf(w);
+    if (!careStarted(cc)) return;
+    if (!plainObj(cc.pets)) cc.pets = {};
+    if (!Array.isArray(cc.home)) cc.home = [];
+    var rec = careRec(cc, id);
+    if (!rec || readopt || isStarRec(rec)) { rec = freshPetRec(cc.day, atIso); cc.pets[id] = rec; }
+    else rec.at = atIso;
+    if (cc.home.indexOf(id) < 0) {
+      if (homeUsed(w) < CARE.homeMax) { cc.home.push(id); cc.homeAt = atIso; } else rec.arrivedFull = true;
+    }
+    cc.at = atIso;
+    cc.alert = careAlert(w);
+  }
+  function careStamp(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v === 'string') { var n = Date.parse(v); return isFinite(n) ? n : 0; }
+    return 0;
+  }
+
+  /* ---------------- the island wallet: 🪙 coins (kids update F-KU4) ----------------
+     Learning earns ⭐ for 🎁 My rewards (u.points: never changed by this section) and the same
+     number of 🪙 island coins (earnCoins: the host's earn hook, called wherever learning awards
+     ⭐). With wallet 'coins' (ECONOMY.wallet, or a call's opts.wallet) every island purchase is
+     paid in coins and never touches u.points; with 'stars' nothing here is used.
+
+     w.coins (absent until the first coin write; old clients never read it):
+       { v: 1, earned, spent, at }   earned and spent only ever go up. The balance is
+                                     max(0, earned − spent), so a merge keeps the larger of each
+                                     (M5) and a spend is never refunded or paid twice
+     A coin purchase's ledger row is { tx, item, price: 0, at, bal, coins, cbal }: price stays the
+     ⭐ charged (0), so every old build's merge and audit see no ⭐ spent; coins is what was
+     charged and cbal the coin balance after. In free test mode coins is 0, with trial, list
+     (the ⭐ price) and clist (the coin price).
+
+     Prices (coinPrice), one rule from the catalogue's ⭐ price, calibrated on sessionPts (James,
+     24 Oct 2026: a small item ≈ one session, the first paid game ≈ 2-3 days, the first new
+     land ≈ a week; a day = sessionPts × daySessions coins):
+       COIN.days     the anchors, in learning days: the two paid games and the seven lands
+       game things   a game's courses, tracks, balls, stadiums and karts keep their old share of
+                     their game: the Penalty Pitch's coins per ⭐ (a half)
+       everything    sessionPts / COIN.smallTop coins per ⭐ (three quarters): the old Small tier
+       else          (up to 160 ⭐) costs at most one session
+     Rounded to 5 under 1,000 and to 50 from 1,000; free stays free; anything paid costs ≥ 5. */
+  var COIN = deepFreeze({
+    sym: '🪙',
+    smallTop: 160,
+    days: { att_pitch: 2.5, att_kart: 3, land_meadow: 7, land_cove: 7.5, land_ice: 8, land_jungle: 9, land_treetop: 9, land_pier: 10, land_castle: 11 },
+    gameKinds: { attraction: 1, variant: 1, cosmetic: 1 },
+    earnMax: 10000              /* one earnCoins call adds at most this; a bigger one is refused */
+  });
+  var WALLETS = { stars: 1, coins: 1 };
+  /* 'coins' | 'stars': the call's opts.wallet, else ECONOMY.wallet */
+  function walletOf(opts) {
+    var v = opts && typeof opts.wallet === 'string' && has(WALLETS, opts.wallet) ? opts.wallet : ECONOMY.wallet;
+    return v === 'coins' ? 'coins' : 'stars';
+  }
+  function coinRound(x) {
+    if (!(x > 0)) return 0;
+    return x < 1000 ? Math.max(5, Math.round(x / 5) * 5) : Math.round(x / 50) * 50;
+  }
+  function coinDay() { return ECONOMY.sessionPts * ECONOMY.daySessions; }
+  /* an item's price in coins (null: unknown, or no valid price) */
+  function coinPrice(itOrId) {
+    var it = itemOf(itOrId);
+    if (!it || !isInt(it.price) || it.price < 0) return null;
+    if (it.price === 0) return 0;
+    if (has(COIN.days, it.id)) return coinRound(COIN.days[it.id] * coinDay());
+    if (has(COIN.gameKinds, it.kind)) return coinRound(it.price * coinRound(COIN.days.att_pitch * coinDay()) / item('att_pitch').price);
+    return coinRound(it.price * ECONOMY.sessionPts / COIN.smallTop);
+  }
+  /* what the item costs in the wallet the call uses */
+  function priceOf(itOrId, opts) {
+    var it = itemOf(itOrId);
+    if (!it) return null;
+    return walletOf(opts) === 'coins' ? coinPrice(it) : it.price;
+  }
+  /* every priced thing (the catalogue, then every plug-in's), food included: {id, kind, stars, coins} */
+  function coinPrices() {
+    return allItems().filter(function (it) { return isInt(it.price) && it.price > 0 && !it.starter && !it.included && !it.retired; })
+      .map(function (it) { return { id: it.id, kind: it.kind, stars: it.price, coins: coinPrice(it) }; });
+  }
+  function coinsOf(w) { return w && plainObj(w.coins) ? w.coins : null; }
+  function posInt(v) { return isInt(v) && v > 0 ? v : 0; }
+  /* the coin balance of a profile (or of a world) */
+  function coinBalance(x) {
+    var w = x && typeof x === 'object' && (has(x, 'world') || typeof x.points === 'number') ? x.world : x, c = coinsOf(w);
+    return c ? Math.max(0, posInt(c.earned) - posInt(c.spent)) : 0;
+  }
+  /* the balance of the wallet the call uses */
+  function walletBalance(u, opts) {
+    if (walletOf(opts) === 'coins') return coinBalance(u);
+    return u && isInt(u.points) ? u.points : 0;
+  }
+  /* create (or repair the shape of) the coin block */
+  function coinsEntry(w, atIso) {
+    var c = coinsOf(w);
+    if (!c) { c = { v: 1, earned: 0, spent: 0, at: atIso }; w.coins = c; }
+    if (!isInt(c.v) || c.v < 1) c.v = 1;
+    c.earned = posInt(c.earned); c.spent = posInt(c.spent);
+    if (typeof c.at !== 'string') c.at = atIso;
+    return c;
+  }
+  /* the host's earn hook: learning just awarded n ⭐, so the island wallet gets n coins too.
+     n is rounded; < 1 → bad_amount, > COIN.earnMax → too_much (nothing changes). Earning goes on
+     in free test mode (only spending is free there). opts: {now: ms}. */
+  function earnCoins(u, n, opts) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    var add = typeof n === 'number' && isFinite(n) ? Math.round(n) : NaN;
+    if (!(add >= 1)) return { ok: false, code: 'bad_amount' };
+    if (add > COIN.earnMax) return { ok: false, code: 'too_much' };
+    var w = ensureWorld(u), ms = opts && opts.now, at = nowIso(ms), c = coinsEntry(w, at);
+    c.earned += add;
+    c.at = at;
+    markV3(w); touch(w, ms);
+    return { ok: true, added: add, coins: coinBalance(w) };
   }
 
   /* ---------------- selection (styles / cosmetics / variants) ---------------- */
@@ -1095,7 +1561,14 @@
      Price always comes from CATALOG; callers cannot pass one.
      Same tx twice → returns the first result (idempotent). */
   /* opts.trial = the family's free test mode: the item costs 0 and the child's
-     ⭐ are never touched; every other rule (catalogue, locks, one-offs) still applies */
+     ⭐ are never touched; every other rule (catalogue, locks, one-offs) still applies.
+     Pets and food (kids update): a pet needs room under the cap ('own_full' / 'home_full',
+     petRoom; opts.noPetCap skips this one check, for fixtures and tests only); a pet that
+     became a star may be adopted again (readopt: true, KU39); a food needs room in the pantry
+     ('pantry_full': CARE.pantryMax of that food) and, in test mode, the meals in the pantry
+     stay at most CARE.trialPantryMax ('trial_pantry', KU38).
+     The wallet (F-KU4, walletOf(opts)): with 'coins' the price is coinPrice(), the balance
+     coinBalance(), and the answer carries wallet: 'coins'; u.points is never looked at. */
   function purchaseCheck(u, id, opts) {
     var trial = !!(opts && opts.trial);
     var w = ensureWorld(u), it = item(id);
@@ -1103,18 +1576,35 @@
     if (it.retired) return { ok: false, code: 'retired', reason: 'That’s no longer in the shop.' };
     if (it.starter || it.included) return { ok: false, code: 'not_for_sale', reason: 'That comes free with something else.' };
     if (!isInt(it.price) || it.price < 0) return { ok: false, code: 'bad_price', reason: 'Price problem.' };
-    if (!isRepeatable(it) && owns(w, id)) return { ok: false, code: 'already_owned', reason: 'You already own this.' };
+    var readopt = it.kind === 'pet' && isStarPet(w, id);
+    if (!isRepeatable(it) && owns(w, id) && !readopt) return { ok: false, code: 'already_owned', reason: 'You already own this.' };
     var req = it.requires || [];
     for (var i = 0; i < req.length; i++) {
       if (!owns(w, req[i])) return { ok: false, code: 'locked', needs: req[i], reason: 'First you need: ' + (item(req[i]) ? item(req[i]).name : req[i]) + '.' };
     }
+    if (it.kind === 'pet' && !(opts && opts.noPetCap)) {
+      var room = petRoom(w);
+      if (room.mode === 'home' && room.atCap) return { ok: false, code: 'home_full', reason: 'Home is full (' + room.max + ' of ' + room.max + '). Move a pet to the Pet Hotel to make room.' };
+      if (room.mode !== 'home' && !room.canAdopt) return { ok: false, code: 'own_full', reason: 'You can have up to ' + room.max + ' pets, and you have ' + room.count + '. Look after them in the Pet Corner.' };
+    }
+    if (it.kind === 'food') {
+      if (pantryCount(w, id) + it.meals > CARE.pantryMax) return { ok: false, code: 'pantry_full', reason: 'Your pantry is full of ' + it.name + '.' };
+      if (trial && it.group !== 'treat' && pantryMeals(w) + it.meals > CARE.trialPantryMax) return { ok: false, code: 'trial_pantry', reason: 'In test mode the pantry holds up to ' + CARE.trialPantryMax + ' meals. Feed your pets, then get more.' };
+    }
+    var ok = { ok: true, item: it, price: it.price }, coins = walletOf(opts) === 'coins';
+    if (coins) { ok.price = coinPrice(it); ok.wallet = 'coins'; }
     if (trial) {
       if (ECONOMY.trialMaxCopies > 0 && isRepeatable(it) && ownedCount(w, id) >= ECONOMY.trialMaxCopies) return { ok: false, code: 'trial_cap', reason: 'You’ve got plenty of those for testing!' };
-      return { ok: true, item: it, price: 0, trial: true };
+      ok.price = 0; ok.trial = true;
+    } else if (coins) {
+      var cb = coinBalance(u);
+      if (cb < ok.price) return { ok: false, code: 'insufficient', need: ok.price - cb, wallet: 'coins', reason: 'You need ' + (ok.price - cb) + ' more 🪙.' };
+    } else {
+      var bal = isInt(u.points) ? u.points : 0;
+      if (bal < it.price) return { ok: false, code: 'insufficient', need: it.price - bal, reason: 'You need ' + (it.price - bal) + ' more ⭐.' };
     }
-    var bal = isInt(u.points) ? u.points : 0;
-    if (bal < it.price) return { ok: false, code: 'insufficient', need: it.price - bal, reason: 'You need ' + (it.price - bal) + ' more ⭐.' };
-    return { ok: true, item: it, price: it.price };
+    if (readopt) ok.readopt = true;
+    return ok;
   }
   function findTx(w, tx) {
     for (var i = w.ledger.length - 1; i >= 0; i--) if (w.ledger[i].tx === tx) return w.ledger[i];
@@ -1128,24 +1618,37 @@
     if (!isInt(u.points)) u.points = isInt(Math.round(u.points)) ? Math.round(u.points) : 0;
     var prior = findTx(w, tx);
     if (prior) {
-      if (prior.item !== id) return { ok: false, code: 'tx_conflict', reason: 'Please try again.' };
+      if (prior.item !== id && prior.item !== READOPT + id) return { ok: false, code: 'tx_conflict', reason: 'Please try again.' };
+      if (isInt(prior.coins)) return { ok: true, replay: true, item: item(id), price: prior.coins, wallet: 'coins', balance: coinBalance(w), points: u.points, entry: prior };
       return { ok: true, replay: true, item: item(id), price: prior.price, balance: u.points, entry: prior };
     }
     var chk = purchaseCheck(u, id, opts);
     if (!chk.ok) return chk;
-    var it = chk.item, ms = opts.now, charge = chk.trial ? 0 : it.price;
-    /* commit — one synchronous mutation of the same profile object */
-    u.points -= charge;
-    w.owned[id] = ownedCount(w, id) + 1;
-    w.spent += charge;
+    var it = chk.item, ms = opts.now, food = it.kind === 'food', readopt = !!chk.readopt, coins = chk.wallet === 'coins';
+    var charge = chk.trial ? 0 : chk.price, stars = coins ? 0 : charge, at0 = nowIso(ms);
+    /* commit — one synchronous mutation of the same profile object; a coin purchase never touches u.points or w.spent */
+    u.points -= stars;
+    /* food fills the pantry and a re-adoption keeps the one owned: neither is ever counted in owned */
+    if (!food && !readopt) w.owned[id] = ownedCount(w, id) + 1;
+    w.spent += stars;
+    if (coins && charge > 0) { var cw = coinsEntry(w, at0); cw.spent += charge; cw.at = at0; }
     (it.includes || []).forEach(function (inc) { if (!owns(w, inc)) w.owned[inc] = 1; });
-    var entry = { tx: tx, item: id, price: charge, at: nowIso(ms), bal: u.points };
-    if (chk.trial) { entry.trial = true; entry.list = it.price; }   /* tagged: decide at the end of testing */
+    /* a re-adoption is a ledger item of its own (KU39): repeatable, so no merge collapses it */
+    var entry = { tx: tx, item: readopt ? READOPT + id : id, price: stars, at: at0, bal: u.points };
+    if (coins) { entry.coins = charge; entry.cbal = coinBalance(w); }
+    if (chk.trial) { entry.trial = true; entry.list = it.price; if (coins) entry.clist = coinPrice(it); }   /* tagged: decide at the end of testing */
     w.ledger.push(entry);
     var placedUid = null;
     /* a mascot joins the crew in crew3, never in w.pets; land gear is ownership only (the host puts it on the runner) */
     if (isMascot(it)) { ensureMascotRecord(w, id, entry.at); crew3Of(w).at = entry.at; }
     else if (it.kind === 'pet') ensurePetRecord(w, id);
+    /* a pet adopted again takes its default name (the old one lives on in its memory card) */
+    if (readopt) {
+      var again = isMascot(it) ? mascotRec(w, id) : petById(w, id);
+      if (again) again.name = DEFAULT_PET_NAMES[id] || 'Buddy';
+    }
+    if (food) careStock(w, it, entry.at);
+    else if (it.kind === 'pet') careAdopt(w, id, entry.at, readopt);
     if (it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant') {
       if (it.multi) w.details[id] = true; else w.sel[it.slot] = id;
     }
@@ -1155,12 +1658,19 @@
     }
     var landIsle = it.kind === 'land' && isleDef(it.isle) ? it.isle : null;
     if (landIsle) placedUid = dropLandmark(w, landIsle, entry.at);
-    if (isV3(it)) markV3(w);
+    /* a plug-in item: its owner's onPurchase (a character gets its w.chars record) */
+    var pl = pluginOf(id);
+    if (pl) callHook(pl, 'onPurchase', w, [w, it, entry, opts]);
+    if (isV3(it) || pl || food || readopt || coins) markV3(w);
     if (w.goal === id && !isRepeatable(it)) { w.goal = null; w.goalNotified = null; }
     if (w.goal3 === id && !isRepeatable(it)) { w.goal3 = null; w.goalNotified = null; }
+    if (w.goalK != null && w.goalK === id && !isRepeatable(it)) { w.goalK = null; w.goalNotified = null; }
     touch(w, ms);
-    var res = { ok: true, item: it, price: charge, trial: !!chk.trial, balance: u.points, entry: entry, placedUid: placedUid };
+    var res = { ok: true, item: it, price: charge, trial: !!chk.trial, balance: coins ? coinBalance(w) : u.points, entry: entry, placedUid: placedUid };
+    if (coins) { res.wallet = 'coins'; res.points = u.points; }
     if (landIsle) res.isle = landIsle;
+    if (readopt) res.readopt = true;
+    if (food) res.pantry = pantryCount(w, id);
     return res;
   }
   /* a new land's landmark goes on its island: landmarkSpot when legal, else the nearest
@@ -1184,14 +1694,17 @@
   /* the tx a host should use: a v3 one-off (a land, a fun item, a mascot or a piece of gear
      with an isle) gets the same id on every fork ('v3_<id>_<n>', n = rows already recorded
      for it), so even a stale V4.54 merge unions two purchases of it into ONE row and one
-     charge. Repeatable decor and paths keep random ids (N3 heals their counts). */
+     charge. Repeatable decor and paths keep random ids (N3 heals their counts). A plug-in
+     one-off (every character and piece of wear) does the same as 'ku_<id>_<n>' (D94, KU12).
+     Food and a re-adoption of a star's species are repeatable rows: random ids (KU12, KU39). */
   var FIXED_TX = { land: 1, fun: 1, pet: 1, acc: 1 };
   function purchaseTx(w, id, randomTx) {
-    var it = item(id);
-    if (!it || !it.isle || !FIXED_TX[it.kind]) return randomTx;
+    var it = item(id), ku = !!pluginOf(id) && !isRepeatable(it);
+    if (!it || !(ku || it.isle && FIXED_TX[it.kind])) return randomTx;
+    if (it.kind === 'pet' && w && plainObj(w.owned) && isStarPet(w, id)) return randomTx;
     var n = 0, led = w && Array.isArray(w.ledger) ? w.ledger : [];
     for (var i = 0; i < led.length; i++) if (led[i] && led[i].item === id) n++;
-    return 'v3_' + id + '_' + n;
+    return (ku ? 'ku_' : 'v3_') + id + '_' + n;
   }
 
   /* ---------------- commit protocol (used by the UI for every change) ----------------
@@ -1229,28 +1742,40 @@
 
   /* ---------------- savings goal ----------------
      A V4.54 id lives in w.goal; a v3 id in w.goal3 (an old client's normalize clears any
-     w.goal it does not know). Setting one clears the other; goalId() reads either. */
+     w.goal it does not know); a plug-in id (a character or a piece of wear) in w.goalK, which
+     no old client reads. Setting one clears the other two; goalId() reads any of them. */
   function setGoal(u, id, ms) {
-    var w = ensureWorld(u), it = item(id);
-    if (id === null) { w.goal = null; if (w.goal3) w.goal3 = null; w.goalNotified = null; touch(w, ms); return { ok: true }; }
-    if (!it || it.retired || it.starter || it.included) return { ok: false };
+    var w = ensureWorld(u), it = item(id), pl = pluginOf(id);
+    if (id === null) { w.goal = null; if (w.goal3) w.goal3 = null; if (w.goalK) w.goalK = null; w.goalNotified = null; touch(w, ms); return { ok: true }; }
+    if (!it || it.retired || it.starter || it.included || it.kind === 'food') return { ok: false };
+    if (pl && pl.goalField !== 'goalK') return { ok: false };
     if (!isRepeatable(it) && owns(w, id)) return { ok: false, reason: 'You already own this.' };
     /* a goal must be buyable once saved for — a locked item can't be the goal */
     var missing = (it.requires || []).filter(function (r) { return !owns(w, r); });
     if (missing.length) return { ok: false, code: 'locked', needs: missing[0], reason: 'You need the ' + (item(missing[0]) || {}).name + ' first.' };
-    if (isV3(it)) { w.goal3 = id; w.goal = null; markV3(w); }
-    else { w.goal = id; if (w.goal3) w.goal3 = null; }
+    if (pl) { w.goalK = id; w.goal = null; if (w.goal3) w.goal3 = null; markV3(w); }
+    else if (isV3(it)) { w.goal3 = id; w.goal = null; if (w.goalK) w.goalK = null; markV3(w); }
+    else { w.goal = id; if (w.goal3) w.goal3 = null; if (w.goalK) w.goalK = null; }
     w.goalNotified = null; touch(w, ms);
     return { ok: true };
   }
-  function goalId(w) { return (w && (w.goal || w.goal3)) || null; }
-  function goalProgress(u) {
+  function goalId(w) { return (w && (w.goal || w.goal3 || w.goalK)) || null; }
+  /* opts.wallet (F-KU4): with 'coins' price and have are in coins (+ wallet: 'coins'). ready keeps
+     its meaning (saved enough, and not locked); a pet goal the cap shuts out (ownCap 'total') adds
+     full: true, so a host never celebrates a goal that ends at a Buy that does nothing (A4). */
+  function goalProgress(u, opts) {
     var w = ensureWorld(u), gid = goalId(w), it = gid ? item(gid) : null;
     if (!it) return null;
-    var bal = isInt(u.points) ? u.points : 0;
+    var coins = walletOf(opts) === 'coins', bal = walletBalance(u, opts), price = coins ? coinPrice(it) : it.price;
     var locked = (it.requires || []).some(function (r) { return !owns(w, r); });   /* old saves only */
-    return { id: it.id, name: it.name, price: it.price, have: bal, pct: it.price ? Math.min(100, Math.floor(bal * 100 / it.price)) : 100, ready: !locked && bal >= it.price, locked: locked, need: Math.max(0, it.price - bal) };
+    var full = petCapShut(w, it);
+    var out = { id: it.id, name: it.name, price: price, have: bal, pct: price ? Math.min(100, Math.floor(bal * 100 / price)) : 100, ready: !locked && bal >= price, locked: locked, need: Math.max(0, price - bal) };
+    if (full) out.full = true;
+    if (coins) out.wallet = 'coins';
+    return out;
   }
+  /* a pet the cap stops the child adopting now (ownCap 'total': a dead end until a place is free) */
+  function petCapShut(w, it) { return !!(it && it.kind === 'pet' && CARE.ownCap !== 'home' && !petRoom(w).canAdopt); }
 
   /* ---------------- normalise: no impossible states survive a load ----------------
      Never touches u.points, pointsEarned, spent or a ledger row; never bumps an island's
@@ -1382,6 +1907,130 @@
     if (changed) markV3(w);
     return changed;
   }
+  /* N13 (kids update, P1.1). Nothing to do, and nothing created, on a save without care3.
+     Never touches points, spent, owned or a ledger row, and never moves an 'at' (a value it has
+     to create gets the epoch, so any real write wins a merge). Ids this build does not know
+     (a record, a home spot, a pantry food) are future data, kept as they are. */
+  function normalizeCare3(w) {
+    var cc = careOf(w);
+    if (!cc) return false;
+    var changed = false;
+    var put = function (o, k, v) { if (!has(o, k) || JSON.stringify(o[k]) !== JSON.stringify(v)) { o[k] = v; changed = true; } };
+    var int = function (o, k, lo, hi, dflt) { var v = o[k]; put(o, k, isInt(v) ? Math.max(lo, Math.min(hi, v)) : dflt); };
+    var day = function (o, k, dflt) { if (o[k] !== null && !isDay(o[k])) put(o, k, isDay(dflt) ? dflt : null); };
+    /* a the block's shape */
+    if (!isInt(cc.v) || cc.v < 1) put(cc, 'v', 1);
+    day(cc, 'day', null);
+    day(cc, 'since', cc.day);
+    if (isDay(cc.day) && !isDay(cc.since)) put(cc, 'since', cc.day);
+    if (!isInt(cc.days) || cc.days < 0) put(cc, 'days', 0);
+    if (!Array.isArray(cc.home)) put(cc, 'home', []);
+    if (typeof cc.homeAt !== 'string') put(cc, 'homeAt', EPOCH);
+    ['pets', 'pantry', 'done'].forEach(function (k) { if (!plainObj(cc[k])) put(cc, k, {}); });
+    if (!Array.isArray(cc.stars)) put(cc, 'stars', []);
+    if (!plainObj(cc.cfg)) put(cc, 'cfg', JSON.parse(JSON.stringify(CARE_CFG0)));
+    var cf = cc.cfg;
+    if (!plainObj(cf.sitter)) put(cf, 'sitter', { on: false, until: null });
+    if (typeof cf.sitter.on !== 'boolean') put(cf.sitter, 'on', false);
+    day(cf.sitter, 'until', null);
+    if (typeof cf.farewell !== 'boolean') put(cf, 'farewell', false);
+    if (!(typeof cf.setAt === 'number' && isFinite(cf.setAt)) && typeof cf.setAt !== 'string') put(cf, 'setAt', 0);
+    if (cc.welcome !== null && typeof cc.welcome !== 'string') put(cc, 'welcome', null);
+    if (has(cc, 'told') && !plainObj(cc.told)) put(cc, 'told', {});
+    if (typeof cc.at !== 'string') put(cc, 'at', EPOCH);
+    /* b every record of a known pet: whole numbers in range, days or null, a valid rescue and
+       star (never both: the star wins); a record under a known id that is no pet goes */
+    Object.keys(cc.pets).forEach(function (id) {
+      var it = item(id), r = cc.pets[id];
+      if (!it) return;
+      if (it.kind !== 'pet' || !plainObj(r)) { delete cc.pets[id]; changed = true; return; }
+      int(r, 'food', 0, CARE.foodMax, CARE.foodMax);
+      int(r, 'missed', 0, CARE.rescueAt, 0);
+      int(r, 'happy', 0, CARE.happyMax, CARE.happyStart);
+      day(r, 'adopted', isDay(cc.since) ? cc.since : cc.day);
+      ['fedDay', 'favDay', 'patDay', 'playDay', 'treatDay'].forEach(function (k) { day(r, k, null); });
+      /* the island day of the last free basic meal (F-KU4, SLPetCare.BASIC): only ever set by care, so only repaired */
+      if (has(r, 'freeDay') && r.freeDay !== null && !isDay(r.freeDay)) put(r, 'freeDay', null);
+      int(r, 'treats', 0, CARE.treatsPerDay, 0);
+      if (r.star !== null && !plainObj(r.star)) put(r, 'star', null);
+      if (plainObj(r.star)) day(r.star, 'day', cc.day);
+      if (r.rescue !== null && (!plainObj(r.rescue) || plainObj(r.star))) put(r, 'rescue', null);
+      if (plainObj(r.rescue)) {
+        day(r.rescue, 'since', cc.day);
+        int(r.rescue, 'visits', 0, CARE.rescueVisits, 0);
+        day(r.rescue, 'last', null);
+        int(r.rescue, 'waited', 0, CARE.starAfter, 0);
+      }
+      if (has(r, 'arrivedFull') && r.arrivedFull !== true) { delete r.arrivedFull; changed = true; }
+      if (typeof r.at !== 'string') put(r, 'at', EPOCH);
+    });
+    if (careStarted(cc)) {
+      /* d (first half) home: each id once; a known id only while it is an owned pet that is not a star */
+      var ids = crewIds(w), next = [];
+      cc.home.forEach(function (id) {
+        if (typeof id !== 'string' || next.indexOf(id) >= 0) return;
+        if (item(id) && (ids.indexOf(id) < 0 || isStarRec(careRec(cc, id)))) return;
+        next.push(id);
+      });
+      /* a pet at the Rescue keeps its spot: one a merge left off the list gets it back */
+      ids.forEach(function (id) { var r = careRec(cc, id); if (r && plainObj(r.rescue) && !isStarRec(r) && next.indexOf(id) < 0) next.push(id); });
+      /* c new arrivals (an old client's adoption, or a pet bought with no record): full and
+         happy, home while there is room, else the Pet Hotel with arrivedFull (told once) */
+      ids.forEach(function (id) {
+        if (careRec(cc, id)) return;
+        var rec = freshPetRec(cc.day, EPOCH);
+        if (next.indexOf(id) < 0) { if (next.length < CARE.homeMax) next.push(id); else rec.arrivedFull = true; }
+        cc.pets[id] = rec; changed = true;
+      });
+      /* d (second half) never more than homeMax: the runner goes first, a pet at the Rescue keeps
+         its spot, and the extras become hotel guests. Ids this build does not know keep theirs. */
+      if (next.length > CARE.homeMax) {
+        var known = next.filter(function (id) { return !!item(id); }), unknown = next.filter(function (id) { return !item(id); });
+        var room = Math.max(0, CARE.homeMax - unknown.length), run = activePetId(w), keep = {}, n = 0;
+        var order = known.indexOf(run) >= 0 ? [run].concat(known.filter(function (id) { return id !== run; })) : known;
+        order.forEach(function (id) { var r = careRec(cc, id); if (n < room && (id === run || (r && plainObj(r.rescue)))) { keep[id] = 1; n++; } });
+        order.forEach(function (id) { if (n < room && !has(keep, id)) { keep[id] = 1; n++; } });
+        next = order.filter(function (id) { return has(keep, id); }).concat(unknown);
+      }
+      put(cc, 'home', next);
+    }
+    /* e the pantry: whole counts ≥ 0, and got never below what the ledger bought (plus the
+       welcome bag once care has given it), so food bought on two forks is all there */
+    var rows = Object.create(null);
+    w.ledger.forEach(function (e) { if (isEntry(e) && e.void !== true && isFood(e.item)) rows[e.item] = (rows[e.item] || 0) + 1; });
+    foodItems().forEach(function (f) {
+      var need = (rows[f.id] || 0) * f.meals + (typeof cc.welcome === 'string' && has(CARE.welcomeBag, f.id) ? CARE.welcomeBag[f.id] : 0);
+      var p = has(cc.pantry, f.id) ? cc.pantry[f.id] : undefined;
+      if (!plainObj(p)) { if (p !== undefined || need > 0) put(cc.pantry, f.id, { got: need, ate: 0 }); return; }
+      if (!isInt(p.got) || p.got < need) put(p, 'got', Math.max(need, isInt(p.got) && p.got > 0 ? p.got : 0));
+      if (!isInt(p.ate) || p.ate < 0) put(p, 'ate', 0);
+    });
+    /* f the alert the app-open banner reads */
+    put(cc, 'alert', careAlert(w));
+    if (changed) markV3(w);
+    return changed;
+  }
+  /* N13b (F-KU4) the coin wallet. A save with no w.coins and no coin row is left exactly as it is.
+     Whole counts ≥ 0, and spent never below the coins the ledger shows were paid (void rows
+     never count), so no repair, merge or trimmed copy can ever refund a coin purchase. Never
+     touches u.points, w.spent or a ledger row; a value it has to create gets the epoch. */
+  function normalizeCoins(w) {
+    var paid = 0;
+    w.ledger.forEach(function (e) { if (isEntry(e) && e.void !== true && isInt(e.coins) && e.coins > 0) paid += e.coins; });
+    var c = has(w, 'coins') ? w.coins : undefined;
+    if (c == null && !paid) return false;
+    if (!plainObj(c)) { w.coins = { v: 1, earned: 0, spent: paid, at: EPOCH }; markV3(w); return true; }
+    var changed = false;
+    if (!isInt(c.v) || c.v < 1) { c.v = 1; changed = true; }
+    ['earned', 'spent'].forEach(function (k) {
+      var v = c[k], n = typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      if (k === 'spent' && n < paid) n = paid;
+      if (v !== n) { c[k] = n; changed = true; }
+    });
+    if (typeof c.at !== 'string') { c.at = EPOCH; changed = true; }
+    if (changed) markV3(w);
+    return changed;
+  }
   function normalize(u) {
     var w = ensureWorld(u);
     var changed = false;
@@ -1392,8 +2041,9 @@
       var it = item(id);
       if (it && !isRepeatable(it) && w.owned[id] > 1) { w.owned[id] = 1; changed = true; }
     });
-    /* N2 included items always come with their parent (a land always owns its landmark) */
-    CATALOG.forEach(function (it) {
+    /* N2 included items always come with their parent (a land always owns its landmark, a
+       character its pieces): CATALOG, then every plug-in's items */
+    allItems().forEach(function (it) {
       if (owns(w, it.id)) (it.includes || []).forEach(function (inc) { if (!owns(w, inc)) { w.owned[inc] = 1; changed = true; } });
     });
     /* N3 heal: an old merge takes max(owned), so a v3 repeatable bought on two forks can come
@@ -1502,6 +2152,20 @@
         seenUid[p.uid] = 1;
       });
     });
+    /* N9 (KU, D93 extended) a plug-in id is never a pet, an accessory, the runner, a selection
+       or a detail: an old client looks those up in ITS catalogue. No API writes one there; this
+       clears a hand-edited or damaged save. Nothing to do while no plug-in is registered. */
+    if (PLUGINS.length) {
+      var petsKept = w.pets.filter(function (p) { return !(isEntry(p) && pluginOf(p.id)); });
+      if (petsKept.length !== w.pets.length) { w.pets = petsKept; changed = true; }
+      w.pets.forEach(function (p) {
+        if (!plainObj(p.acc)) return;
+        Object.keys(p.acc).forEach(function (slot) { if (pluginOf(p.acc[slot])) { delete p.acc[slot]; changed = true; } });
+      });
+      if (pluginOf(w.activePet)) { w.activePet = null; changed = true; }
+      Object.keys(w.sel).forEach(function (slot) { if (pluginOf(w.sel[slot])) { delete w.sel[slot]; changed = true; } });
+      Object.keys(w.details).forEach(function (id) { if (pluginOf(id)) { delete w.details[id]; changed = true; } });
+    }
     /* N9 pets (the V4.54 rule, for V4.54 pets: a mascot never gets a w.pets record and is never w.activePet) */
     CATALOG.forEach(function (it) { if (it.kind === 'pet' && !it.isle && owns(w, it.id) && !petById(w, it.id)) { ensurePetRecord(w, it.id); changed = true; } });
     w.pets.forEach(function (p) {
@@ -1523,12 +2187,35 @@
       if (g && g.isle) {
         if (!w.goal3) { w.goal3 = w.goal; markV3(w); }
         w.goal = null; changed = true;
-      } else if (!g || g.retired || (!isRepeatable(g) && owns(w, w.goal))) { w.goal = null; changed = true; }
+      } else if (g && pluginOf(g)) {
+        /* nor does a plug-in id: it moves to goalK, which N11b then checks */
+        if (!w.goalK) w.goalK = w.goal;
+        w.goal = null; markV3(w); changed = true;
+      } else if (!g || g.retired || g.kind === 'food' || (!isRepeatable(g) && owns(w, w.goal))) { w.goal = null; changed = true; }
     }
     if (w.goal3) {
       var g3 = item(w.goal3);
       if (!g3 || !g3.isle || g3.retired || g3.starter || g3.included || (!isRepeatable(g3) && owns(w, w.goal3)) || w.goal) { w.goal3 = null; changed = true; }
     }
+    /* N11b goalK holds only a buyable plug-in id (its source takes goals; not retired, starter,
+       included or an owned one-off), and only while goal and goal3 are empty: an old client
+       that chose a goal while goalK was set made the newer choice, and it wins. While no
+       plug-in is registered goalK is left as it is (future data, like any unknown field). */
+    if (w.goalK != null && PLUGINS.length) {
+      var gk = item(w.goalK), pk = pluginOf(gk);
+      if (!pk || pk.goalField !== 'goalK' || gk.retired || gk.starter || gk.included || (!isRepeatable(gk) && owns(w, w.goalK)) || w.goal || w.goal3) {
+        w.goalK = null; markV3(w); changed = true;
+      }
+    }
+    /* N13 the pets' care3 block: its shape, every record, new arrivals, home, the pantry, the alert */
+    if (normalizeCare3(w)) changed = true;
+    /* N13b the coin wallet: its shape, and spent never below what the ledger paid in coins */
+    if (normalizeCoins(w)) changed = true;
+    /* N14 the plug-in normalize hooks, in registration order (a character's w.chars repair) */
+    var hooked = false;
+    PLUGINS.forEach(function (p) { if (callHook(p, 'normalize', w, [w])) hooked = true; });
+    if (hooked) { markV3(w); changed = true; }
+    /* N12 */
     return changed;
   }
 
@@ -1604,6 +2291,56 @@
       w.pb[key] = rec; touch(w, ms);
     }
     return { ok: true, isPB: isPB, prev: prev, key: key };
+  }
+
+  /* M3c: win = the newer block (a copy is returned), lose = the other one, or null */
+  function mergeCare3(win, lose) {
+    var m = JSON.parse(JSON.stringify(win));
+    if (!lose) return m;
+    var o = JSON.parse(JSON.stringify(lose)), atOf = function (r) { return plainObj(r) && typeof r.at === 'string' ? r.at : ''; };
+    /* the island day is the later one, the days counted the more, care began the earlier */
+    if (isDay(o.day) && !(isDay(m.day) && m.day >= o.day)) m.day = o.day;
+    if (isInt(o.days) && !(isInt(m.days) && m.days >= o.days)) m.days = o.days;
+    if (isDay(o.since) && !(isDay(m.since) && m.since <= o.since)) m.since = o.since;
+    /* the welcome bag was given once if either fork gave it */
+    if (typeof o.welcome === 'string' && !(typeof m.welcome === 'string' && m.welcome <= o.welcome)) m.welcome = o.welcome;
+    /* home: the child's newer choice */
+    if (Array.isArray(o.home) && typeof o.homeAt === 'string' && (!Array.isArray(m.home) || o.homeAt > (typeof m.homeAt === 'string' ? m.homeAt : ''))) { m.home = o.home; m.homeAt = o.homeAt; }
+    if (plainObj(o.pets)) {
+      if (!plainObj(m.pets)) m.pets = {};
+      Object.keys(o.pets).forEach(function (id) { if (!has(m.pets, id) || atOf(o.pets[id]) > atOf(m.pets[id])) m.pets[id] = o.pets[id]; });
+    }
+    if (plainObj(o.pantry)) {
+      if (!plainObj(m.pantry)) m.pantry = {};
+      Object.keys(o.pantry).forEach(function (id) {
+        var a = m.pantry[id], b = o.pantry[id];
+        if (!has(m.pantry, id) || !plainObj(a)) { m.pantry[id] = b; return; }
+        if (!plainObj(b)) return;
+        ['got', 'ate'].forEach(function (k) { if (isInt(b[k]) && !(isInt(a[k]) && a[k] >= b[k])) a[k] = b[k]; });
+      });
+    }
+    /* the memory cards: the union by (id, to); a card brought back on either fork stays marked */
+    if (Array.isArray(o.stars)) {
+      if (!Array.isArray(m.stars)) m.stars = [];
+      o.stars.forEach(function (s) {
+        if (!plainObj(s)) return;
+        var t = m.stars.filter(function (q) { return plainObj(q) && q.id === s.id && q.to === s.to; })[0];
+        if (!t) m.stars.push(s);
+        else if (typeof s.returned === 'string' && typeof t.returned !== 'string') t.returned = s.returned;
+      });
+    }
+    /* the grown-up's settings and the rule card already shown: the newer setAt */
+    if (plainObj(o.cfg) && (!plainObj(m.cfg) || careStamp(o.cfg.setAt) > careStamp(m.cfg.setAt))) m.cfg = o.cfg;
+    if (plainObj(o.told) && has(o.told, 'farewell') && !(plainObj(m.told) && has(m.told, 'farewell') && careStamp(m.told.farewell) >= careStamp(o.told.farewell))) {
+      if (!plainObj(m.told)) m.told = {};
+      m.told.farewell = o.told.farewell;
+    }
+    /* the grown-up's commands applied on either fork stay applied */
+    if (plainObj(o.done)) {
+      if (!plainObj(m.done)) m.done = {};
+      Object.keys(o.done).forEach(function (k) { if (!has(m.done, k)) m.done[k] = o.done[k]; });
+    }
+    return m;
   }
 
   /* ---------------- merging two forks of one profile (Control Centre) ----------------
@@ -1686,6 +2423,20 @@
       }
       base.crew3 = crew;
     }
+    /* M3c the care3 block: the frame from the fork that changed it last (ties: the base fork),
+       each pet's record from the fork that changed it last, the pantry's got and ate each the
+       larger, stars and done unioned; the normalize below settles home, arrivals, the pantry
+       (from the union ledger) and the alert. Two forks without care3 gain nothing. */
+    var ncc = careOf(nw), gcc = careOf(gw);
+    if (ncc || gcc) {
+      var bcc = baseSrc === nw ? ncc : gcc, occ = baseSrc === nw ? gcc : ncc;
+      var careAt = function (c) { return c && typeof c.at === 'string' ? c.at : ''; };
+      var cwin = bcc && !(occ && careAt(occ) > careAt(bcc)) ? bcc : occ;
+      base.care3 = mergeCare3(cwin, cwin === bcc ? occ : bcc);
+    }
+    /* M3d the plug-in merge hooks, in registration order (w.chars from the newer fork); base
+       already holds the ledger union and owned max, and the final normalize settles the rest */
+    PLUGINS.forEach(function (p) { callHook(p, 'merge', base, [nw, gw, base, baseSrc]); });
     /* M4 the newer data version of the two (only once either side is a v3 save) */
     var vN = nU.world && isInt(nU.world.v) ? nU.world.v : 0, vG = gU.world && isInt(gU.world.v) ? gU.world.v : 0;
     if (Math.max(vN, vG) >= VERSION) base.v = Math.max(vN, vG);
@@ -1706,6 +2457,21 @@
       Object.keys(dd).forEach(function (d) { if (isInt(dd[d])) base.arcade.days[d] = Math.max(base.arcade.days[d] || 0, dd[d]); });
     });
     if (!base.starterGrantedAt) base.starterGrantedAt = nw.starterGrantedAt || gw.starterGrantedAt;
+    /* M5 (F-KU4) the coin wallet, the ⭐ rule in coins: earned is the larger of the two forks,
+       spent the larger of the union ledger's coins and either fork's spent, so a coin spend is
+       never refunded and never paid twice (a one-off bought on both forks keeps one row above).
+       The block's other fields come from the fork that changed it last. Two forks without
+       coins and without a coin row gain nothing. */
+    var ncn = coinsOf(nw), gcn = coinsOf(gw), coinRows = 0;
+    rows.forEach(function (e) { if (e.void !== true && isInt(e.coins) && e.coins > 0) coinRows += e.coins; });
+    if (ncn || gcn || coinRows) {
+      var cAt = function (c) { return c && typeof c.at === 'string' ? c.at : ''; };
+      var newer = ncn && !(gcn && cAt(gcn) > cAt(ncn)) ? ncn : gcn;
+      var cb = newer ? JSON.parse(JSON.stringify(newer)) : { v: 1, at: EPOCH };
+      cb.earned = Math.max(posInt(ncn && ncn.earned), posInt(gcn && gcn.earned));
+      cb.spent = Math.max(coinRows, posInt(ncn && ncn.spent), posInt(gcn && gcn.spent));
+      base.coins = cb;
+    }
     /* points: the larger balance BEFORE any island spending, minus everything
        either side spent here — so a spend is never refunded and never doubled */
     var preN = (isInt(nU.points) ? nU.points : 0) + (nw.spent || 0), preG = (isInt(gU.points) ? gU.points : 0) + (gw.spent || 0);
@@ -1716,24 +2482,45 @@
   }
 
   /* ---------------- shop presentation helpers ---------------- */
+  /* the shop's view of one thing: owned | locked {needs} | full | capped | affordable | short {need}.
+     opts: {trial, wallet} (F-KU4: with 'coins' need is in coins). A pet the cap shuts out
+     (ownCap 'total', the child owns the most pets they may) is 'full' {code: 'own_full', count,
+     max}, never a Buy that does nothing (A4); with ownCap 'home' a full home is no dead end
+     (the Pet Shop's 'Make room'), so the price state stays and homeFull: true is added.
+     opts.capAside: the answer with the cap aside (the price and the land only), for a view that
+     shows the cap itself (island-shop's petCard afford) and for stand-in cores in tests. A read,
+     so unlike purchase()'s fixture-only bypass any host may pass it. */
   function itemState(u, id, opts) {
     var w = ensureWorld(u), it = item(id);
     if (!it) return { state: 'missing' };
-    var trial = !!(opts && opts.trial);
-    var bal = isInt(u.points) ? u.points : 0;
-    if (!isRepeatable(it) && owns(w, id)) return { state: 'owned' };
-    var req = (it.requires || []).filter(function (r) { return !owns(w, r); });
-    if (req.length) return { state: 'locked', needs: req };
-    if (trial) {
-      if (ECONOMY.trialMaxCopies > 0 && isRepeatable(it) && ownedCount(w, id) >= ECONOMY.trialMaxCopies) return { state: 'capped', copies: ownedCount(w, id) };
-      return { state: 'affordable', free: true, copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
+    var trial = !!(opts && opts.trial), wallet = walletOf(opts);
+    var bal = walletBalance(u, opts), price = wallet === 'coins' ? coinPrice(it) : it.price;
+    /* a food: can it go in the pantry now ('full': the pantry has no room for it) */
+    if (it.kind === 'food') {
+      var chk = purchaseCheck(u, id, { trial: trial, wallet: wallet }), have = pantryCount(w, id);
+      if (chk.ok) return trial ? { state: 'affordable', free: true, have: have } : { state: 'affordable', have: have };
+      if (chk.code === 'insufficient') return { state: 'short', need: chk.need, have: have };
+      return { state: 'full', code: chk.code, have: have };
     }
-    if (bal >= it.price) return { state: 'affordable', copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
-    return { state: 'short', need: it.price - bal, copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
+    /* a star's species can be adopted again, at its price as a new pet (KU39) */
+    var star = it.kind === 'pet' && isStarPet(w, id), out, room = it.kind === 'pet' && !(opts && opts.capAside) ? petRoom(w) : null;
+    if (!isRepeatable(it) && owns(w, id) && !star) return { state: 'owned' };
+    var req = (it.requires || []).filter(function (r) { return !owns(w, r); });
+    if (req.length) out = { state: 'locked', needs: req };
+    else if (room && room.mode !== 'home' && !room.canAdopt) out = { state: 'full', code: 'own_full', count: room.count, max: room.max };
+    else if (trial) {
+      if (ECONOMY.trialMaxCopies > 0 && isRepeatable(it) && ownedCount(w, id) >= ECONOMY.trialMaxCopies) return { state: 'capped', copies: ownedCount(w, id) };
+      out = { state: 'affordable', free: true, copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
+    } else if (bal >= price) out = { state: 'affordable', copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
+    else out = { state: 'short', need: price - bal, copies: isRepeatable(it) ? ownedCount(w, id) : 0 };
+    if (star) out.readopt = true;
+    if (room && room.mode === 'home' && room.atCap && !req.length) out.homeFull = true;
+    return out;
   }
   function sessionsFor(price) { return Math.max(0, Math.round(price / ECONOMY.sessionPts * 10) / 10); }
+  /* what the island shop lists (food is the Pet Shop's: foodItems()) */
   function shopItems() {
-    return CATALOG.filter(function (it) { return !it.starter && !it.included && !it.retired; });
+    return CATALOG.filter(function (it) { return !it.starter && !it.included && !it.retired && it.kind !== 'food'; });
   }
   /* read-only: one-off ids with more than one (non-void) ledger row — e.g. a v3 one-off two
      forks bought with random tx ids, which a stale merge would have charged twice */
@@ -1744,7 +2531,7 @@
       var it = item(e.item); if (!it || isRepeatable(it)) return;
       if (!by[e.item]) { by[e.item] = { item: e.item, txs: [], paidRows: 0 }; order.push(e.item); }
       by[e.item].txs.push(e.tx);
-      if (!e.trial && isInt(e.price) && e.price > 0) by[e.item].paidRows++;
+      if (!e.trial && ((isInt(e.price) && e.price > 0) || (isInt(e.coins) && e.coins > 0))) by[e.item].paidRows++;
     });
     return order.filter(function (id) { return by[id].txs.length > 1; }).map(function (id) { return by[id]; });
   }
@@ -1771,6 +2558,14 @@
     purchaseTx: purchaseTx, goalId: goalId, auditLedger: auditLedger,
     /* v3 land shops: shelves, act facts, colourways and the crew */
     ISLE_SHELVES: ISLE_SHELVES, ACT_INFO: ACT_INFO, DEFAULT_PET_NAMES: DEFAULT_PET_NAMES, setVariant: setVariant,
-    isMascot: isMascot, isLandGear: isLandGear, crewList: crewList, crewPet: crewPet, activePetId: activePetId, wornBy: wornBy
+    isMascot: isMascot, isLandGear: isLandGear, crewList: crewList, crewPet: crewPet, activePetId: activePetId, wornBy: wornBy,
+    /* kids update: the plug-in seam (issues: what a throwing hook left behind, newest last) */
+    PLUGIN_KINDS: PLUGIN_KINDS, defineItems: defineItems, extraItems: extraItems, allItems: allItems, issues: ISSUES,
+    /* kids update: pet care's core half (the rules that use time are SLPetCare's) */
+    CARE: CARE, isFood: isFood, foodItems: foodItems, careOf: careOf, homePets: homePets, petWhere: petWhere,
+    careRunner: careRunner, pantryCount: pantryCount, petRoom: petRoom,
+    /* kids update F-KU4: the island wallet (🪙 coins), its prices and the earn hook */
+    COIN: COIN, walletOf: walletOf, coinPrice: coinPrice, priceOf: priceOf, coinPrices: coinPrices,
+    coinBalance: coinBalance, walletBalance: walletBalance, earnCoins: earnCoins
   };
 }));

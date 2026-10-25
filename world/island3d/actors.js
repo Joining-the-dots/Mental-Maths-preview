@@ -99,6 +99,44 @@
    (swaying once per two beats, a 360° twirl over 1.2 s every 8 s), the tap emotes, its own dance
    moves, and up on the stage (or the studio floor at Showtime) when the crew performs there.
    Nothing flashes; sprites fade smoothly; per-frame work allocates nothing.
+
+   THE PLAYER'S CHARACTER (kids update KU-CH12; characters.json avatarReplacement.island3D). sync()'s
+   avatar may be a character: {color, emoji, name, look, wear, vr, sig, lk, wr} (SLPeopleCore.avatarInfo
+   plus the colour and emoji; look null or absent = the classic hoodie, asked for exactly as V4.54 did).
+     · the rig is makeAvatar({color, emoji, look, wear, vr}, tier) (px-crew delegates to px-people's
+       makePerson); avatarKeyOf(info) = color|emoji|lk|wr, so a new look, piece or colourway rebuilds it
+       (the classic key stays color|emoji, and the per-child emote order and idle phase follow it only)
+     · the tap cycle is the finger-heart, the V-sign, the mic-point, then the signature move (sig, a
+       clip of SLCharacters.AV_INFO) for a character with one; emote('me', 'move') plays it too. It holds
+       its end pose SIG.hold s, eases back over SIG.back s, lands with a 'tada' and a rainbow pop, and a
+       travelling move (the knee slide) stays within SIG.travel u of the spot
+     · a person rig (rig.person / rig.lk) also gets rig.play(the same clip, its time, {reduced, clock: our
+       running clock, bpm}) every frame before our blended setPose: its blink, hair and cape and the move's
+       effects (visor, antenna, ✦ burst) run there; a classic stand-in's ✦ burst is our sparkles. A
+       character first drawn as the stand-in (SLPxPeople.ready() false: the shapes load lazily) is built
+       again as itself on the first sync after they arrive
+     · Showtime and the dance break as today when the hand is empty or holds the Spark Stick; any other
+       hand item stays (setWand is never asked for): held out in front (HELD) and swayed on the beat, never
+       raised or twirled; pom-poms go up in both hands; the label and tap sphere follow the rig's height (rig.h)
+     · info() adds person (the figure is a person rig), sig and act (what the figure is doing now).
+
+   THE KIDS UPDATE'S CARE (P2.5; pets.json rigs.newPlayMoves / moodAndEating, decision P21). sync() pet
+   records may carry mood {hunger 0–3, happy 0–4, sitter} (view.pets[].mood, passed on to the brains).
+     moves        curl (sit, tuck into a ball or a shell, unfurl into one hop) · balance (one leg folded up,
+                  wings out 20°, a 0.5 Hz sway) · fan (the train up to 80°, a 1 Hz shimmy, 4 sparkles at
+                  0.6 s on MID / HIGH) · stand (rear up 35°, paws up 30°, a slow look round); binky and
+                  pounce pose as the V4.54 bunny's and kitten's for any species
+     mood         a hungry pet (hunger ≥ 2) sits its ears back 10° and walks at the brain's slower pace; the
+                  very hungry pout ('sad', head low, never tears); the very happy play their 'signature'
+                  (the dance's counts 5–6); a tap on a hungry pet answers softly (head down, no emote, the
+                  voice at 0.6) and the host shows its 'I'm hungry' bubble
+     feed(petId, foodId, {fav}) → the moment's seconds (the bowl gone) | -1 (that pet is not out on the
+                  island shown): the brain's feed() plays the pet; here the bowl (SL3D.vox.makeBowl from
+                  px-care.js: one SkinnedMesh, the pixel-vox program, kept for the next meal of that food)
+                  pops in, fills as the meal drops in, empties in 4 steps while the pet eats (head down,
+                  nodding 12° at 1.5 Hz, 'munch'), pops out; one sparkle ring at the end (bigger and
+                  rainbow for a favourite). Reduced motion: an empty bowl for FEED.still s, no pop.
+                  info().bowl: the bowl is out (one more draw call while it is).
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -126,6 +164,11 @@
     return m || null;
   }
   function look() { return sib('SLIslandLook', '../world-look.js'); }
+  /* which people shapes files are in (F-KU1, QA item 2): window.slLoadPeople brings body, hair, wear and the
+     accessories in turn and px-people draws a person from the body and hair alone, so a figure built in
+     between is built again once the rest arrive (else it stays undressed for the visit) */
+  var SHAPES = ['SLPeopleShapesBody', 'SLPeopleShapesHair', 'SLPeopleShapesWear', 'SLPeopleShapesAcc'];
+  function shapesTag() { var t = ''; for (var i = 0; i < SHAPES.length; i++) t += root && root[SHAPES[i]] ? '1' : '0'; return t; }
   /* a land mascot's row of SLIslandLook.SPECIES3 (null for a V4.54 pet) */
   function species3(id) { var L = look(), S = L && L.SPECIES3; return S && typeof id === 'string' && Object.prototype.hasOwnProperty.call(S, id) ? S[id] : null; }
   /* the label / emote height of a species (u, before CREW_SCALE) */
@@ -155,9 +198,59 @@
   var AV_TAP = { wave: 1.0, heart: 1.2, vsign: 1.2, micpoint: 1.2, cheer: 1.9 };
   var AV_TAP_SFX = { heart: 'pop', vsign: 'chip', micpoint: 'beep' };
   var AV_CYCLE_A = ['vsign', 'micpoint'], AV_CYCLE_B = ['micpoint', 'vsign'];
-  var AV_EMOTE = { wave: 'wave', fingerHeart: 'heart', heart: 'heart', vSign: 'vsign', vsign: 'vsign', micPoint: 'micpoint', micpoint: 'micpoint', cheer: 'cheer' };
+  var AV_EMOTE = { wave: 'wave', fingerHeart: 'heart', heart: 'heart', vSign: 'vsign', vsign: 'vsign', micPoint: 'micpoint', micpoint: 'micpoint', cheer: 'cheer',
+                   move: 'sig', sig: 'sig' };
   /* the photo booth's three poses */
   var BOOTH_POSES = ['sit', 'point', 'cheer'];
+  /* the kids update (P2.5): eating (the sniff pose's head down, nods of nod° at hz, the 'munch' crunches),
+     the hop over to the bowl (the 0.45 s 'hop' clip over FEED's 0.35 s hop), the flamingo's balance (its
+     folded leg, the shift over the standing leg) and the bowl prop's size on the island */
+  var EAT = { pitch: 28, nod: 12, hz: 1.5 };
+  var HOP_RATE = 0.45 / 0.35;
+  var BAL = { leg: -95, shift: 0.02 };
+  var BOWL = { scale: 1, pop: 0.15 };
+
+  /* ---------------- the player's character (KU-CH12; plan-ku contracts.avatarInfo) ----------------
+     The island view's avatar is {color, emoji, name} (the classic hoodie, as V4.54) or, with a
+     character, {color, emoji, name, look, wear, vr, sig, lk, wr}: SLPeopleCore.avatarInfo plus the
+     child's colour and emoji. The rig comes from makeAvatar({color, emoji, look, wear, vr}, tier). */
+  var SPARK = 'wear_free_spark';
+  var BOTH_HANDS = { wear_hand_poms: 1 };      /* held in both hands: both arms go up at Showtime */
+  var HELD = { armR: 22, armRf: 22, sway: 8 }; /* deg: a held item at Showtime, out in front, swaying on the beat */
+  /* the signature move: its end pose holds SIG.hold s, then eases back to idle over SIG.back s; a move
+     that travels (Omar's knee slide, 0.8 u) carries the figure at most SIG.travel u from its spot */
+  var SIG = { hold: 0.6, back: 0.45, travel: 0.3, cue: 'tada', burst: ['Star Gold', 'Cloud White', 'LED Cyan'] };
+  function plainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  function lookOf(info) { return info && plainObj(info.look) ? info.look : null; }
+  /* the rig's key: color|emoji (the classic avatar, as V4.54) and |lk|wr for a character, so a new look,
+     piece or colourway rebuilds the rig. lk / wr are SLPeopleCore's on-device codes (made here from the
+     look when the view leaves them out). */
+  function avatarKeyOf(info) {
+    if (!info) return '';
+    var key = String(info.color || '') + '|' + String(info.emoji || info.avatar || ''), lk = lookOf(info);
+    if (!lk) return key;
+    var PC = sib('SLPeopleCore', '../people-core.js'), wear = plainObj(info.wear) ? info.wear : {}, vr = plainObj(info.vr) ? info.vr : {};
+    var lc = typeof info.lk === 'string' && info.lk ? info.lk : PC && typeof PC.lookCode === 'function' ? PC.lookCode(lk) : JSON.stringify(lk);
+    var wc = typeof info.wr === 'string' && info.wr ? info.wr : PC && typeof PC.wearCode === 'function' ? PC.wearCode(wear, vr) : JSON.stringify([wear, vr]);
+    return key + '|' + lc + '|' + wc;
+  }
+  /* the Spark Stick shows at Showtime and in the dance when the hand is empty or holds it (as
+     SLPeopleCore.resolve flags.spark); any other hand item stays in the hand */
+  function sparkAtShow(info) {
+    var hand = lookOf(info) && plainObj(info.wear) ? info.wear.hand : null;
+    return !hand || hand === SPARK;
+  }
+  /* the character's signature move: a sig* clip the clip layer P knows, for a character only */
+  function sigOf(info, P) {
+    var s = lookOf(info) && typeof info.sig === 'string' ? info.sig : null, t = P && P.AV_INFO;
+    return s && t && Object.prototype.hasOwnProperty.call(t, s) && t[s] && t[s].sig ? s : null;
+  }
+  /* the tap cycle: the finger-heart, the V-sign and the mic-point (in the child's own order), then the
+     signature move when there is one */
+  function tapCycle(n, seed, sig) {
+    var i = Math.max(0, Math.floor(num(n, 0))) % (sig ? 4 : 3);
+    return i === 0 ? 'heart' : i === 3 ? 'sig' : ((seed >>> 0) & 1 ? AV_CYCLE_B : AV_CYCLE_A)[i - 1];
+  }
 
   /* ---------------- small maths ---------------- */
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -280,6 +373,8 @@
     var isleBrain = null, isle = 'home', cb = brain, lastView = null, HANG_R = Brain && Brain.HANG ? Brain.HANG.reach : 0.3;
     var DANCE = Brain ? Brain.DANCE : { bpm: 118, beat: 60 / 118, dur: 8 * 60 / 118, hold: 0.6, reducedDur: 2.2 };
     var WALK = Brain ? Brain.WALK : { speed: 1.0 };
+    var FEED = Brain && Brain.FEED ? Brain.FEED : { pop: 0.2, drops: [0.2, 0.35, 0.5, 0.65], hop: [0.65, 1.0], eat: 2.0, out: 0.2 };
+    var MOOD = Brain && Brain.MOOD ? Brain.MOOD : { sadIntensity: 0.4 };
     /* the buildings' live anchors come from the island (its itemPoint hook) until setAnchorFn() */
     var anchorFnSet = null, activeRec = null;
     if (brain && typeof opts.itemPoint === 'function') {
@@ -318,12 +413,13 @@
     }
     function panOf(x) { var S = root.SLSound; return S && typeof S.panFor === 'function' ? S.panFor(x + 8, 16) : 0; }
     function sfx(name, x, vol, step) { var s = snd(); if (!s || typeof s !== 'function') return; try { s(name, vol == null ? 1 : vol, step || 0, panOf(x)); } catch (e) { /* sound is never fatal */ } }
-    function voice(petId, x) {
+    function voice(petId, x, vol) {
       var s = snd();
       if (!s) return;
+      vol = vol || 0.9;
       try {
-        if (typeof s.pet === 'function') s.pet(petId, 0.9, panOf(x));
-        else if (typeof s === 'function') s(root.SLSound && root.SLSound.petVoice ? root.SLSound.petVoice(petId) : 'yip', 0.9, 0, panOf(x));
+        if (typeof s.pet === 'function') s.pet(petId, vol, panOf(x));
+        else if (typeof s === 'function') s(root.SLSound && root.SLSound.petVoice ? root.SLSound.petVoice(petId) : 'yip', vol, 0, panOf(x));
       } catch (e) { /* ignore */ }
     }
 
@@ -455,7 +551,7 @@
         pose: P.restPose({}), base: P.restPose({}), tmp: P.restPose({}), from: P.restPose({}),
         blend: 1, blendDur: BLEND.dflt, idleT: 0, gaitT: 0, omegaS: 0, accS: 0, lastSpeed: 0, lookKs: 0, happyK: 0,
         landT: -9, lastKey: '', cueN: -1, seed: hash(id) >>> 0, sign: (hash(id) & 1) ? 1 : -1, fcS: 0, dt: 0, lastBounce: null,
-        blob: blobs ? blobs.alloc() : -1, ax: 0, ay: 0, az: 0, gone: false, crown: false, yawShown: 0, psx: 1, psy: 1,
+        blob: blobs ? blobs.alloc() : -1, ax: 0, ay: 0, az: 0, gone: false, crown: false, yawShown: 0, psx: 1, psy: 1, earK: 0,
         hit: { kind: 'pet', id: id, x: 0, y: 0, z: 0, r: HIT_R, pickable: true },
         o: { species: id, seed: hash(id) >>> 0, reduced: false, speed: undefined, bpm: undefined, rate: undefined, intensity: undefined, dur: undefined, height: undefined, ground: undefined }
       };
@@ -487,11 +583,6 @@
       }
       return null;
     }
-    function avatarKeyOf(info) {
-      if (!info) return '';
-      return String(info.color || '') + '|' + String(info.emoji || info.avatar || '');
-    }
-
     function sync(pets, avatarArg, world) {
       if (disposed) return;
       var list = Array.isArray(pets) ? pets.filter(function (p) { return p && typeof p.id === 'string' && /^pet_/.test(p.id); }) : [];
@@ -563,13 +654,13 @@
     function syncCrew(homeWorld, isleWorld) {
       var al = allocate(), pending = guestsDue >= 0, i, recs = [];
       if (brain) {
-        al.home.forEach(function (id) { recs.push({ id: id, active: id === activeRec }); });
+        al.home.forEach(function (id) { recs.push({ id: id, active: id === activeRec, mood: moodRec(id) }); });
         /* a pet over on the visited island stays Home's (away) so it can walk back */
-        al.isle.forEach(function (id) { if (brain.isAway && brain.isAway(id)) recs.push({ id: id, active: id === activeRec }); });
+        al.isle.forEach(function (id) { if (brain.isAway && brain.isAway(id)) recs.push({ id: id, active: id === activeRec, mood: moodRec(id) }); });
         brain.sync({ world: homeWorld, pets: recs, avatar: homeAv, mode: mode });
       }
       if (isleBrain) {
-        recs = al.isle.map(function (id) { return { id: id, active: true }; });
+        recs = al.isle.map(function (id) { return { id: id, active: true, mood: moodRec(id) }; });
         if (!pending) al.guests.forEach(function (id) { recs.push({ id: id, guest: true }); });
         isleBrain.sync({ world: isleWorld, pets: recs, mode: mode });
       }
@@ -579,6 +670,8 @@
       }
       syncRigs(al.shown);
     }
+    /* the view's mood for a crew pet (kids update: {hunger, happy, sitter}; undefined = none) */
+    function moodRec(id) { var r = crewById[id]; return r && r.mood && typeof r.mood === 'object' ? r.mood : undefined; }
     function hideActor(a) {
       a.hosted = false;
       if (a.rig && a.rig.root) a.rig.root.visible = false;
@@ -631,6 +724,7 @@
         else if (e.type === 'spawn') sparkles(e.x + ox, e.y + oy, e.z + oz, 10, EMOTE.rainbow, 1);
         else if (e.type === 'emote' && a) emoteSprite(a, e.kind, 0);
         else if (e.type === 'land' && a && !reduced) a.landT = b.now;
+        else if (e.type === 'fed') sparkles(e.x + ox, e.y + oy + 0.25 * CREW, e.z + oz, e.fav ? 12 : 7, e.fav ? EMOTE.rainbow : EMOTE.colors.sparkle, e.fav ? 1.1 : 0.7);   /* a bigger ring for a favourite */
       }
       b.events.length = 0;
     }
@@ -653,7 +747,7 @@
       P.sampleClip('idle', a.idleT, a.base, o);
       if (p.speed > 0.01 && !o.reduced) {
         var run = p.cruise > 1.6;
-        o.speed = run ? p.cruise : WALK.speed;
+        o.speed = run ? p.cruise : p.moodK > 0 && p.moodK !== 1 ? WALK.speed * p.moodK : WALK.speed;
         P.sampleClip(run ? 'run' : 'walk', a.gaitT, a.tmp, o);
         o.speed = undefined;
         P.mixPose(a.base, a.tmp, smooth01(p.speed / Math.max(0.25, p.cruise * 0.6)), pose);
@@ -732,6 +826,29 @@
           pose.pitch -= 360 * inOut((u - 0.2) / 0.6);
           if (!red) { pose.wingL = pose.wingR = 20 + 40 * Math.sin(TAU * 3 * t); }
           if (u >= 0.5 && a.cueN < 0) { a.cueN = 0; sparkles(p.x, p.y + 0.6, p.z, 6, EMOTE.rainbow, 0.6); }
+          break;
+        case 'eatWait':                                           /* the bowl fills; one hop over to it */
+          P.sampleClip('idle', a.idleT, pose, o);
+          e = t - (FEED.hop ? FEED.hop[0] : 0.65);
+          if (e > 0 && !red) { P.sampleClip('hop', e * HOP_RATE, a.tmp, o); mixIn(a, pose, smooth01(e / 0.06)); }
+          break;
+        case 'eat':                                               /* nose in the bowl (the sniff pose), nodding at 1.5 Hz */
+          P.sampleClip('idle', a.idleT, pose, o);
+          e = env(t, d, 0.2, 0.25);
+          pose.headPitch += (EAT.pitch + (red ? 0 : EAT.nod * (0.5 - 0.5 * Math.cos(TAU * EAT.hz * t)))) * e;
+          pose.neck += 14 * e; pose.earBack += 6 * e; pose.y -= 0.01 * e; pose.tailPitch += 12 * e;
+          if (!red && a.cueN < 0) { a.cueN = 0; sfx('munch', p.x + (cb.frame || ZERO).ox, 0.7); }
+          break;
+        case 'sad':                                               /* a very hungry pet's gentle pout (never tears) */
+          P.sampleClip('idle', a.idleT, pose, o);
+          o.intensity = MOOD.sadIntensity; P.sampleClip('sad', t, a.tmp, o); o.intensity = undefined;
+          mixIn(a, pose, 0.75 * env(t, d, 0.35, 0.4));
+          break;
+        case 'signature':                                         /* a very happy pet: its dance's counts 5–6, in place */
+          P.sampleClip('idle', a.idleT, pose, o);
+          o.bpm = DANCE.bpm; P.sampleClip('dance', 4 * DANCE.beat + t, a.tmp, o); o.bpm = undefined;
+          a.tmp.x = 0; a.tmp.z = 0;
+          mixIn(a, pose, env(t, d, 0.15, 0.2));
           break;
         default:
           if (!playPose(a, p, pose, t)) P.sampleClip('idle', a.idleT, pose, o);
@@ -837,6 +954,39 @@
           a.tmp.wingL = a.tmp.wingR = -6; a.tmp.headPitch = -22;
           mixIn(a, pose, smooth01((t - 0.3) / 0.12) * (1 - smooth01((t - 1.0) / 0.12)));
           return true;
+        case 'curl':                                              /* hedgehog / tortoise: sit, curl into a ball (into its shell), unfurl, one hop */
+          P.sampleClip('idle', a.idleT, pose, o);
+          P.sampleClip('sit', a.idleT, a.tmp, o);
+          k = smooth01((t - 0.2) / 0.3) * (1 - smooth01((t - 1.5) / 0.3));
+          H.legsTuck(a.tmp, k);
+          a.tmp.headPitch += 30 * k; a.tmp.sy *= 1 - 0.15 * k; a.tmp.sx *= 1 + 0.06 * k; a.tmp.sz *= 1 - 0.04 * k;
+          a.tmp.pitch *= 1 - k; a.tmp.y -= 0.02 * k; a.tmp.eye = lerp(a.tmp.eye, 0.15, k); a.tmp.earBack += 20 * k;
+          mixIn(a, pose, smooth01(t / 0.3) * (1 - smooth01((t - 1.55) / 0.2)));
+          if (t >= 1.55) { P.sampleClip('hop', t - 1.55, a.tmp, o); mixIn(a, pose, smooth01((t - 1.55) / 0.06)); }
+          return true;
+        case 'balance':                                           /* flamingo: one leg folded up, wings out, a slow sway */
+          P.sampleClip('idle', a.idleT, pose, o);
+          k = smooth01(t / 0.3) * (1 - smooth01((t - 1.7) / 0.3));
+          pose.legBR += BAL.leg * k; pose.wingL += 20 * k; pose.wingR += 20 * k; pose.x += BAL.shift * k;
+          if (t > 0.3 && t < 1.7) pose.roll += 3 * Math.sin(TAU * 0.5 * (t - 0.3)) * k;
+          return true;
+        case 'fan':                                               /* peacock: the train rises into its half-disc, a shimmy, down */
+          P.sampleClip('idle', a.idleT, pose, o);
+          k = smooth01(t / 0.5) * (1 - smooth01((t - 1.7) / 0.5));
+          pose.tailPitch = lerp(pose.tailPitch, 80, k); pose.headPitch -= 10 * k; pose.neck -= 6 * k;
+          if (t > 0.5 && t < 1.7) pose.tailYaw = lerp(pose.tailYaw, 4 * Math.sin(TAU * (t - 0.5)), k);
+          if (t >= 0.6 && a.cueN < 0) {
+            a.cueN = 0;
+            if (tier !== 'LOW' && !o.reduced) { var ff = cb.frame || ZERO; sparkles(p.x + ff.ox - Math.sin(p.yaw) * 0.3 * CREW, p.y + ff.oy + 0.85 * CREW, p.z + ff.oz - Math.cos(p.yaw) * 0.3 * CREW, 4, EMOTE.rainbow, 0.5); }
+          }
+          return true;
+        case 'stand':                                             /* red panda: up on its hind legs, paws up, a slow look round */
+          P.sampleClip('idle', a.idleT, pose, o);
+          k = smooth01(t / 0.4) * (1 - smooth01((t - 1.4) / 0.4));
+          H.rearUp(pose, 35 * k);
+          var sf = pose.legFL, sr = pose.legFR; H.pawsUp(pose, 30 * k, 0); pose.legFL += sf; pose.legFR += sr;
+          if (t > 0.4 && t < 1.4) pose.headYaw += 20 * Math.sin(TAU * 0.5 * (t - 0.4)) * k;
+          return true;
         case 'clap':                                              /* seal pup: chest up, three claps at 2 Hz, down */
           P.sampleClip('idle', a.idleT, pose, o);
           P.sampleClip('sit', a.idleT, a.tmp, o);
@@ -872,6 +1022,7 @@
        pony rears up 18° in place of the hop), 'clap' (the seal pup claps its front flippers once) */
     function tapPose(a, p, pose, th) {
       var o = a.o;
+      if (p.tapKind === 'hungry') { P.sampleClip('idle', a.idleT, pose, o); var hk = Math.sin(PI * clamp01(th / 0.45)); pose.headPitch += 14 * hk; pose.earBack += 10 * hk; return; }
       if (p.tapKind === 'rear') { P.sampleClip('idle', a.idleT, pose, o); H.rearUp(pose, 18 * Math.sin(PI * clamp01(th / 0.45))); return; }
       P.sampleClip('hop', th, pose, o);
       if (p.tapKind === 'clap') { var z = 25 * Math.sin(TAU * 2 * th) * (1 - smooth01((th - 0.3) / 0.15)); pose.legFLz += z; pose.legFRz += z; }
@@ -997,6 +1148,9 @@
         pose.tailYaw = lerp(pose.tailYaw, amp * Math.sin(ph), a.happyK);
         pose.tailPitch = lerp(pose.tailPitch, 18, a.happyK);
       }
+      /* a hungry pet's ears sit back 10° (kids update mood; eased, and nothing at all without a mood) */
+      var earW = p.mood && p.mood.hunger >= 2 ? 1 : 0;
+      if (earW || a.earK > 0) { a.earK += (earW - a.earK) * (red ? 1 : clamp01(dt * 3)); if (a.earK < 1e-3) a.earK = 0; pose.earBack += 10 * a.earK; }
       /* head look-at (avatar, an item) */
       a.lookKs += (p.lookK - a.lookKs) * clamp01(dt * 5);
       if (a.lookKs > 0.01) {
@@ -1102,28 +1256,51 @@
     /* ================================================================
        THE AVATAR
        ================================================================ */
+    /* what the view says about the figure that a rebuild does not cover: the move, the Spark Stick rule */
+    function peopleReady() { var PP = sib('SLPxPeople', './px-people.js'); try { return !!(PP && typeof PP.ready === 'function' && PP.ready()); } catch (e) { return false; } }
+    function readAvatar(A) {
+      A.sig = sigOf(avatarInfo, P);
+      A.spark = sparkAtShow(avatarInfo);
+      A.both = !A.spark && !!BOTH_HANDS[avatarInfo.wear.hand];
+    }
     function syncAvatar() {
       var key = avatarKeyOf(avatarInfo);
       if (avatar && (!avatarInfo || !avatarSpot || avatar.key !== key)) dropAvatar();
-      if (!avatarInfo || !avatarSpot || avatar) { if (avatar) placeAvatar(); return; }
-      var rig = null, emoji = avatarInfo.emoji || avatarInfo.avatar || '';
-      try { if (R && typeof R.makeAvatar === 'function') rig = R.makeAvatar({ color: avatarInfo.color, emoji: emoji }, tier); } catch (e0) { rig = null; }
-      try { if (!rig && typeof SL3D.makeAvatar === 'function') rig = SL3D.makeAvatar({ color: avatarInfo.color, emoji: emoji }, tier); } catch (e) { rig = null; }
+      /* a character drawn as the classic stand-in because the people shapes were not loaded yet
+         (window.slLoadPeople is lazy): once they are, it is built again as itself */
+      if (avatar && !avatar.person && !avatar.ready && lookOf(avatarInfo) && peopleReady()) dropAvatar();
+      /* …and a character built before its wear and accessory shapes were in is built again with them (F-KU1) */
+      if (avatar && avatar.person && avatar.shapes !== shapesTag()) dropAvatar();
+      if (!avatarInfo || !avatarSpot || avatar) { if (avatar) { readAvatar(avatar); placeAvatar(); } return; }
+      var rig = null, emoji = avatarInfo.emoji || avatarInfo.avatar || '', lk = lookOf(avatarInfo);
+      /* the classic avatar is asked for exactly as V4.54 asked; a character adds its look, wear and colourways */
+      var mo = { color: avatarInfo.color, emoji: emoji };
+      if (lk) { mo.look = lk; mo.wear = plainObj(avatarInfo.wear) ? avatarInfo.wear : {}; mo.vr = plainObj(avatarInfo.vr) ? avatarInfo.vr : {}; }
+      try { if (R && typeof R.makeAvatar === 'function') rig = R.makeAvatar(mo, tier); } catch (e0) { rig = null; }
+      try { if (!rig && typeof SL3D.makeAvatar === 'function') rig = SL3D.makeAvatar(mo, tier); } catch (e) { rig = null; }
       if (!rig) { try { rig = placeholderAvatar(K, avatarInfo.color); } catch (e2) { rig = null; } }
       if (!rig) return;
       if (CREW !== 1 && rig.root && rig.root.scale) rig.root.scale.set(CREW, CREW, CREW);
       group.add(rig.root);
+      /* the per-child emote order and idle phase follow the colour and emoji only (the classic key), so
+         dressing up never reshuffles them; a taller figure lifts its label and its tap sphere */
+      var base = avatarKeyOf({ color: avatarInfo.color, emoji: emoji }), top = num(rig.h, AV_TOP);
+      top = top >= 0.5 && top <= 2 ? top : AV_TOP;
       avatar = {
         rig: rig, key: key, x: 0, y: 0, z: 0, yaw: 0, ax: 0, ay: 0, az: 0, gone: false,
         pose: P.restAvatar({}), from: P.restAvatar({}), blend: 1, blendDur: BLEND.dflt, akey: '',
         idleT: 0, tapT: -99, tapKind: '', tapN: 0, cueShown: true, showT: 0, atMark: false,
-        seed: hash('avatar:' + key) >>> 0, wand: false,
+        seed: hash('avatar:' + base) >>> 0, wand: false,
         blob: blobs ? blobs.alloc() : -1,
         hit: { kind: 'me', id: 'me', x: 0, y: 0, z: 0, r: HIT_R, pickable: true },
-        o: { reduced: false, seed: hash('avatar') >>> 0, phase: (hash(key) % 997) / 997, bpm: undefined }
+        o: { reduced: false, seed: hash('avatar') >>> 0, phase: (hash(base) % 997) / 997, bpm: undefined },
+        person: !!lk && (rig.person === true || typeof rig.lk === 'string'), top: top, hitY: AV_HIT_Y * top / AV_TOP,
+        sig: null, spark: true, both: false, sigCue: true, burst: true, ex: {}, po: { reduced: false, clock: 0, speed: 0, bpm: undefined },
+        ready: peopleReady(), shapes: shapesTag()
       };
+      readAvatar(avatar);
       if (typeof rig.setShow === 'function') rig.setShow(showK);
-      setWand(showK > 0.5);
+      setWand(showK > 0.5 && avatar.spark);
       placeAvatar();
     }
     /* the avatar's home: the left entrance cell of the house (unless it is up on a stage mark) */
@@ -1165,7 +1342,28 @@
       var c = readClock(false);
       return c && c.perBar ? c.beat : now * DANCE.bpm / 60;
     }
-    function tapDur(kind) { return kind === 'wave' ? AV_TAP.wave + AV_TAP.heart : AV_TAP[kind] || AV_TAP.heart; }
+    function tapDur(kind) {
+      if (kind === 'sig') return avatar && avatar.sig ? sigDur(avatar.sig) + SIG.hold : 0;
+      return kind === 'wave' ? AV_TAP.wave + AV_TAP.heart : AV_TAP[kind] || AV_TAP.heart;
+    }
+    /* the move's own length (s) and how far it travels (u), from the clip layer's table */
+    function sigDur(sig) { var t = P.AV_INFO && P.AV_INFO[sig]; return t && t.dur > 0 ? t.dur : 2; }
+    function sigTravel(sig) { var t = P.AV_INFO && P.AV_INFO[sig]; return t && t.travel > 0 ? t.travel : 0; }
+    /* the signature move's moments: a person rig draws its own effects (Lena's visor, Priya's antenna,
+       Jude's ✦ burst) through play(); a classic stand-in gets the burst as our sparkles (avatarExtras'
+       timing). Then a 'tada' and a rainbow pop when the end pose lands (at once under reduced motion,
+       where the move IS its end pose) */
+    function sigMoments(A, tap, o) {
+      if (!A.person && !A.burst && typeof P.avatarExtras === 'function' && P.avatarExtras(A.sig, tap, A.ex, o).sparkle > 0) {
+        A.burst = true;
+        sparkles(A.x, A.y + (A.top + 0.2) * CREW, A.z, 8, SIG.burst, 0.5);
+      }
+      if (!A.sigCue && (o.reduced || tap >= sigDur(A.sig))) {
+        A.sigCue = true;
+        sfx(SIG.cue, A.x, 0.7);
+        sparkles(A.x, A.y + 0.6 * A.top * CREW, A.z, 8, EMOTE.rainbow, 0.8);
+      }
+    }
     function updateAvatar(dt) {
       if (!avatar) return;
       var A = avatar, rig = A.rig, o = A.o, pose = A.pose, red = reduced, bt = brain ? brain.now : now;
@@ -1173,11 +1371,11 @@
       A.idleT += dt;
       A.showT = showK > 0.5 ? A.showT + dt : 0;
       followMark();
-      var ab = isleBrain || brain, tap = bt - A.tapT, tk = A.tapKind, dancing = ab && ab.danceOn && ab.now >= ab.danceT0, k;
+      var ab = isleBrain || brain, tap = bt - A.tapT, tk = A.tapKind, dancing = ab && ab.danceOn && ab.now >= ab.danceT0, k, clip, ct;
       if (dancing) k = 'dance';
       else if (tk && tap >= 0 && tap < tapDur(tk)) k = tk === 'wave' ? (tap < AV_TAP.wave ? 'wave' : 'heart') : tk;
       else k = showK > 0.5 ? 'show' : 'idle';
-      avSetKey(k, k === 'heart' || k === 'vsign' || k === 'micpoint' ? 0.15 : BLEND.dflt);
+      avSetKey(k, k === 'heart' || k === 'vsign' || k === 'micpoint' ? 0.15 : A.akey === 'sig' ? SIG.back : BLEND.dflt);
       if (AV_TAP_SFX[k] && !A.cueShown) {                           /* each tap emote lands once with its cue */
         A.cueShown = true;
         if (k === 'heart') heartLine(A);                             /* the finger-heart: a neon line-heart */
@@ -1187,10 +1385,19 @@
       if (k === 'dance') {
         o.bpm = DANCE.bpm;
         var td = ab.now - ab.danceT0;
-        P.sampleAvatar('dance', ab.danceReduced ? td : Math.min(td, DANCE.dur - 1e-3), pose, o);
-      } else if (k === 'wave' || k === 'cheer' || k === 'vsign' || k === 'micpoint') P.sampleAvatar(k, tap, pose, o);
-      else if (k === 'heart') P.sampleAvatar('heart', tk === 'wave' ? tap - AV_TAP.wave : tap, pose, o);
-      else {
+        clip = 'dance'; ct = ab.danceReduced ? td : Math.min(td, DANCE.dur - 1e-3);
+        P.sampleAvatar(clip, ct, pose, o);
+      } else if (k === 'wave' || k === 'cheer' || k === 'vsign' || k === 'micpoint') { clip = k; ct = tap; P.sampleAvatar(k, tap, pose, o); }
+      else if (k === 'heart') { clip = 'heart'; ct = tk === 'wave' ? tap - AV_TAP.wave : tap; P.sampleAvatar('heart', ct, pose, o); }
+      else if (k === 'sig') {
+        /* the signature move (the clip holds its end pose after its length); a travelling move stays near the spot */
+        clip = A.sig; ct = tap;
+        P.sampleAvatar(A.sig, tap, pose, o);
+        var tr = sigTravel(A.sig);
+        if (tr > SIG.travel) pose.z = num(pose.z, 0) * SIG.travel / tr;
+        sigMoments(A, tap, o);
+      } else {
+        clip = 'idle'; ct = A.idleT;
         P.sampleAvatar('idle', A.idleT, pose, o);
         if (!red && ab && ab.pets.length) {                         /* the glance goes to a real pet (on this island) */
           ab.glance(_glance);
@@ -1200,19 +1407,28 @@
         }
         if (k === 'show') {                                          /* the Spark Stick up, swaying once per two beats (≤ 1 Hz) */
           var sw = red ? 0 : Math.sin(PI * beatCount());
-          pose.armR = 118 + 14 * sw; pose.armRf = 12; pose.headRoll = 3 + 3 * sw;
-          pose.twirl = P.twirlAt ? P.twirlAt(A.showT, red) : 0;     /* a 360° twirl over 1.2 s every 8 s */
+          /* any other hand item is held out in front and swayed, never raised or spun (a raised arm
+             would tip a banner pole, an umbrella or a kite string flat); pom-poms go up in both hands */
+          if (A.spark || A.both) { pose.armR = 118 + 14 * sw; pose.armRf = 12; }
+          else { pose.armR = HELD.armR + HELD.sway * sw; pose.armRf = HELD.armRf; }
+          pose.headRoll = 3 + 3 * sw;
+          pose.twirl = A.spark && P.twirlAt ? P.twirlAt(A.showT, red) : 0;     /* a 360° twirl over 1.2 s every 8 s: the stick only */
+          if (A.both) { pose.armL = 118 - 14 * sw; pose.armLf = 12; }
         }
       }
       if (A.blend < 1) { A.blend = Math.min(1, A.blend + dt / A.blendDur); mixAv(P, A.from, pose, smooth01(A.blend), pose); }
-      setWand(showK > 0.5 || dancing);
+      setWand((showK > 0.5 || dancing) && A.spark);
+      /* a person rig: its play() of the same clip runs the layers beside the pose — the blink (on our
+         running clock; never under reduced motion), hair and cape, the move's visor / antenna / ✦ burst —
+         then our blended pose sets the bones */
+      if (A.person && typeof rig.play === 'function') { var po = A.po; po.reduced = red; po.clock = now; po.bpm = o.bpm; rig.play(clip, ct, po); }
       rig.setPose(pose);
       var face = clamp(wrap(yawToCam(A.x, A.z)), -0.5, 0.5);
       A.yaw = face;
       rig.root.position.set(A.x, A.y, A.z);
       rig.root.rotation.set(0, face, 0);
-      A.ax = A.x; A.ay = A.y + (num(pose.y, 0) + AV_TOP) * CREW; A.az = A.z;
-      var h = A.hit; h.x = A.x; h.y = A.y + (AV_HIT_Y + num(pose.y, 0)) * CREW; h.z = A.z; h.pickable = mode === 'play'; h.r = HIT_R * CREW;
+      A.ax = A.x; A.ay = A.y + (num(pose.y, 0) + A.top) * CREW; A.az = A.z;
+      var h = A.hit; h.x = A.x; h.y = A.y + (A.hitY + num(pose.y, 0)) * CREW; h.z = A.z; h.pickable = mode === 'play'; h.r = HIT_R * CREW;
       if (blobs && A.blob >= 0) {
         var sc = BLOB.avatar * CREW * (1 - BLOB.shrink * clamp01(Math.max(0, num(pose.y, 0)) / BLOB.lift));
         blobs.set(A.blob, A.x, A.y, A.z, sc, sc * 0.85);
@@ -1220,14 +1436,14 @@
     }
     /* 'wave' (then the finger-heart), 'heart' (straight to the finger-heart) or 'cheer' */
     /* kind 'cycle' (a tap): the finger-heart first, then the V-sign and the mic-point in a per-child
-       order; or 'wave' (then the finger-heart), 'heart', 'vsign', 'micpoint', 'cheer' */
+       order, then a character's signature move; or 'wave' (then the finger-heart), 'heart', 'vsign',
+       'micpoint', 'cheer', 'sig' (the move: false without one) */
     function avatarTap(kind) {
       if (!avatar) return false;
       var bt = brain ? brain.now : now;
-      if (kind === 'cycle') {
-        var n = avatar.tapN++ % 3;
-        kind = n === 0 ? 'heart' : (avatar.seed & 1 ? AV_CYCLE_B : AV_CYCLE_A)[n - 1];
-      }
+      if (kind === 'cycle') kind = tapCycle(avatar.tapN++, avatar.seed, avatar.sig);
+      if (kind === 'sig' && !avatar.sig) return false;
+      if (kind === 'sig') { avatar.sigCue = false; avatar.burst = false; if (avatar.akey === 'sig') avatar.akey = 'again'; }   /* a replay eases in */
       avatar.tapT = bt; avatar.tapKind = kind || 'wave'; avatar.cueShown = false;
       if (reduced) poseAll(0);
       return true;
@@ -1261,6 +1477,7 @@
         else if (!a.seen && a.hosted) hideActor(a);
       }
       updateAvatar(dt);
+      updateBowl();
       if (blobs) blobs.commit();
     }
     function poseOf(b, dt) {
@@ -1301,6 +1518,59 @@
     }
 
     /* ================================================================
+       FEEDING (kids update P2.5; decision P21): the bowl prop (SL3D.vox.makeBowl from px-care.js, one
+       SkinnedMesh in the pixel-vox program, made on the first meal and kept for the next) pops in beside
+       the pet, fills as the meal drops in, empties in 4 steps while the pet eats and pops out; reduced
+       motion: it stands empty until the moment is over, no pop
+       ================================================================ */
+    var bowl = null, bowlFood = '', feeding = null;
+    function dropBowl() { if (bowl) { try { bowl.dispose(); } catch (e) { /* gone */ } } bowl = null; bowlFood = ''; }
+    function bowlFor(food) {
+      food = typeof food === 'string' && food ? food : 'food_biscuits';
+      if (bowl) { if (bowlFood === food || (typeof bowl.setFood === 'function' && bowl.setFood(food))) { bowlFood = food; return bowl; } dropBowl(); }
+      var mk = R && typeof R.makeBowl === 'function' ? R.makeBowl : SL3D.vox && typeof SL3D.vox.makeBowl === 'function' ? SL3D.vox.makeBowl : null;
+      try { bowl = mk ? mk(food, tier) : null; } catch (e) { bowl = null; }
+      if (!bowl || !bowl.root) { bowl = null; return null; }
+      bowl.root.visible = false; bowl.root.name = 'actor-bowl';
+      group.add(bowl.root); bowlFood = food;
+      return bowl;
+    }
+    function bowlLevel(f, now) {
+      if (f.reduced) return 0;
+      if (now < f.eat0) { var n = 0; for (var i = 0; i < FEED.drops.length; i++) if (now - f.t0 >= FEED.drops[i]) n++; return n; }
+      return 4 - Math.min(4, Math.floor((now - f.eat0) / (FEED.eat / 5)));
+    }
+    function updateBowl() {
+      if (!bowl) return;
+      var fd = feeding, b = fd && fd.b, p = b && (b === brain || b === isleBrain) ? b.pet(fd.id) : null, f = p && p.feed;
+      if (!f || !f.on || b.now >= f.end) { if (bowl.root.visible) bowl.root.visible = false; feeding = null; return; }
+      var t = b.now - f.t0, sc = 1, fr = b.frame || ZERO;
+      if (!f.reduced && t < FEED.pop) { var u = t / FEED.pop; sc = smooth01(u) * (1 + BOWL.pop * Math.sin(PI * u)); }
+      else if (!f.reduced && b.now > f.eatEnd) sc = 1 - smooth01((b.now - f.eatEnd) / FEED.out);
+      if (typeof bowl.setLevel === 'function') bowl.setLevel(bowlLevel(f, b.now));
+      bowl.root.position.set(f.x + fr.ox, f.y + fr.oy, f.z + fr.oz);
+      bowl.root.rotation.set(0, f.yaw, 0);
+      sc = Math.max(1e-3, sc) * BOWL.scale; bowl.root.scale.set(sc, sc, sc);
+      bowl.root.visible = true;
+    }
+    /* feed(petId, foodId, {fav}) → the seconds the moment lasts (the bowl gone) | -1 (the pet is not out
+       on the island being shown, or it cannot eat now). The brain plays the pet's part (feed()); the
+       stage's caller fills the meters and says the toast when it is over. */
+    function feed(petId, food, o) {
+      if (disposed || !brain) return -1;
+      var id = petIdOf(petId), hb = id && hostOf(id);
+      if (!hb || typeof hb.feed !== 'function' || hb.pet(id).guest) return -1;
+      var lead = hb.feed(id, { fav: !!(o && o.fav) });
+      if (!(lead >= 0)) return -1;
+      feeding = { id: id, b: hb };
+      bowlFor(food);
+      drainEvents();
+      poseAll(0);
+      var f = hb.pet(id).feed;
+      return Math.max(0, f.end - hb.now);
+    }
+
+    /* ================================================================
        PUBLIC
        ================================================================ */
     function petIdOf(target) {
@@ -1319,10 +1589,11 @@
       if (isMe(target)) return avatarTap('cycle');
       var id = petIdOf(target), a = id && byId[id], hb = id && hostOf(id), p = hb && hb.pet(id);
       if (!a || !p) return false;
-      var kind = hb.tap(id) || 'star', f = hb.frame || ZERO;
-      if (p.species === 'pet_dragon' && kind === 'sparkle') sparkles(p.x + f.ox, p.y + f.oy + 0.55, p.z + f.oz + 0.15, 9, EMOTE.rainbow, 0.7);   /* the dragon: sparkles, never fire */
+      var kind = hb.tap(id) || 'star', f = hb.frame || ZERO, hungry = p.tapKind === 'hungry';
+      if (hungry) { /* a softer answer: no emote (the host shows the hungry bubble), a quiet voice */ }
+      else if (p.species === 'pet_dragon' && kind === 'sparkle') sparkles(p.x + f.ox, p.y + f.oy + 0.55, p.z + f.oz + 0.15, 9, EMOTE.rainbow, 0.7);   /* the dragon: sparkles, never fire */
       else emoteSprite(a, kind, 0);
-      if (opts.voice !== false) voice(id, p.x + f.ox);
+      if (opts.voice !== false) voice(id, p.x + f.ox, hungry ? 0.6 : 0.9);
       if (reduced) poseAll(0);
       return true;
     }
@@ -1367,7 +1638,7 @@
       showK = k;
       brains(function (b) { b.setShow(k); });
       actors.forEach(function (a) { if (a.rig && typeof a.rig.setShow === 'function') a.rig.setShow(k); });
-      if (avatar) { if (typeof avatar.rig.setShow === 'function') avatar.rig.setShow(k); setWand(k > 0.5); }
+      if (avatar) { if (typeof avatar.rig.setShow === 'function') avatar.rig.setShow(k); setWand(k > 0.5 && avatar.spark); }
     }
     function setReduced(on) {
       reduced = !!on;
@@ -1483,12 +1754,18 @@
       if (avatar) count(avatar.rig);
       if (blobs) calls++;
       if (fxPool) calls++;
+      var bowlOn = !!(bowl && bowl.root && bowl.root.visible);
+      if (bowlOn) { calls++; tris += num(bowl.tris, 0); }
       var shown = 0, guests = [];
       actors.forEach(function (a) { if (a.hosted) shown++; });
       if (isleBrain) isleBrain.pets.forEach(function (q) { if (q.guest) guests.push(q.id); });
       return { pets: actors.length, avatar: !!avatar, calls: calls, tris: Math.round(tris), mode: mode, reduced: reduced, show: showK, dance: !!(brain && brain.danceOn), isle: isle, crewScale: CREW,
                /* W3b.12: the rigs that exist (≤ crewRigs), how many are out now, how many rest indoors, the land's guests */
-               rigs: actors.length, shown: shown, resting: Math.max(0, crew.length - actors.length), guests: guests, crewRigs: CAP.rigs, landMascots: CAP.land };
+               rigs: actors.length, shown: shown, resting: Math.max(0, crew.length - actors.length), guests: guests, crewRigs: CAP.rigs, landMascots: CAP.land,
+               /* KU-CH12: the figure is a character's person rig, its signature move (null: none), what it is doing (idle, show, dance, heart, vsign, micpoint, wave, cheer, sig) */
+               person: !!(avatar && avatar.person), sig: avatar ? avatar.sig : null, act: avatar ? avatar.akey || null : null,
+               /* P2.5: the feeding bowl is out (one draw while it is) */
+               bowl: bowlOn };
     }
     function dispose() {
       if (disposed) return;
@@ -1497,6 +1774,7 @@
       actors.length = 0;
       for (var k in byId) delete byId[k];
       dropAvatar();
+      dropBowl();
       for (var i = 0; i < fx.length; i++) fx[i].on = false;
       if (fxPool) fxPool.dispose();
       if (blobs) blobs.dispose();
@@ -1516,6 +1794,8 @@
       hits: hits, anchorOf: anchorOf, info: info, dispose: dispose,
       /* v3: follow(visit) → crossing seconds · setIsle(isle) (at once) · poseScale(petId, sx, sy) */
       follow: follow, setIsle: setIsle, poseScale: poseScale,
+      /* the kids update (P2.5): feed(petId, foodId, {fav}) → seconds | -1 */
+      feed: feed,
       petsApi: { active: function () { return active(); }, perform: function (kind, uid) { return perform(kind, uid); },
                  poseScale: function (petId, sx, sy) { return poseScale(petId, sx, sy); } }
     };
@@ -1534,7 +1814,9 @@
 
   return {
     VERSION: VERSION, create: create, register: register,
-    TOP_Y: TOP_Y, BLOB: BLOB, BLEND: BLEND, EMOTE: EMOTE, HIT_R: HIT_R, FX_CAP: FX_CAP,
-    HEART_LINE: HEART_LINE, AV_TAP: AV_TAP, AV_TAP_SFX: AV_TAP_SFX, BOOTH_POSES: BOOTH_POSES
+    TOP_Y: TOP_Y, BLOB: BLOB, BLEND: BLEND, EMOTE: EMOTE, HIT_R: HIT_R, FX_CAP: FX_CAP, EAT: EAT, BAL: BAL, BOWL: BOWL,
+    HEART_LINE: HEART_LINE, AV_TAP: AV_TAP, AV_TAP_SFX: AV_TAP_SFX, BOOTH_POSES: BOOTH_POSES,
+    /* the player's character (KU-CH12) */
+    SIG: SIG, SPARK: SPARK, HELD: HELD, avatarKeyOf: avatarKeyOf, sparkAtShow: sparkAtShow, sigOf: sigOf, tapCycle: tapCycle
   };
 }));

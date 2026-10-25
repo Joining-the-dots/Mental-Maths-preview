@@ -44,6 +44,14 @@
      showValue(key, v)           a board value as a child reads it: '1:22.40' (the game's own m:ss.xx), '2,995'
      sayValue(key, v)            the same, spoken: '1 minute 22.40 seconds', '2,995'
      fmtValue(key, v), ordinal(n) fmtValue: '82.40 s' (a gap between two times; the Control Centre's rows)
+   Challenge wins (chunk FR: who came 1st in a race or challenge round, per group):
+     WINS_KEYS, WIN_GAP_MS       what the rules accept in a wins record, and the least time between two wins
+     winsShapeOk(doc)            the mirror of the rules' winsShape
+     cameFirst(rows)             a final table's rows → true when this child came 1st among the children
+     nextWins(old, week, who)    → the record with one more win (null: not a Monday, or full)
+     winWait(lastMs, nowMs)      → ms to wait before the next win may be written
+     winsTable(docs, period, week, {roster, isRude, games, order, me, top, hide}) → {rows, count}
+     winsText(n)                 '1 win', '3 wins'
 
    cards is a list of {uid, card}. The three notebook functions and
    tally return new objects: the caller keeps them through its own
@@ -517,12 +525,122 @@
     return null;
   }
 
+  /* ---------- Challenge wins (chunk FR) ----------
+     One record per child and group (families/{code}/wins/{uid}, classes/{id}/wins/{uid}):
+     {v, ai, ci, n, wk: {id, n}, at}: the avatar and colour as index numbers, the challenge
+     rounds the child came 1st in (n in all, wk.n in the week of Monday wk.id) and the
+     server's time. No name, no score, no game. The rules take one more win at a time, in
+     this week, WIN_GAP_MS after the last at the soonest (a test pins both to firestore.rules).
+     A win is counted on the winner's own device, like a score: it is not proof. */
+  var WINS_KEYS = Object.freeze(['v', 'ai', 'ci', 'n', 'wk', 'at']);
+  var WINS_MAX = 100000, WIN_GAP_MS = 30000;
+  function winsShapeOk(doc) {
+    if (!isObj(doc)) return false;
+    var keys = Object.keys(doc), wk = doc.wk;
+    if (!keys.every(function (k) { return WINS_KEYS.indexOf(k) >= 0; })) return false;
+    if (doc.v !== V || !isInt(doc.ai) || doc.ai < 0 || doc.ai > AI_MAX || !isInt(doc.ci) || doc.ci < 0 || doc.ci > CI_MAX) return false;
+    if (!isInt(doc.n) || doc.n < 1 || doc.n > WINS_MAX) return false;
+    if (!isObj(wk) || Object.keys(wk).length !== 2 || !has(wk, 'id') || !has(wk, 'n') || !goodWeek(wk.id)) return false;
+    if (!isInt(wk.n) || wk.n < 1 || wk.n > doc.n) return false;
+    return !has(doc, 'at') || (!!doc.at && typeof doc.at === 'object');
+  }
+  /* A round's final table, as SLKartNet's table() gives it (and the challenges of the kids
+     update in the same form): rows of {kind: 'me' | 'kid' | 'crew', place: a whole number
+     or null} (me: true counts as kind 'me'). True when this child finished with a place,
+     at least one other child was in the round, and no other child has a better place:
+     a shared 1st place is a win for each. The Glow Crew are pace-setters: a round they
+     lead still has a child who came 1st among the children. */
+  function cameFirst(rows) {
+    if (!Array.isArray(rows)) return false;
+    var mine = null, kids = [];
+    rows.forEach(function (r) {
+      if (!isObj(r)) return;
+      if (r.kind === 'me' || r.me === true) { if (!mine) mine = r; }
+      else if (r.kind === 'kid') kids.push(r);
+    });
+    if (!mine || !isInt(mine.place) || mine.place < 1 || !kids.length) return false;
+    return kids.every(function (r) { return !(isInt(r.place) && r.place < mine.place); });
+  }
+  /* The record to write for one more win: old = the record as just read (null when there is
+     none), week = this week's Monday, who = SLSocialCore.who(profile). A new week starts its
+     count at 1; a record another device has already moved to a later week keeps that week.
+     null when the week is not a Monday or the record is full. 'at' is the writer's to add. */
+  function nextWins(old, week, who) {
+    var wk = goodWeek(week), w = isObj(who) ? who : {};
+    if (!wk) return null;
+    var o = winsShapeOk(old) ? old : null;
+    var doc = { v: V, ai: idx(w.ai, AI_MAX), ci: idx(w.ci, CI_MAX), n: 1, wk: { id: wk, n: 1 } };
+    if (!o) return doc;
+    if (o.n >= WINS_MAX) return null;
+    doc.n = o.n + 1;
+    if (o.wk.id === wk || o.wk.id > wk) doc.wk = { id: o.wk.id, n: o.wk.n + 1 };
+    return doc;
+  }
+  /* how long to wait before the next win may be written (0: now). lastMs = the record's at,
+     in milliseconds (the server's time), nowMs = the server-anchored clock */
+  function winWait(lastMs, nowMs) {
+    if (!isFinite(lastMs) || !isFinite(nowMs)) return 0;
+    var left = lastMs + WIN_GAP_MS + 1000 - nowMs;
+    return left > 0 ? Math.min(left, WIN_GAP_MS + 1000) : 0;
+  }
+  /* The Challenge wins table of one group, ready to draw. docs = [{uid, doc}] as read,
+     period 'week' (this week, week = its Monday) or 'ever'. opts as standings: roster and
+     isRude (the name is SLSocialCore.rosterName and nothing else; a record whose account is
+     not in the roster is dropped), games (a family: an account no longer ticked is dropped),
+     order ('az': no places), me, top; hide = account ids not to show (a child who chose
+     'Take me off the boards'). Kind: only children with a win in that period are listed,
+     never a 0; most wins first, ties share a place; on a list of 2 to 5 nobody on the bottom
+     place is given a number; past top, the child's own row comes last with no place.
+     rows: {uid, place, n, ai, ci, v, me}; count is everyone listed. */
+  function winsTable(docs, period, week, opts) {
+    var o = isObj(opts) ? opts : {}, S = social(), out = { rows: [], count: 0 };
+    var byWeek = period === 'week', wk = byWeek ? goodWeek(week) : '';
+    if (!Array.isArray(docs) || (!byWeek && period !== 'ever') || (byWeek && !wk)) return out;
+    var order = o.order === 'az' ? 'az' : o.order === 'ranked' ? 'ranked' : (o.games !== undefined && S ? S.gamesCfg(isObj(o.games) && isObj(o.games.games) ? o.games : { games: o.games }).order : 'ranked');
+    var who = isObj(o.roster) && isObj(o.roster.who) ? o.roster.who : {}, hide = Array.isArray(o.hide) ? o.hide : [];
+    var seen = Object.create(null), rows = [];
+    docs.slice(0, MAX_CARDS).forEach(function (c) {
+      if (!isObj(c) || typeof c.uid !== 'string' || !c.uid || seen[c.uid] || hide.indexOf(c.uid) >= 0) return;
+      var d = c.doc;
+      if (!winsShapeOk(d)) return;
+      var v = byWeek ? (d.wk.id === wk ? d.wk.n : 0) : d.n;
+      if (!(v >= 1)) return;
+      if (!has(who, c.uid) || !isObj(who[c.uid])) return;
+      if (o.games !== undefined && !(S && S.memberOk(o.games, c.uid))) return;
+      seen[c.uid] = true;
+      rows.push({ uid: c.uid, place: null, n: S ? S.rosterName(o.roster, c.uid, 'Player', o.isRude) : 'Player', ai: d.ai, ci: d.ci, v: v, me: c.uid === o.me });
+    });
+    out.count = rows.length;
+    if (order === 'az') { out.rows = rows.sort(byName); return out; }
+    rows.sort(function (a, b) { return a.v === b.v ? byName(a, b) : b.v - a.v; });
+    rows.forEach(function (row, i) {
+      var prev = i ? rows[i - 1] : null;
+      row.place = prev && prev.v === row.v ? prev.place : i + 1;
+    });
+    if (rows.length >= 2 && rows.length <= KIND_MAX) {
+      var bottom = rows[rows.length - 1].place;
+      if (bottom > 1) rows.forEach(function (row) { if (row.place === bottom) row.place = null; });
+    }
+    var top = isInt(o.top) && o.top > 0 ? o.top : 0;
+    if (top && rows.length > top) {
+      var mine = rows.slice(top).filter(function (row) { return row.me; })[0];
+      rows = rows.slice(0, top);
+      if (mine) { mine.place = null; rows.push(mine); }
+    }
+    out.rows = rows;
+    return out;
+  }
+  /* '1 win', '3 wins' */
+  function winsText(n) { return isInt(n) && n > 0 ? commas(n) + (n === 1 ? ' win' : ' wins') : ''; }
+
   var API = {
     V: V, BOARDS: BOARDS, KEYS: KEYS, MAX_CARDS: MAX_CARDS, CARD_KEYS: CARD_KEYS, RANGES: RANGES, LINE_KINDS: LINE_KINDS,
     boards: boards, rule: rule, validValue: validValue, better: better, weekKey: weekKey,
     notebook: notebook, noteResult: noteResult, applyCuts: applyCuts, removedNote: removedNote, tally: tally, spend: spend,
     desiredCard: desiredCard, markerCard: markerCard, cardShapeOk: cardShapeOk, patchRow: patchRow,
-    standings: standings, moveLine: moveLine, fmtValue: fmtValue, showValue: showValue, sayValue: sayValue, ordinal: ordinal
+    standings: standings, moveLine: moveLine, fmtValue: fmtValue, showValue: showValue, sayValue: sayValue, ordinal: ordinal,
+    WINS_KEYS: WINS_KEYS, WINS_MAX: WINS_MAX, WIN_GAP_MS: WIN_GAP_MS,
+    winsShapeOk: winsShapeOk, cameFirst: cameFirst, nextWins: nextWins, winWait: winWait, winsTable: winsTable, winsText: winsText
   };
   if (typeof module === 'object' && module.exports) module.exports = API;
   if (typeof window !== 'undefined') window.SLBoardsCore = API;

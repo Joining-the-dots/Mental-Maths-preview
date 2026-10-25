@@ -16,9 +16,10 @@
          the island bar, in ISLE_ORDER. 'here' is the island being visited (never while the
          Sky map shows); locked = its land is not owned (a visited preview is 'here' AND
          locked); isNew = an unlocked sky island never visited (tutSeen['isle:<id>']), and
-         its aria ends '. New'; price is the land's (null for Home) and free says test mode
-         would give it away. The chip itself shows no price (D24): the sign, the here row
-         and the sheet do.
+         its aria ends '. New'. A preview's aria is isle.chipHereLocked ('Medieval Castle:
+         looking around. Still locked'), never 'you're here' (A5). price is the land's (null
+         for Home) and free says test mode would give it away. The chip itself shows no
+         price (D24): the sign, the here row and the sheet do.
      placeTarget(C, w, id, visit)
          → the island a newly bought / stored copy should be placed on: visit when the thing
          may go there AND that island is unlocked (D18); else 'home' for a V4.54 thing; else
@@ -41,9 +42,11 @@
          ISLE_SHELVES order (its mascots and gear, the shelves, the All-tab island cards and
          the Crew aisle are SLIslandShop's). landmarkUid = the landmark standing on an
          owned island, else null.
-     lockSign(C, w, isle, {t, trial})
+     lockSign(C, w, isle, {t, trial, here})
          → {short, priceText, aria}: a land's sign. Locked: '⭐ 2,000' (or 'FREE' in test
-         mode) and the lock.sign label; unlocked: no price and the fly-there label.
+         mode) and the lock.sign label; unlocked: no price and the fly-there label. here (the
+         Sky map's sign for the island the child is on) → the chip's here words instead:
+         isle.chipHere, or isle.chipHereLocked on a preview.
      bumped(beforeWorld, afterWorld)
          → [{uid, id}]: placed before, gone after and now waiting in the bag (what normalize
          sent back to make room). A copy trimmed because more were placed than owned went
@@ -65,6 +68,7 @@
     'isle.chipHere': '{island}: you’re here',
     'isle.chipOpen': '{island}: fly there',
     'isle.chipLocked': '{island}: locked. Fly over for a look',
+    'isle.chipHereLocked': '{island}: looking around. Still locked',
     'isle.chipNew': 'New',
     'lock.sign': '{island} · ⭐ {price}',
     'sr.flyTo': '{island} — fly there'
@@ -95,6 +99,8 @@
   function shortName(C, k, t) { return say(t, 'isle.short.' + k, null, C.ISLES[k].name); }
 
   /* ---------------- the island bar ---------------- */
+  /* the here words: a preview visit (here AND locked) is looking around, never 'you're here' (A5) */
+  function hereKey(locked) { return locked ? 'isle.chipHereLocked' : 'isle.chipHere'; }
   function chips(C, w, visit, opts) {
     opts = opts || {};
     w = worldOf(w);
@@ -109,7 +115,7 @@
         state: state, locked: !unlocked, isNew: isNew,
         price: land ? land.price : null, free: !!opts.trial && !unlocked,
         /* the label replaces the chip's own words for a screen reader, so it says New too */
-        aria: say(opts.t, state === 'here' ? 'isle.chipHere' : state === 'open' ? 'isle.chipOpen' : 'isle.chipLocked', { island: d.name }) +
+        aria: say(opts.t, state === 'here' ? hereKey(!unlocked) : state === 'open' ? 'isle.chipOpen' : 'isle.chipLocked', { island: d.name }) +
           (isNew ? '. ' + say(opts.t, 'isle.chipNew') : '')
       };
     });
@@ -200,7 +206,8 @@
     return {
       short: shortName(C, isle, opts.t),
       priceText: !locked ? '' : opts.trial ? FREE : '⭐ ' + price,
-      aria: !locked ? say(opts.t, 'sr.flyTo', { island: d.name })
+      aria: opts.here ? say(opts.t, hereKey(locked), { island: d.name })
+        : !locked ? say(opts.t, 'sr.flyTo', { island: d.name })
         : opts.trial ? d.name + ' · ' + FREE
         : say(opts.t, 'lock.sign', { island: d.name, price: price })
     };

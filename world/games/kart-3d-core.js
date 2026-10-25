@@ -148,6 +148,11 @@
     seaShallow: '#3C6FD1', seaDeep: '#1B2A6B', foam: '#CFC4FF', haloScale: 1.6, haloOpacity: 0.9,
     rimColor: '#FF7AD9', rimStrength: 0.55
   };
+  /* the race keeps a floor under SHOW's light (V4.55 fix run): at full Showtime the island's v1 SHOW
+     (hemi 0.85, sun 0.9) left the voxel driver a dark shape on the final lap. The sky, fog, sea, rim
+     and every colour still follow the arc, so the Encore lap stays purple; only these two intensities
+     stop at the floor (DAY is far above it, so lap 1 is as it was) */
+  var SHOW_FLOOR = { hemiIntensity: 1.3, sunIntensity: 1.4 };
   var ARC_K = [0, 0.5, 1];                  /* lapLight 0 / 1 / 2 → show mix */
   var ARC_SEC = 1.6, ARC_SEC_REDUCED = 0.25;
   function arcK(level) { return ARC_K[clamp(level | 0, 0, 2)]; }
@@ -164,6 +169,7 @@
       if (key === 'rimColor' && normHex(memberHex)) b = mixHex(b, memberHex, 0.4);
       out[key] = typeof a === 'string' ? mixHex(a, b, k) : a + (b - a) * k;
     }
+    for (var fk in SHOW_FLOOR) if (out[fk] < SHOW_FLOOR[fk]) out[fk] = SHOW_FLOOR[fk];
     out.k = k;
     out.encore = encoreK(k);
     return out;
@@ -182,7 +188,9 @@
     tv: { up: 2.6, side: 5.2, spacing: 14, fov: 36, posRate: 0, lookRate: 7, lookY: 0.5, boostFov: 0, boostBack: 0 }
   };
   var CAM_ORDER = ['chase', 'stage', 'map', 'tv'];
-  var CAM_LABEL = { chase: 'Chase', stage: 'Stage', map: 'High', tv: 'TV' };
+  /* one name per camera, the same on the menu's chips and the HUD's 🎥 button (V4.55 fix run: the
+     top-down one was 'High' here and '🗺️ Map' on the menu) */
+  var CAM_LABEL = { chase: 'Chase', stage: 'Stage', map: 'Map', tv: 'TV' };
   function camMode(m) { return CAMERAS[m] ? m : 'chase'; }
   function nextCam(m) { return CAM_ORDER[(CAM_ORDER.indexOf(camMode(m)) + 1) % CAM_ORDER.length]; }
   /* the boost FOV kick: eases in over 0.25 s and out over 0.6 s (k follows its target) */
@@ -873,7 +881,7 @@
     VERSION: VERSION, U: U, WW: WW, WH: WH, CX: CX, CZ: CZ, HW: HW, KERB: KERB, VERGE: VERGE, WALL: WALL, JUMP_LEN: JUMP_LEN,
     SPIN_T: SPIN_T, BEAT2: BEAT2, CHECKS: CHECKS, DEG: DEG, TAU: TAU, RIB_Y: RIB_Y, STACK_OFF: STACK_OFF, RAMP_H: RAMP_H,
     COL: COL, TIER_COL: TIER_COL, STACK_COL: STACK_COL, CONFETTI: CONFETTI, MEDAL_COL: MEDAL_COL, KARTS: KARTS, PETCOL: PETCOL,
-    TRACK_LOOK: TRACK_LOOK, DAY: DAY, SHOW: SHOW, ARC_K: ARC_K, ARC_SEC: ARC_SEC, ARC_SEC_REDUCED: ARC_SEC_REDUCED,
+    TRACK_LOOK: TRACK_LOOK, DAY: DAY, SHOW: SHOW, SHOW_FLOOR: SHOW_FLOOR, ARC_K: ARC_K, ARC_SEC: ARC_SEC, ARC_SEC_REDUCED: ARC_SEC_REDUCED,
     CAMERAS: CAMERAS, CAM_ORDER: CAM_ORDER, CAM_LABEL: CAM_LABEL, PODIUM: PODIUM, VOLCANO: VOLCANO, PULSES: PULSES, WORDS: WORDS,
     PARTICLES: PARTICLES, SPARK_RATE: SPARK_RATE,
     clamp: clamp, clamp01: clamp01, lerp: lerp, wrapAngle: wrapAngle, lerpAngle: lerpAngle, damp: damp, smooth: smooth,

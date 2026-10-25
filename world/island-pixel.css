@@ -135,7 +135,19 @@
          .slw-anim-sway 1.6 s    leans ±6° on its base, slowly
          .slw-anim-none          no motion (a toggle redraws the sprite; fx-only acts show
                                  their glyph)
+   .slw-sheethd             every sheet's sticky header (A9): its h2 (the sheet's title), the
+                            .slw-hdpts ⭐ balance (big sheets) and the .slw-x, on a white band
+                            flush with the sheet's top edge; .bare (a sheet with no title of
+                            its own) is zero-height and only keeps the ✕ in reach
+   .slw-leadrow             a land shop's lead row (the land while locked, the landmark): its
+                            cards share the row and fill it, wide, icon beside the words
+   .slw-plays               an attraction card's game line ('🎮 Encore Shootout: …')
+   .slw-carderr             a shop card's own refusal line (a buy that could not go ahead)
    Optional custom properties, set from JS:
+   --slw-fit                the 3D stage's cap (on #worldView): the window's height below
+                            the stage's top (E2)
+   --slw-hdh                a sheet's header height (on .slw-sheet): the rows that stick
+                            under it start there
    --slw-dip                the sky dip colour (inline on .slw-skydip)
    --slw-g                  a game card's colours (inline on .slw-game: its 14px top band;
                             a V4.54 inline background is folded into the same band)
@@ -746,6 +758,19 @@ html body .slw-x {
 html body .slw-x:active {
   transform: translateY(3px); box-shadow: 0 1px 0 0 var(--px-white-lip), var(--sle-ring);
 }
+/* the sticky header (A9): a white band flush with the sheet's top edge (the margin and top undo the sheet's
+   18px padding), the title, the ⭐ balance and the ✕ in one row; the list scrolls away beneath it */
+html body .slw-sheethd {
+  top: -18px; margin: -18px -18px 10px; padding: 12px 18px 10px; background: var(--px-panel);
+  box-shadow: 0 2px 0 0 var(--px-white-lip);
+}
+html body .slw-sheethd.bare { margin: -18px -18px 18px; padding: 0; background: transparent; box-shadow: none; }
+html body .slw-sheethd h2 { margin: 0; }
+html body .slw-hdpts {
+  padding: 4px 10px; background: var(--px-well); color: var(--px-gold-ink); border: 2px solid var(--px-white-lip);
+  border-radius: var(--px-r-btn); font-family: var(--sle-ui); font-weight: 800; font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
 html body .slw-cats { gap: 8px; margin: 10px 0 14px; }
 html body .slw-cats .slw-btn { border-radius: var(--px-r-btn); padding: 8px 14px; font-size: 14px; }
 html body .slw-err { color: var(--px-err); font-family: var(--sle-ui); font-weight: 700; }
@@ -864,6 +889,19 @@ html body .slw-grid > .slw-card.isle {
 }
 html body .slw-grid > .slw-card.isle .ic::after { content: none; }
 html body .slw-grid > .slw-card.isle .pr { display: none; }
+/* a land shop's lead row: one or two cards fill it (side by side, or stacked on a phone), never one card and a
+   gap. They are wide cards, as tall as their words (no 3:4 card shape): a fixed 120px picture well pinned left
+   in the card's own padding, the words beside it. [class] outranks the shine and card-shape rules */
+html body .slw-grid.slw-leadrow { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); margin-bottom: 14px; }
+html body .slw-grid.slw-leadrow > .slw-card[class] { aspect-ratio: auto; min-height: 142px; padding-left: 138px; }
+html body .slw-grid.slw-leadrow > .slw-card[class] > .ic {
+  position: absolute; left: 8px; top: 8px; width: 120px; height: 120px; padding: 6px; aspect-ratio: auto;
+}
+html body .slw-leadrow > .slw-card > .ic svg,
+html body .slw-leadrow > .slw-card > .ic .slw-pc > img { width: auto; max-width: 100%; max-height: 100px; }
+/* an attraction card names the game it unlocks */
+html body .slw-plays { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 700; font-size: 12.5px; line-height: 1.3; }
+html body .slw-carderr { font-size: 12.5px; line-height: 1.3; }
 /* desktop hover: the block lifts 2px instead of the Encore tilt (its glare layer is gone) */
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   html body .slw-grid > .slw-card:hover { transform: translateY(-2px); }
@@ -1163,6 +1201,12 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
     -webkit-overflow-scrolling: touch;
   }
   html body .slw-acts > .slw-btn { flex: 0 0 auto; scroll-snap-align: start; }
+  /* the app's header and tabs fill the top of a phone: the island's own rows sit closer, so once the open lifts
+     the island the 3D stage keeps its whole minimum on screen (E2); the test-mode note keeps two short lines */
+  html body .slw-hud { margin-bottom: 6px; }
+  html body .slw-isles { margin-bottom: 6px; }
+  html body .slw-goal.slw-trial { padding: 4px 10px; }
+  html body .slw-goal.slw-trial .gt { font-size: 12.5px; line-height: 1.2; }
   html body .slw-btn { padding: 8px 12px; font-size: 14px; }
   html body .slw-btn.big { padding: 9px 14px; font-size: 15px; }
   html body .slw-learn { padding: 8px 12px; font-size: 14px; }
@@ -1182,7 +1226,7 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
    flow, where the tabs may wrap. */
 @media (max-width: 600px), (orientation: landscape) and (max-height: 540px) {
   html body .slw-sheet .slw-cats {
-    position: -webkit-sticky; position: sticky; top: 0; z-index: 6; flex-wrap: nowrap;
+    position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) - 18px); z-index: 6; flex-wrap: nowrap;
     margin: 10px -18px 8px; padding: 6px 18px; overflow-x: auto; overflow-y: hidden;
     overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     background: var(--px-panel); box-shadow: 0 2px 0 0 var(--px-white-lip);
@@ -1207,7 +1251,7 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   /* in the shop it sticks under the tab row (top = that band's 56px): an opaque white band
      out to the sheet's edges, so the cards scroll away beneath both rows */
   html body .slw-sheet .slw-islefilter.sticky {
-    position: -webkit-sticky; position: sticky; top: 56px; z-index: 5; margin: 0 -18px 14px;
+    position: -webkit-sticky; position: sticky; top: calc(var(--slw-hdh, 0px) + 38px); z-index: 5; margin: 0 -18px 14px;
     padding: 6px 18px; scrollbar-width: none; background: var(--px-panel);
     box-shadow: 0 2px 0 0 var(--px-white-lip);
   }

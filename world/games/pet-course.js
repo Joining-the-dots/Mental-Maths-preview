@@ -1,7 +1,9 @@
 /* ================================================================
    Game A — Debut Run (the Pet Obstacle Course, key 'course').
    The child's own pet makes its stage debut: one original 70-second
-   song played out down a glowing toy-stage runway.
+   song played out down a glowing toy-stage runway. (Kids update: the
+   child's character runs and the pet follows; the figure is drawing
+   only and never changes a rule, a hitbox or a score.)
 
    THE SONG IS THE LEVEL. Every obstacle sits on the 128 BPM beat grid
    (docs/island3d/spec-runner.json). Taking off ON the beat is both the
@@ -63,6 +65,9 @@
     }
   };
   var T = TUNING, WIN = TUNING.WIN, SC = TUNING.SCORE;
+  /* the rules a show is played by (was implicitly 1). 2 = the kids update: every new kind of prop
+     gets one free try (DR-1). A challenge's hello carries it, so two versions never meet in one. */
+  var COURSE_RULES = 2;
   var LW = T.LW, LH = T.LH, GROUND = T.GROUND, PET_X = T.PET_X;
   var PL_OFF = PET_X + T.HB_X, PR_OFF = PL_OFF + T.PET_W, PET_CX = PL_OFF + T.PET_W / 2;   /* 204, 266, 235 */
 
@@ -240,6 +245,15 @@
       }
       if (si > 0) doors.push({ x: Math.round(sec.d0 + PET_CX), sec: si, name: sec.name });
     }
+    /* every new kind of prop gets one free try (COURSE_RULES 2): the Rehearsal's kinds are met
+       there; after it, the first prop of a kind not met yet is a rehearsal prop too (in practice
+       the first tall hedge and the first pink cushion — the first LED gate already was one). Only
+       these flags change: positions, kinds, items and seeds are exactly the chart of rules 1. */
+    var met = {};
+    for (var fi = 0; fi < obs.length; fi++) {
+      if (obs[fi].sec > 0 && !met[obs[fi].kind]) obs[fi].rehearsal = true;
+      met[obs[fi].kind] = true;
+    }
     /* Encore: 7 snack arcs on alternate beats (hop on the beat) + 4 glow stars at DJ height */
     for (var k = 1; k <= 13; k += 2) {
       var te = FINISH_T + k * BEAT;
@@ -380,23 +394,67 @@
     return 1;
   }
 
-  /* ---------------- Timing rings: an opt-in assist, session memory per child (never stored) ----------------
-     The only thing it does is put a glow cue ring on every prop (the ideal take-off spot); it never
-     touches hearts or shields. OFF unless the child switches it on in the menu (or cfg.fan says so —
-     the menu option id and the cfg key stay 'fan', as in V4.53, so callers keep working).
-     V4.53 kept 'Fan support' here as { fan, manual, curtains } and switched it ON by itself for a
-     first run and after 2 curtain calls; such a legacy entry is migrated to OFF (its meaning changed). */
+  /* ---------------- Timing rings: a glow cue ring on every prop (the ideal take-off spot) ----------------
+     It never touches hearts or shields. B2 (James, 25 Oct 2026): ON for a child (cfg.profileKey) until
+     their first finished show, then OFF; the menu chip shows which, all the time, and whatever the child
+     picks there is that child's from then on. Remembered per child on this device in localStorage
+     'slCourse:v1:<profileKey>' = { rings: true|false (only once they picked), shown: true (a show was
+     finished) }, with page memory beside it for a browser that blocks storage. A child who finished a
+     show before this version (a Debut Run best with a medal, or an old best with no medal field) starts
+     OFF. cfg.fan (the chip's id since V4.53, kept so callers work) decides when set; no profile, the shop
+     demo and the menu backdrop: OFF. V4.53's page-memory shape { fan, manual, curtains } reads as a
+     choice of OFF (its meaning changed). */
+  var PREF_KEY = 'slCourse:v1:';
   var session = {};
+  function readPrefs(cfg) {
+    if (!HAS_WIN || !cfg || cfg.profileKey == null) return null;
+    try { var o = JSON.parse(window.localStorage.getItem(PREF_KEY + cfg.profileKey) || 'null'); return o && typeof o === 'object' ? o : null; } catch (e) { return null; }
+  }
+  function savePrefs(cfg, m) {
+    if (!HAS_WIN || !cfg || cfg.profileKey == null) return;
+    var o = {};
+    if (typeof m.rings === 'boolean') o.rings = m.rings;
+    if (m.shown === true) o.shown = true;
+    try { window.localStorage.setItem(PREF_KEY + cfg.profileKey, JSON.stringify(o)); } catch (e) { /* page memory still has it */ }
+  }
+  /* this child's memory: { rings?: boolean (their own pick), shown?: true } — the stored record wins */
   function sess(cfg) {
-    var k = String((cfg && cfg.profileKey) || '_'), m = session[k] || (session[k] = { rings: false });
+    var k = String((cfg && cfg.profileKey) || '_'), m = session[k] || (session[k] = {});
     if ('fan' in m || 'manual' in m || 'curtains' in m) { delete m.fan; delete m.manual; delete m.curtains; m.rings = false; }
-    if (typeof m.rings !== 'boolean') m.rings = false;
+    var st = readPrefs(cfg);
+    if (st) { if (typeof st.rings === 'boolean') m.rings = st.rings; if (st.shown === true) m.shown = true; }
+    if ('rings' in m && typeof m.rings !== 'boolean') delete m.rings;
     return m;
+  }
+  /* a finished show in this child's bests from before the record existed */
+  function finishedBefore(cfg) {
+    var pb = cfg && cfg.pb;
+    if (!pb || typeof pb !== 'object') return false;
+    return Object.keys(pb).some(function (k) {
+      var r = pb[k];
+      if (k.indexOf('course:') !== 0 || !r || typeof r !== 'object') return false;
+      return typeof r.extra === 'number' ? decodeExtra(r.extra).medal >= 1 : r.score != null;
+    });
+  }
+  /* ON by default (no pick yet, no finished show) — the first-show default the results tell about */
+  function ringsByDefault(cfg) {
+    if (!cfg || cfg.demo || cfg.fan != null || cfg.profileKey == null) return false;
+    var m = sess(cfg);
+    return typeof m.rings !== 'boolean' && !m.shown && !finishedBefore(cfg);
   }
   function ringsFor(cfg) {
     if (!cfg || cfg.demo) return false;
     if (cfg.fan != null) return !!cfg.fan;
-    return sess(cfg).rings;
+    if (cfg.profileKey == null) return false;
+    var m = sess(cfg);
+    return typeof m.rings === 'boolean' ? m.rings : ringsByDefault(cfg);
+  }
+  /* a show was finished: the default turns OFF from the next one (a pick stays as it is) */
+  function markShown(cfg) {
+    if (!cfg || cfg.demo || cfg.profileKey == null) return;
+    var m = sess(cfg);
+    if (m.shown === true) return;
+    m.shown = true; savePrefs(cfg, m);
   }
 
   /* ---------------- the pet's own voice at the curtain: the step of the 'voice' sound (D114) ----------------
@@ -409,12 +467,41 @@
     return k >= 0 ? k : Object.prototype.hasOwnProperty.call(VOICE4, id) ? VOICE4[id] : 0;
   }
 
+  /* ---------------- after a hard show: one kind coach line (DR-2) ----------------
+     For the prop kind that cost the most hearts (ties: the one that cost a heart first). A puddle
+     costs no heart, so it never gets a line. Never a count of misses, never fail / lose / bad / wrong. */
+  var COACH_KINDS = ['low', 'log', 'hedge', 'stack', 'bar'];
+  var COACH = {
+    low: 'Hurdles: jump right on the beat as you reach them.',
+    log: 'Logs are long: jump a bit earlier to clear the whole log.',
+    hedge: 'Hedges are tall: jump a bit earlier for those.',
+    stack: 'Pink cushions: land on top to bounce over them.',
+    bar: 'LED gates: hold ⬇ SLIDE as you reach them.'
+  };
+  /* after a curtain call, with Timing rings off: one tap to try the same stage with them (DR-3) */
+  var RINGS_TRY = { label: '🎯 Try with Timing rings', note: 'Glow rings show the best spot to jump. Turn them off in the menu any time.' };
+
+  /* a challenge (DR-4): the lobby hands ONE round its stage through cfg.challengeRound {seed,
+     variant} — a fresh 32-bit seed the host drew, not today's practised chart. Read once, then
+     cleared, so the next round on this cfg is an ordinary one again. → {seed, variant} or null */
+  function takeChallengeRound(cfg) {
+    var c = cfg.challengeRound;
+    if (cfg.demo || !c || typeof c !== 'object') return null;
+    cfg.challengeRound = null;
+    if (typeof c.seed !== 'number' || !isFinite(c.seed)) return null;
+    return { seed: (c.seed >>> 0) || 7, variant: Object.prototype.hasOwnProperty.call(THEMES, c.variant) ? c.variant : null };
+  }
+
   /* ---------------- a round ---------------- */
   function newRound(api, variant, cfg) {
     cfg = cfg || {};
     api = api || { sound: function () {} };
+    var challenge = takeChallengeRound(cfg), challengeSeed = challenge ? challenge.seed : null;
+    /* the round's course is the one the shell was given (its board key); a challenge's own only fills a gap */
+    if (challenge && challenge.variant && !Object.prototype.hasOwnProperty.call(THEMES, variant)) variant = challenge.variant;
     var theme = THEMES[variant] || THEMES.course_meadow;
-    var seed = (cfg.seed != null && cfg.seed !== '') ? (cfg.seed >>> 0) || 7 : cfg.demo ? 2026 : seedFor(cfg.day || localDay(), variant || 'course_meadow');
+    var seed = challengeSeed != null ? challengeSeed :
+      (cfg.seed != null && cfg.seed !== '') ? (cfg.seed >>> 0) || 7 : cfg.demo ? 2026 : seedFor(cfg.day || localDay(), variant || 'course_meadow');
     var course = cfg.course || buildCourse(seed);
     var obs = course.obs, items = course.items, enc = course.enc;
     var rings = ringsFor(cfg), H = T.HEARTS;                     /* every run, every mode: 3 hearts */
@@ -422,6 +509,7 @@
     obs.forEach(function (o) { o.cue = o.rehearsal || rings; });
     var spill = [];
     for (var p = 0; p < T.SPILL_POOL; p++) spill.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, landed: false, age: 0, landT: 0 });
+    var ringsFirst = rings && ringsByDefault(cfg);              /* on because no show was finished yet (B2) */
     var s = {
       t: 0, lag: 0, lagBase: 0, sched: 0, dist: 0, y: 0, vy: 0, onGround: true, airJumps: 1, coyote: T.COYOTE, buffer: 0, prevH: 0,
       sliding: false, slideT: 0, slideStart: -9, slideHeld: false, diving: false,
@@ -432,7 +520,10 @@
       clean: true, secClears: 0, encMult: 1, progress: 0, grade: 0, endV: 0,
       toT: -9, toObs: -1, bounceT: -9, bounceObs: -1, djT: -9, landT: -9,
       oc: 0, ic: 0, ec: 0, lastBeat: -1, cdBeat: -999, needSync: true, snd: 0, spillNext: 0, curtainSaid: false, demoMiss: -1,
-      spill: spill
+      spill: spill,
+      /* hearts lost per prop kind, and the bump number that first cost one (the coach line) */
+      bumpKinds: { low: 0, log: 0, hedge: 0, stack: 0, puddle: 0, bar: 0 },
+      bumpFirst: { low: 0, log: 0, hedge: 0, stack: 0, puddle: 0, bar: 0 }
     };
     var ms = { section: 0, mult: 1, fever: false, lastHeart: false, tumble: false, phase: 'run', curtain: false };
 
@@ -534,6 +625,7 @@
     }
     function bump(o) {
       s.bumps++; s.hearts--; s.streak = 0; s.clean = false;
+      if (s.bumpKinds[o.kind] >= 0) { s.bumpKinds[o.kind]++; if (!s.bumpFirst[o.kind]) s.bumpFirst[o.kind] = s.bumps; }
       setHype(0);
       spillTreats(T.SPILL_BUMP);
       tumble();
@@ -673,6 +765,38 @@
     }
     function curMedal() { return medal(clampScore(), s.finished, s.encoreCleared); }
     function clampScore() { return Math.max(0, Math.min(SC.MAX, Math.round(s.score))); }
+    /* the kind that cost the most hearts (ties: the one that cost a heart first), or '' */
+    function coachKind() {
+      var best = '';
+      for (var i = 0; i < COACH_KINDS.length; i++) {
+        var k = COACH_KINDS[i], n = s.bumpKinds[k];
+        if (n > 0 && (!best || n > s.bumpKinds[best] || (n === s.bumpKinds[best] && s.bumpFirst[k] < s.bumpFirst[best]))) best = k;
+      }
+      return best;
+    }
+    /* only after a curtain call, or a finished show that cost 2+ hearts */
+    function coachLine() {
+      if (!s.curtain && !(s.finished && s.bumps >= 2)) return '';
+      var k = coachKind();
+      return k ? COACH[k] : '';
+    }
+    /* how far to go, in the runner's own medal names (B7): the next section after a curtain call,
+       else the next medal */
+    function goalLine() {
+      if (!s.finished) {
+        var sec = Math.min(5, s.section);
+        return 'Next time: reach ' + (sec < 5 ? 'the ' + SECTIONS[sec + 1].name : 'the FINISH') + '!';
+      }
+      var md = curMedal(), sc = clampScore();
+      if (md === 1) return 'Only ' + fmt(T.MEDAL.SILVER - sc) + ' more for ' + MEDALS[2].icon + ' ' + MEDALS[2].name + '!';
+      if (md === 2) return 'Only ' + fmt(T.MEDAL.GOLD - sc) + ' more for ' + MEDALS[3].icon + ' ' + MEDALS[3].name + '!';
+      if (md === 3) return 'Collect all 6 letters for ' + MEDALS[4].icon + ' ' + MEDALS[4].name + '!';
+      return '';
+    }
+    /* the rings offer: a curtain call with the rings off, when this child's session decides them */
+    function ringsOffer(ctl) {
+      return !!(s.curtain && !s.rings && !cfg.demo && cfg.fan == null && !ringsFor(cfg) && ctl && typeof ctl.beginRound === 'function');
+    }
     function stepEnd(dt) {
       s.endT += dt;
       if (!s.onGround) { s.prevH = -s.y; s.vy += T.G * dt; s.y += s.vy * dt; if (s.y >= 0) land(); }
@@ -706,7 +830,8 @@
     }
 
     var round = {
-      done: false, state: s, course: course, variant: variant, theme: theme, sections: SECTIONS,
+      done: false, state: s, course: course, variant: variant, theme: theme, sections: SECTIONS, rules: COURSE_RULES,
+      challenge: challengeSeed != null,                  /* this round is a challenge's stage (DR-4) */
       user: cfg.user || { name: '', color: '#6C5CE7', avatar: '🙂' },
       pet: cfg.pet || { id: 'pet_puppy', name: 'Buddy', acc: {} },
       treatIcon: theme.treat === 'fish' ? '🐟' : theme.treat === 'sweet' ? '🍬' : '🦴',
@@ -780,7 +905,9 @@
         }
         return '';
       },
-      /* no onFinish: nothing switches an assist on behind the child's back any more */
+      /* the shell calls it as the results open: a finished show turns the first-show Timing rings
+         default OFF for the next one (B2). Nothing is ever switched ON here. */
+      onFinish: function () { if (s.finished) markShown(cfg); },
       musicState: function () {
         ms.section = s.section; ms.mult = s.mult; ms.fever = s.fever; ms.lastHeart = s.hearts === 1 && !s.finished;
         ms.tumble = s.eff === 'tumble'; ms.phase = s.phase; ms.curtain = s.curtain;
@@ -804,25 +931,64 @@
       },
       /* 'score', never 'pts' — arcade scores must not look like reward points */
       summaryBig: function () { return 'Score ' + fmt(clampScore()); },
+      /* the show in numbers (behind 📊 Details on the results; B8 words: snacks, glow sparks ✦, hearts ❤).
+         The coach line (DR-2) is the results' ONE next step now (nextStep), not a second line here */
       summaryText: function () {
-        var ringsTxt = s.rings ? ' · 🎯 with Timing rings' : '';
+        var ringsTxt = s.rings ? ' · 🎯 with Timing rings' : '', coach = coachLine(), out;
         if (!s.finished) {
           var sec = Math.min(5, s.section), pct = Math.floor(s.progress * 100);
-          var next = sec < 5 ? 'the ' + SECTIONS[sec + 1].name : 'the FINISH';
-          return 'You reached the ' + SECTIONS[sec].name + ' (' + pct + '%). Next time: ' + next + '!' + ringsTxt;
+          return 'You reached the ' + SECTIONS[sec].name + ' (' + pct + '%)' + ringsTxt;
         }
         var hs = ''; for (var i = 0; i < s.maxHearts; i++) hs += i < s.hearts ? '❤' : '🤍';
         var lt = ''; for (var k = 0; k < 6; k++) lt += (k ? ' ' : '') + (s.lettersMask & (1 << k) ? LETTERS[k] : '_');
-        return round.treatIcon + ' ' + s.treats + ' treats · ✦ ' + s.stars + ' glow star' + (s.stars === 1 ? '' : 's') + ' · ' + lt +
+        return round.treatIcon + ' ' + s.treats + ' snack' + (s.treats === 1 ? '' : 's') + ' · ✦ ' + s.stars + ' glow spark' + (s.stars === 1 ? '' : 's') + ' · ' + lt +
           ' · Best Hype ' + s.maxHype + ' · ' + hs + ' left' + ringsTxt;
       },
-      summaryBadges: function () {
-        var md = curMedal(), sc = clampScore(), out = [{ text: MEDALS[md].icon + ' ' + MEDALS[md].name, kind: MEDALS[md].kind }];
-        if (s.finished && md < 4) {
-          if (md === 1) out.push({ text: 'Only ' + fmt(T.MEDAL.SILVER - sc) + ' to SILVER!', kind: 'hint' });
-          else if (md === 2) out.push({ text: 'Only ' + fmt(T.MEDAL.GOLD - sc) + ' to GOLD!', kind: 'hint' });
-          else if (md === 3) out.push({ text: 'Collect all 6 letters for the ENCORE crown!', kind: 'hint' });
+      coachLine: coachLine,
+      /* under the badges, after a curtain call with the rings off: '🎯 Try with Timing rings' — the
+         child's own pick (kept for them, exactly as the menu chip keeps it, B2) and the same course
+         again. Nothing is switched on behind their back. */
+      resultsExtra: function (el, ctl) {
+        if (!el) return;
+        var doc = el.ownerDocument || (HAS_WIN ? document : null);
+        if (doc && ringsOffer(ctl)) {
+          var row = doc.createElement('div'), b = doc.createElement('button'), note = doc.createElement('p');
+          row.className = 'row';
+          b.type = 'button'; b.className = 'slg-b'; b.id = 'slcRingsTry'; b.textContent = RINGS_TRY.label;
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            b.disabled = true;
+            var m = sess(cfg); m.rings = true; savePrefs(cfg, m);
+            ctl.beginRound({ variant: round.variant });
+          });
+          row.appendChild(b);
+          note.className = 'slc-rings-note'; note.textContent = RINGS_TRY.note;
+          el.appendChild(row); el.appendChild(note);
+          /* the note is a help line: on a short phone held sideways it gives way, so the sheet stays short */
+          if (doc.head && !doc.getElementById('slcRingsCss')) {
+            var st = doc.createElement('style'); st.id = 'slcRingsCss';
+            st.textContent = '.slc-rings-note{font-size:15px;margin:6px 0 0;}@media (max-height:430px){.slc-rings-note{display:none;}}';
+            doc.head.appendChild(st);
+          }
         }
+        if (!el.firstChild && el.style) el.style.display = 'none';    /* nothing to add: no empty gap */
+      },
+      /* B7: the ONE next step under the personal best, in the runner's own medal names */
+      /* priority: the first-show Timing rings line (once), then the kind coach line after a hard
+         show (DR-2), then how far to go; whatever is not the next step waits behind Details */
+      nextStep: function () {
+        var coach = coachLine();
+        if (s.finished && ringsFirst) return '🎯 First show done! Timing rings are off from now on: switch them on in the menu any time.';
+        if (coach) return '💡 ' + coach;
+        return goalLine();
+      },
+      summaryDetails: function () {
+        var g = goalLine();
+        return g && g !== round.nextStep() ? [g] : [];
+      },
+      /* the medal (and, behind Details, at most 2 missed-letter hints) */
+      summaryBadges: function () {
+        var md = curMedal(), out = [{ text: MEDALS[md].icon + ' ' + MEDALS[md].name, kind: MEDALS[md].kind }];
         var reached = s.finished ? 5 : Math.min(5, s.section), missed = 0;
         for (var k = 0; k <= reached && missed < 2; k++) {
           if (!(s.lettersMask & (1 << k))) { out.push({ text: 'Missed ' + LETTERS[k] + ': ' + LETTER_HINT[k], kind: 'hint' }); missed++; }
@@ -837,6 +1003,12 @@
     };
     /* the shop demo has no shell to drain events; the 2D view drains them itself there */
     if (cfg.demo) round.wantEvents = true;
+    /* a challenge round: the lobby (world/games/duel-lobby.js, when loaded) adds the head-to-head
+       results, Rematch and the progress pump around it; the rules inside stay this round's */
+    var DL = challengeSeed != null && HAS_WIN ? window.SLDuelLobby : null;
+    if (DL && typeof DL.wrap === 'function') {
+      try { var wrapped = DL.wrap(round, cfg); if (wrapped && typeof wrapped.step === 'function') return wrapped; } catch (e) { /* the plain round still plays */ }
+    }
     return round;
   }
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -920,6 +1092,41 @@
     ctx.fillStyle = wand; ctx.beginPath(); ctx.arc(wx, wy, 5, 0, 7); ctx.fill();
   }
 
+  /* ---------------- the child's figure in 2D (kids update KU-CH18, characters.json design.games.debutRun.twoD) ----------------
+     With the games' people helper and a character (cfg.char), the character runs as its side-view frames
+     (SLPeopleArt GAME_SPRITES.run: 96 × 120, the foot on the hitbox's foot) and the pet (cfg.pet, none when
+     null) follows its recorded path 0.35 s behind at 0.6 scale. The frames are made once per look and colour
+     and kept in memory only (the menu backdrop asks first). Until they arrive, or with no character (the
+     classic avatar has no 2D frames) or no helper, today's pet runs. Drawing only: nothing here reads or
+     writes a rule, a timing, a hitbox or a score. */
+  var FIG2D = { w: 96, h: 120, foot: [48, 116], mid: 58, petScale: 0.6, endGap: 70, flyLift: 20, promptLift: 24,
+    /* the pet waits on its own point of the path while its leader tumbles or slips (as in 3D, course-3d-math
+       sidekickDelay): closer than sepGap px it stands still, up to waitMax s behind, then hurries back */
+    ring: 128, reach: 1.3, sepGap: 90, waitMax: 1.2, catchUp: 0.5 };
+  var figMemo = [];
+  function figureFrames(cfg, color) {
+    var GP = HAS_WIN ? window.SLGamePeople : null, ch = cfg && cfg.char, key;
+    if (!GP || typeof GP.sprites !== 'function' || cfg.demo || !ch || typeof ch !== 'object' || !ch.look || typeof ch.look !== 'object') return null;
+    try { key = [ch.lk || JSON.stringify(ch.look), ch.wr || JSON.stringify([ch.wear || {}, ch.vr || {}]), color].join('|'); } catch (e) { return null; }
+    for (var i = 0; i < figMemo.length; i++) if (figMemo[i].key === key) return figMemo[i];
+    var m = { key: key, frames: null };
+    figMemo.unshift(m);
+    if (figMemo.length > 2) figMemo.length = 2;
+    try { Promise.resolve(GP.sprites(cfg, 'run', { game: 'run', color: color })).then(function (f) { if (f && f.run1) m.frames = f; }, function () {}); }
+    catch (e) { /* no figure: the pet runs as before */ }
+    return m;
+  }
+  /* the menu's title: '{name} and {pet}' when the child's figure runs with a sidekick (the start card) */
+  function titleFor(cfg) {
+    var GP = HAS_WIN ? window.SLGamePeople : null;
+    if (!cfg || cfg.demo || !GP || typeof GP.petOf !== 'function') return def.title;
+    var ch = cfg.char, who = cfg.member || cfg.user || {}, pet = GP.petOf(cfg);
+    var name = ch && typeof ch.name === 'string' && ch.name.trim() ? ch.name.trim() : typeof who.name === 'string' ? who.name.trim() : '';
+    var pn = pet && typeof pet.name === 'string' ? pet.name.trim() : '';
+    if (!name) return def.title;
+    return (pn ? name + ' and ' + pn : name) + '’s Debut Run';
+  }
+
   function makeView2D(round, cfg, api) {
     var FX = HAS_WIN ? window.SLGameFX : null;
     var reduced = !!(api && api.reduced) || !!cfg.reduced;
@@ -933,6 +1140,13 @@
     for (var i = 0; i < 46; i++) starsBg.push([r() * LW, r() * (GROUND - 170), 0.6 + r() * 1.6, r() * 6]);
     var petCol = (HAS_WIN && window.SLWorldArt && ((window.SLWorldArt.PETCOL || {})[round.pet.id] || (window.SLWorldArt.PETCOL3 || {})[round.pet.id])) || { body: '#e3b077', dark: '#b8834f' };
     var archCols = (HAS_WIN && window.SLWorldArt && window.SLWorldArt.THEME && window.SLWorldArt.THEME[round.variant]) || [th.hill, STAR_GOLD];
+    /* the child's figure (KU-CH18): its frames, the sidekick (careRunner's pet; null → none) and its trail */
+    var GPw = HAS_WIN ? window.SLGamePeople : null;
+    var fig = GPw && typeof GPw.petTrail === 'function' ? figureFrames(cfg, ucol) : null;
+    var side = fig && typeof GPw.petOf === 'function' ? GPw.petOf(cfg) : null;
+    var trail2 = fig ? GPw.petTrail({ size: FIG2D.ring, delay: FIG2D.reach }) : null, TR2 = {}, flier2 = !!(side && typeof GPw.flies === 'function' && GPw.flies(side.id));
+    var baseD = GPw && GPw.TRAIL ? GPw.TRAIL.delay : 0.35, sideD = baseD, sideT = s.t;
+    if (trail2) trail2.reset(s.t, s.dist, 0, speedNow(s));
 
     function popText(txt, color) { if (!hudLive && pop) pop.show(txt, { color: color || STAR_GOLD, life: 1.0, size: 58 }); }
     function confetti(x, y, n, spread, angle) {
@@ -1184,7 +1398,7 @@
     }
     function prompt(ctx, o) {
       var txt = o.kind === 'bar' ? '⬇ SLIDE!' : 'TAP to jump!';
-      var big = s.t - lastHurtT < 1.6, x = o.cueX, y = GROUND - (big ? 190 : 150);
+      var big = s.t - lastHurtT < 1.6, x = o.cueX, y = GROUND - (big ? 190 : 150) - (fig && fig.frames ? FIG2D.promptLift : 0);   /* clear of a figure's head */
       ctx.save(); ctx.font = '800 ' + (big ? 26 : 20) + 'px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       var w = ctx.measureText(txt).width + 26;
       ctx.fillStyle = 'rgba(255,255,255,0.92)'; rr(ctx, x - w / 2, y - 20, w, 40, 20); ctx.fill();
@@ -1192,7 +1406,83 @@
       ctx.fillStyle = '#2B2140'; ctx.fillText(txt, x, y + 1);
       ctx.restore();
     }
+    /* the child's figure runs and its pet follows 0.35 s behind (KU-CH18); the effects sit round the figure */
+    function sidekick(ctx, rx, ending) {
+      if (!side) return;
+      var dt = Math.max(0, Math.min(0.1, s.t - sideT)), was = sideD;
+      sideT = s.t;
+      trail2.read(TR2, sideD);
+      sideD = !ending && TR2.x > s.dist - FIG2D.sepGap && !TR2.airborne ? Math.min(FIG2D.waitMax, sideD + dt) : Math.max(baseD, sideD - FIG2D.catchUp * dt);
+      if (sideD !== was) trail2.read(TR2, sideD);
+      var x = TR2.x + PET_CX, lift = flier2 ? FIG2D.flyLift * TR2.lift : 0, hop = 0, waiting = sideD > was;
+      if (ending) x = Math.min(x, rx - FIG2D.endGap);
+      var tumbling = (s.eff === 'tumble' || (s.eff === 'slip' && s.effT < 0.6)) && !TR2.airborne && !TR2.sliding && !ending;
+      if (tumbling && !reduced) hop = 10 * Math.abs(Math.sin(s.t * Math.PI * 1.8));      /* a worried hop, under 2 Hz */
+      var feet = GROUND - TR2.y - lift - hop, sx = FIG2D.petScale, sy = FIG2D.petScale;
+      var frame = TR2.sliding ? 0 : TR2.airborne ? 1 : ending || tumbling || waiting ? 0 : (Math.floor(s.t * 7.5 * schedV(s.sched) / 300) & 1);
+      if (TR2.sliding) { sx *= 1.25; sy *= 0.55; }
+      if (ending && s.endT > 0.8 && !reduced) sy *= 1 + 0.05 * Math.sin(s.endT * 8);          /* a happy bop */
+      ctx.save();
+      ctx.fillStyle = 'rgba(40,30,60,0.16)'; ctx.beginPath(); ctx.ellipse(x, GROUND + 2, 24 * Math.max(0.4, 1 - (GROUND - feet) / 400), 4, 0, 0, 7); ctx.fill();
+      ctx.translate(x, feet); ctx.scale(sx, sy);
+      var img = petImages && petImages[frame];
+      if (img) ctx.drawImage(img, -66, -101, 132, 110);
+      else {
+        ctx.fillStyle = petCol.body; ctx.strokeStyle = INK; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(-4, -38, 34, 22, 0, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(28, -60, 20, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(34, -64, 3.5, 0, 7); ctx.fill();
+      }
+      ctx.restore();
+    }
+    function figure(ctx) {
+      var F = fig.frames, px = s.dist + PET_CX, feet = GROUND + s.y, ending = s.phase === 'finish' || s.phase === 'curtain' || s.phase === 'done';
+      var my = feet - FIG2D.mid;
+      sidekick(ctx, px, ending);
+      if (s.inv > 0 && !s.shield) {                    /* the steady pastel grace outline — never blinks */
+        ctx.save(); ctx.globalAlpha = 0.65; ctx.strokeStyle = HOLO[0]; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.ellipse(px, my, 54, 68, 0, 0, 7); ctx.stroke(); ctx.restore();
+      }
+      if (s.fever) { ctx.save(); ctx.globalAlpha = 0.25; ctx.fillStyle = ucol; ctx.beginPath(); ctx.ellipse(px, my, 58, 72, 0, 0, 7); ctx.fill(); ctx.restore(); }
+      var name = s.sliding ? 'slide' : !s.onGround ? 'jump' : (Math.floor(s.t * 7.5 * schedV(s.sched) / 300) & 1) ? 'run2' : 'run1';
+      var rot = 0, sx = 1, sy = 1;
+      if (s.eff === 'tumble') {
+        var e = s.effT;
+        if (reduced) { if (e < 0.3) name = 'tumble'; }
+        else if (e >= 0.08 && e < 0.53) { name = 'tumble'; rot = -2 * Math.PI * (e - 0.08) / 0.45; }   /* today's cartoon back-flip */
+        else if (e < 0.08) name = 'tumble';
+      }
+      if (ending) name = 'finish';
+      if (s.eff === 'slip' && !reduced && s.effT < 0.5 && !ending) sx *= Math.cos(s.effT / 0.5 * 2 * Math.PI);   /* the slip-spin */
+      if (landSq > 0 && !reduced && !s.sliding) { sx *= 1.08; sy *= 0.9; }
+      if (s.phase === 'curtain' && s.endT > 1.0 && !reduced) rot = 0.25 * Math.min(1, (s.endT - 1.0) / 0.4);      /* a little bow */
+      if (s.phase === 'finish' && s.endT > 0.5 && !reduced) sy *= 1 + 0.04 * Math.sin(s.endT * 8);               /* a happy bop */
+      var img = F[name] || F.run1;
+      ctx.save();
+      ctx.fillStyle = 'rgba(40,30,60,0.18)'; ctx.beginPath(); ctx.ellipse(px, GROUND + 2, 30 * Math.max(0.4, 1 - (-s.y) / 400), 6, 0, 0, 7); ctx.fill();
+      ctx.translate(px, feet);
+      if (rot) { ctx.translate(0, -FIG2D.mid); ctx.rotate(rot); ctx.translate(0, FIG2D.mid); }
+      ctx.scale(sx, sy);
+      ctx.drawImage(img, -FIG2D.foot[0], -FIG2D.foot[1], FIG2D.w, FIG2D.h);
+      ctx.restore();
+      if (s.eff === 'tumble' && s.onGround && s.effT < 1.4 && !ending) {   /* dizzy ✦ round the head after a tumble lands */
+        ctx.save(); ctx.fillStyle = STAR_GOLD; ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+        for (var d = 0; d < 3; d++) {
+          var a = (reduced ? 0 : s.t * 5) + d * 2.1;
+          starPath(ctx, px + Math.cos(a) * 30, feet - 128 + Math.sin(a) * 8, 7, 0.4); ctx.fill(); ctx.stroke();
+        }
+        ctx.restore();
+      }
+      if (s.shield) {                                  /* pearl bubble */
+        ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = PEARL; ctx.beginPath(); ctx.arc(px, my, 74, 0, 7); ctx.fill();
+        ctx.globalAlpha = 0.9; ctx.strokeStyle = HOLO[1]; ctx.lineWidth = 3; ctx.stroke();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, my, 62, 3.6, 4.4); ctx.stroke(); ctx.restore();
+      }
+      if (s.ready) { ctx.save(); ctx.fillStyle = STAR_GOLD; starPath(ctx, px - 30, GROUND - 6, 8, 0.4); ctx.fill(); starPath(ctx, px + 26, GROUND - 4, 6, 0.4); ctx.fill(); ctx.restore(); }
+    }
     function pet(ctx) {
+      if (trail2) trail2.push(s.t, s.dist, -s.y, s.sliding, !s.onGround);   /* fed every frame, so the pet is on the path when the frames land */
+      if (fig && fig.frames) { figure(ctx); return; }
       var px = s.dist + PET_CX, feet = GROUND + s.y;
       var imgs = petImages, frame = s.sliding ? 0 : s.onGround ? (Math.floor(s.t * 7.5 * schedV(s.sched) / 300) & 1) : 1;   /* slide = frame 0 squashed */
       if (s.phase === 'finish' || s.phase === 'curtain' || s.phase === 'done') frame = 0;
@@ -1357,7 +1647,8 @@
   }
   /* menu backdrop in 2D: the start line, the first Stage Door and the pet waiting */
   function idle(ctx, cfg) {
-    var r = newRound({ sound: function () {}, reduced: true }, (cfg && cfg.variant) || 'course_meadow', { seed: 7, fan: false, reduced: true, pet: cfg && cfg.pet, user: cfg && cfg.user });
+    var r = newRound({ sound: function () {}, reduced: true }, (cfg && cfg.variant) || 'course_meadow', { seed: 7, fan: false, reduced: true, pet: cfg && cfg.pet, user: cfg && cfg.user,
+      char: cfg && !cfg.demo ? cfg.char : null, member: cfg && cfg.member });
     r.course.obs.length = 0; r.course.items.length = 0;
     r.course.doors.unshift({ x: 520, sec: 0, name: 'DEBUT RUN' });
     hudLive++;                                         /* no canvas HUD behind the menu */
@@ -1401,16 +1692,18 @@
   function setOption(cfg, id, value) {
     if (id === 'music') { var mus = musicApi(); if (mus) { try { mus.setGameEnabled('course', !!value); } catch (e) { /* not saved */ } } return; }
     if (id !== 'fan' && id !== 'rings') return;                 /* 'fan' is the chip's id; 'rings' is accepted too */
-    sess(cfg).rings = !!value;
+    var m = sess(cfg);
+    m.rings = !!value;                                         /* the child's own pick, kept for them (B2) */
+    savePrefs(cfg, m);
   }
-  /* the How-to-play cards for this child: 3 hearts that never come back, and Timing rings (only
-     when the child switched them on) get their own card */
+  /* the How-to-play cards for this child: 3 hearts that never come back, and Timing rings (while
+     they are on: a new child's first shows, or the child's own pick) get their own card */
   function tutorialFor(cfg) {
     var n = T.HEARTS;
     var cards = [
       ['👆', 'Tap or Space to jump. Tap again in the air to double jump.'],
       ['⬇️', 'LED gate ahead? Hold ⬇ SLIDE to slip under it.'],
-      ['💔', 'You get ' + n + ' hearts and a lost heart never comes back. Bumps cost a heart and spill treats. Lose all ' + n + ' and the show ends!'],
+      ['💔', 'You get ' + n + ' hearts and a lost heart never comes back. Bumps cost a heart and spill snacks. Lose all ' + n + ' and the show ends!'],
       ['💗', 'Bounce on pink cushions. Jump on the beat for PERFECT!']
     ];
     if (ringsFor(cfg)) cards.push(['🎯', 'Timing rings are ON: a glow ring on the runway shows the best spot to jump. Turn them off in the menu any time.']);
@@ -1423,11 +1716,121 @@
     return t + ' · 📅 Today’s stage';
   }
 
+  /* ================================================================
+     Challenges (the kids update, games.json G3–G7 with plan-ku KU14). '⚔️ Challenge' and
+     '🔑 Join with a code' sit in the menu's Play row only when the host offers them (cfg.duels)
+     on a shell with API 2 and PeerJS loaded — so an older host, the shop demo and every solo test
+     never show a half-built challenge. Nothing is loaded until one is tapped: then social-core,
+     kart-net and the four challenge files load once, in order, and SLDuelLobby.open() puts up its
+     sheet. A family pop-up's Join launches the game with cfg.challenge = {join: 'FROG'}: the menu
+     then opens straight on the join sheet with that word.
+     ================================================================ */
+  var DUEL = { challenge: '⚔️ Challenge', join: '🔑 Join with a code', offline: 'Challenges need the internet.' };
+  var DUEL_FILES = [['SLSocialCore', 'social-core.js', 'slSocialCoreJs'], ['SLKartNet', 'kart-net.js', 'slKartNetJs'],
+    ['SLDuelCore', 'duel-core.js', 'slDuelCoreJs'], ['SLDuelNet', 'duel-net.js', 'slDuelNetJs'],
+    ['SLLobbyGroups', 'lobby-groups.js', 'slLobbyGroupsJs'], ['SLDuelLobby', 'duel-lobby.js', 'slDuelLobbyJs']];
+  var DUEL_LOAD_MS = 20000;                              /* a file that never answers counts as failed */
+  var duelWait = null, duelNote = '', autoJoin = null;
+  function duelsOn(cfg) {
+    if (!HAS_WIN || !cfg || cfg.duels !== true || cfg.demo || !Shell || !(Shell.API >= 2) || typeof window.Peer === 'undefined') return false;
+    var S = window.SLSocialCore;
+    return !(S && S.ON && S.ON.duels === false);
+  }
+  function duelsHere() { for (var i = 0; i < DUEL_FILES.length; i++) if (!window[DUEL_FILES[i][0]]) return false; return true; }
+  /* the six files, each once, in order (async = false keeps it). A tag a failed try left behind is
+     replaced; a file that loads yet defines nothing, errors or never answers fails the batch and is
+     taken out, so a later tap tries again. done(ok) for every caller waiting. */
+  function duelLoad(done) {
+    if (duelsHere()) return done(true);
+    if (duelWait) { duelWait.push(done); return; }
+    duelWait = [done];
+    var left = 0, bad = false, over = false, tags = [], timer = 0;
+    function settle(force) {
+      if (over || (!force && --left > 0)) return;
+      over = true; if (timer) clearTimeout(timer);
+      var ok = !bad && !force && duelsHere(), list = duelWait;
+      if (!ok) tags.forEach(function (t) { if (!window[t.g]) { try { t.sc.remove(); } catch (e) {} } });
+      duelWait = null;
+      list.forEach(function (f) { try { f(ok); } catch (e) {} });
+    }
+    DUEL_FILES.forEach(function (f) {
+      if (window[f[0]]) return;
+      var old = document.getElementById(f[2]);
+      if (old) { try { old.remove(); } catch (e) {} }
+      var sc = document.createElement('script');
+      sc.id = f[2]; sc.async = false;
+      sc.src = 'world/games/' + f[1] + '?v=' + (window.SL_WORLD_VER || '1');
+      tags.push({ g: f[0], sc: sc }); left++;
+      sc.addEventListener('load', function () { if (!window[f[0]]) bad = true; settle(false); });
+      sc.addEventListener('error', function () { bad = true; settle(false); });
+      document.head.appendChild(sc);
+    });
+    if (!left) { left = 1; settle(false); return; }
+    timer = setTimeout(function () { settle(true); }, DUEL_LOAD_MS);
+  }
+  /* the one line under the row: the lobby's reason (once it is loaded), offline, or the last try's note */
+  function duelReason(cfg) {
+    var L = window.SLLobbyGroups, why = null;
+    try { if (L && typeof L.reason === 'function') why = L.reason(cfg); } catch (e) { why = null; }
+    if (why) return String(why.text || why);
+    if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) return DUEL.offline;
+    return '';
+  }
+  /* the shell draws a disabled button like a live one: these two look greyed when they can't be
+     used (not eligible, or loading), so a child sees at once that the line under them matters */
+  function duelCss() {
+    if (document.getElementById('slcDuelCss')) return;
+    var st = document.createElement('style'); st.id = 'slcDuelCss';
+    st.textContent = '.slg-b[data-mbtn="challenge"]:disabled,.slg-b[data-mbtn="join"]:disabled{opacity:.45;cursor:default;}';
+    document.head.appendChild(st);
+  }
+  function menuButtons(cfg) {
+    if (!duelsOn(cfg)) return [];
+    try { duelCss(); } catch (e) {}
+    var why = duelReason(cfg), note = why || duelNote;
+    duelNote = '';
+    takeChallenge(cfg, !why);
+    return [{ id: 'challenge', label: DUEL.challenge, disabled: !!why, note: note },
+      { id: 'join', label: DUEL.join, disabled: !!why }];
+  }
+  /* a pop-up's word (cfg.challenge.join), taken once: when the menu is up, its 🔑 is pressed for
+     the child, so the join sheet opens with the word in (not when the buttons are greyed) */
+  function takeChallenge(cfg, can) {
+    var c = cfg.challenge;
+    if (!c) return;
+    cfg.challenge = null;
+    var w = c && typeof c.join === 'string' ? c.join.replace(/\s+/g, '').toUpperCase() : '';
+    if (!can || !/^[A-Z0-9]{4}$/.test(w)) return;
+    autoJoin = { cfg: cfg, code: w };
+    setTimeout(function () {
+      var b = null;
+      try { b = document.querySelector('[data-mbtn="join"]'); } catch (e) { b = null; }
+      if (b && !b.disabled) b.click(); else if (autoJoin && autoJoin.cfg === cfg) autoJoin = null;
+    }, 0);
+  }
+  function onMenuButton(id, ctl, cfg) {
+    if ((id !== 'challenge' && id !== 'join') || !ctl || !duelsOn(cfg)) return;
+    var opts = { game: 'course', mode: id === 'join' ? 'join' : 'host' };
+    if (id === 'join' && autoJoin && autoJoin.cfg === cfg) opts.code = autoJoin.code;
+    autoJoin = null;
+    var root = null;
+    try {
+      root = document.querySelector('.slg');
+      document.querySelectorAll('[data-mbtn="challenge"],[data-mbtn="join"]').forEach(function (b) { b.disabled = true; });
+    } catch (e) {}
+    duelLoad(function (ok) {
+      /* only for a child still on this game's menu: not one who left or pressed Play meanwhile */
+      if ((root && root.isConnected === false) || ctl.phase() !== 'menu') return;
+      if (!ok) { duelNote = DUEL.offline; ctl.menu(); return; }
+      try { window.SLDuelLobby.open(ctl, cfg, opts); } catch (e) { ctl.menu(); }
+    });
+  }
+
   var def = {
     key: 'course', title: 'Debut Run', emoji: '🐾', LW: LW, LH: LH, defaultVariant: 'course_meadow',
     /* the shell reads def.tutorial when it shows the cards (always after the menu, which hands us
-       its cfg): a getter, so the cards match THIS child's run — a Timing rings card only when the
-       child switched them on. tutorialFor(cfg) is the same, for a shell that passes cfg itself. */
+       its cfg): a getter, so the cards match THIS child's run — a Timing rings card only while
+       they are on. tutorialFor(cfg) is the same, for a shell that passes cfg itself. */
     get tutorial() { return tutorialFor(shownCfg); },
     tutorialFor: tutorialFor,
     controls: [{ id: 'slide', label: '⬇ SLIDE', side: 'left', aria: 'Slide' }, { id: 'jump', label: '⬆ JUMP', side: 'right', wide: true, aria: 'Jump' }],
@@ -1439,7 +1842,8 @@
     hud: { mount: mountHud },
     music: { track: 'course' },
     resultsGlass: true,
-    menuOptions: menuOptions, setOption: setOption, pbText: pbText,
+    menuOptions: menuOptions, setOption: setOption, pbText: pbText, titleFor: titleFor,
+    menuButtons: menuButtons, onMenuButton: onMenuButton,
     preload: preload, idle: idle, newRound: newRound
   };
 
@@ -1447,7 +1851,8 @@
     buildCourse: buildCourse, newRound: newRound, seedFor: seedFor, schedDist: schedDist, schedV: schedV, schedTime: schedTime,
     SECTIONS: SECTIONS, KINDS: KINDS, BEAT: BEAT, RUN_T: RUN_T, TUNING: TUNING, WIN: WIN, THEMES: THEMES, PATH: PATH, LETTERS: LETTERS,
     decodeExtra: decodeExtra, encodeExtra: encodeExtra, medal: medal, MEDALS: MEDALS, autopilotWants: autopilotWants,
-    tierOf: tierOf, tumbleL: tumbleL, speedNow: speedNow, ringsFor: ringsFor, def: def,
+    tierOf: tierOf, tumbleL: tumbleL, speedNow: speedNow, ringsFor: ringsFor, ringsByDefault: ringsByDefault, RINGS_KEY: PREF_KEY, def: def, FIG2D: FIG2D, titleFor: titleFor,
+    COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES,
     _session: sess                                     /* test seam: this child's session memory (migrated on read) */
   };
   if (HAS_WIN) window.SLCourse = API;

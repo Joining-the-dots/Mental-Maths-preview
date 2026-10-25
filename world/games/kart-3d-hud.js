@@ -9,6 +9,8 @@
                  and a ✦ sparkle bulb (never the reward-points star emoji)
      centre      pop words (≤ 2 at once; big = Unbounded 800, small = Outfit 800)
      WRONG WAY   the shell-style banner
+     tip         a first-time tip from kart.js (V4.55 fix run B5): one still line on night glass
+                 below the top chips, read out politely (role=status); hidden while WRONG WAY shows
      name tags   a shared race (V4.55): up to TAG_MAX small labels over the other
                  children's karts (avatar and roster name, a border in their colour),
                  placed by the view each drawn frame. Text is set with textContent only;
@@ -96,6 +98,10 @@ export const CSS = [
   '.k3d-wrong{position:absolute;left:50%;top:24%;transform:translateX(-50%);background:#FF5A6A;color:#14101F;font-weight:800;',
   '  border-radius:12px;padding:6px 18px;font-size:clamp(17px,3.4vmin,26px);box-shadow:0 0 0 1px rgba(255,255,255,.35),0 8px 20px rgba(0,0,0,.35);white-space:nowrap;}',
   '.k3d-wrong[hidden]{display:none;}',
+  /* the tip: below the top chips, the map and the 🎥 button on every screen; still (no animation) */
+  '.k3d-tip{position:absolute;left:50%;top:max(52px,22%);transform:translateX(-50%);width:max-content;max-width:min(480px,calc(100% - 24px));box-sizing:border-box;',
+  '  padding:6px 14px;border-radius:12px;font-weight:800;font-size:clamp(15px,2.6vmin,19px);line-height:1.3;text-align:center;color:#FFFFFF;}',
+  '.k3d-tip[hidden]{display:none;}',
   /* name tags over the other children's karts: still labels (no animation, no transition), anchored
      at their bottom centre by the view's translate; the border is the child's colour */
   '.k3d-tags{position:absolute;inset:0;overflow:hidden;}',
@@ -122,6 +128,7 @@ export const CSS = [
   '  .k3d-spot{right:auto;left:50%;top:calc(100% + 3px);transform:translateX(-50%);}',
   '  .k3d-tc .k3d-banner{margin-top:60px;}',
   '  .k3d-wrong{top:136px;}',
+  '  .k3d-tip{top:96px;}',
   '}',
   /* a narrow AND short window: a slimmer flat wand (no handle), just under the place / gap chips,
      still fits between the left chips and the map + 🎥 button */
@@ -131,6 +138,7 @@ export const CSS = [
   '  .k3d-wpip{width:10px;height:14px;}',
   '  .k3d-handle{display:none;}',
   '  .k3d-bulb{width:18px;height:18px;}',
+  '  .k3d-tip{top:128px;}',
   '}',
   '@media (max-height:420px){.k3d-map svg{width:96px;}}'
 ].join('\n');
@@ -190,9 +198,12 @@ export function makeHud(mid, o) {
   /* centre */
   const wrong = el('div', 'k3d-wrong', '↩ WRONG WAY — turn around!');
   wrong.hidden = true;
+  const tipEl = el('div', 'k3d-tip k3d-glass');
+  tipEl.setAttribute('role', 'status'); tipEl.setAttribute('aria-live', 'polite');
+  tipEl.hidden = true;
   /* the name tags' layer: first, so every other part of the HUD draws over a tag */
   const tagBox = el('div', 'k3d-tags');
-  root.append(deco(tagBox), deco(tl), deco(tc), tr, deco(wand), deco(wrong));
+  root.append(deco(tagBox), deco(tl), deco(tc), tr, deco(wand), deco(wrong), tipEl);
   /* above the canvases, below the shell's count-down / banner / screens */
   const touch = mid.querySelector && mid.querySelector('#slgTouch');
   if (touch) mid.insertBefore(root, touch); else mid.appendChild(root);
@@ -230,7 +241,7 @@ export function makeHud(mid, o) {
     return c;
   }
   /* v {place, total, gapVal (s | null), splits[{text, ahead}], lap, laps, wandPips, full, spot,
-        dots[{x, y, color, me}], night, wrong} — strings are rebuilt only when their numbers change */
+        dots[{x, y, color, me}], night, wrong, tip} — strings are rebuilt only when their numbers change */
   function update(v) {
     if (last.night !== !!v.night) { last.night = !!v.night; root.classList.toggle('night', last.night); }
     const showPlace = v.total > 1;
@@ -264,6 +275,10 @@ export function makeHud(mid, o) {
     if (last.full !== lit) { last.full = lit; bulb.classList.toggle('full', lit); }   /* an SVG's className is read-only */
     set('spot', spotTag, 'className', 'k3d-spot' + (v.spot ? ' on' : ''));
     set('wrong', wrong, 'hidden', !v.wrong);
+    /* the tip: its text only when it changes; out of sight while WRONG WAY says the one thing that matters */
+    const tip = typeof v.tip === 'string' ? v.tip : '';
+    if (tip) set('tipText', tipEl, 'textContent', tip);
+    set('tip', tipEl, 'hidden', !tip || !!v.wrong);
     /* minimap dots (pacers, rivals, then you on top) */
     if (v.dots) {
       for (let i = 0; i < v.dots.length; i++) {

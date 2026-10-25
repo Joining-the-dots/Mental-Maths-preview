@@ -134,7 +134,7 @@
     /* a fourth road: an S-chicane off the start straight, a hook into the infield ending in a hairpin */
     track_star: { name: 'Starlight Twist', laps: 3, grass: '#6FB7A8', deco: 'trees',
       look: { ground: '#6FB7A8', scenery: 'trees', setPiece: 'tunnel', sky: 'dusk' },
-      unlock: { medal: 2, on: 'remix' },                       /* a Silver time on any Remix course */
+      unlock: { medal: 1, on: 'remix' },                       /* a Bronze time on any Remix course (V4.55 fix run: Silver was out of reach for 7-11) */
       pts: [[140, 110], [330, 95], [470, 100], [590, 155], [690, 92], [800, 120], [880, 200], [870, 330], [800, 440], [640, 455],
             [540, 400], [530, 300], [465, 245], [400, 300], [390, 400], [300, 455], [170, 440], [95, 330], [90, 210]],
       layout: {
@@ -164,10 +164,13 @@
     { id: 'noodle', name: 'Noodle', lane: 0, gridP: 165, gridLat: 0, color: '#FFE27A', topper: 'visor' }
   ];
   var TRAINEE_M = [0.80, 0.87, 0.93, 0.98, 1.03], DEBUT_F = [0.55, 0.40, 0.25, 0.10, 0], HEAD_F = [0.8, 0.6, 0.4, 0.2, 0];
+  /* the Glow Crew's three speeds in a Race (the ids and the saved numbers 0-2 are V4.54's; the names
+     were Trainee / Debut / Headliner, words the Debut Run uses for its own things, so each word now
+     means one thing — and they match Race together's Gentle / Quick / Headline crew) */
   var CLASSES = [
-    { id: 'trainee', name: 'Trainee', icon: '🌱', tip: 'the Glow Crew race at your pace' },
-    { id: 'debut', name: 'Debut', icon: '🎤', tip: 'the Glow Crew race between Bronze and Silver pace' },
-    { id: 'headliner', name: 'Headliner', icon: '👑', tip: 'beat the Glow Crew leader and you have a Gold time' }
+    { id: 'trainee', name: 'Gentle', icon: '🌱', tip: 'they race at your pace' },
+    { id: 'debut', name: 'Quick', icon: '💨', tip: 'they race between Bronze and Silver pace' },
+    { id: 'headliner', name: 'Headliner', icon: '👑', tip: 'beat their leader and you have a Gold time' }
   ];
   var MEDALS = [
     { id: 'finisher', name: 'Finisher', icon: '🏁' },
@@ -184,11 +187,16 @@
     track_volcano: { bronze: 96000, silver: 67000, gold: 56000, holo: 52600 },
     track_beach: { bronze: 113500, silver: 79500, gold: 68500, holo: 67000 },
     /* the courses, by the same formulas from the two drivers on the guide line (plain 48.842 / 58.567 /
-       66.200 / 59.758 s, style 46.875 / 52.417 / 61.392 / 54.292 s); the same test re-measures them */
-    track_loop_remix: { bronze: 78500, silver: 55000, gold: 48000, holo: 47200 },
-    track_volcano_remix: { bronze: 94000, silver: 66000, gold: 55500, holo: 52700 },
-    track_beach_remix: { bronze: 106000, silver: 74500, gold: 64000, holo: 61700 },
-    track_star: { bronze: 96000, silver: 67000, gold: 57000, holo: 54600 }
+       66.200 / 59.758 s, style 46.875 / 52.417 / 61.392 / 54.292 s); the same test re-measures them.
+       Bronze on a course is KG9's instead (James, 25 Oct 2026): the smallest time, rounded up to
+       0.5 s and at most plain × 2.0, at which the typical 10-year-old model's median race earns
+       Bronze (92.06 / 102.92 / 118.09 / 108.97 s). A medal time never changes a recorded time:
+       bests and boards stay as they are, and a medal is worked out from the best whenever it is
+       shown, so an old best on a course simply shows its medal. */
+    track_loop_remix: { bronze: 92500, silver: 55000, gold: 48000, holo: 47200 },
+    track_volcano_remix: { bronze: 103000, silver: 66000, gold: 55500, holo: 52700 },
+    track_beach_remix: { bronze: 118500, silver: 74500, gold: 64000, holo: 61700 },
+    track_star: { bronze: 109000, silver: 67000, gold: 57000, holo: 54600 }
   };
   /* style-driver tuning per track: drift entry bend (rad over 200 px), release charge (s),
      look-ahead (px), bend speed targets (>1.4 / >0.8 rad), the bend a boost may carry

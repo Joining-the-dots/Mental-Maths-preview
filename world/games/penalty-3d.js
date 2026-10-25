@@ -25,6 +25,8 @@ const TAU = Math.PI * 2;
 /* night floodlight towers [x, height, z] */
 const FLOODS = [[-9.6, 7.2, -8.6], [9.6, 7.2, -8.6], [-12.2, 6.6, 3.5], [12.2, 6.6, 3.5]];
 const PET_VOICE = { pet_puppy: 'yip', pet_kitten: 'mew', pet_bunny: 'thump', pet_dragon: 'trill' };
+const DEADLINE_MS = 7000;                 /* the view's loading deadline (the runtime's ensure) */
+const TAP_HZ = 1.5, TAP_DEG = 12;         /* the child's figure taps a foot while the aim waits (≤ 2 Hz) */
 const LOCAL_BUDGET = {
   LOW: { tier: 'LOW', pixelRatioCap: 1, antialias: false, particles: 128, snow: 60, stars: 120, outlines: false },
   MID: { tier: 'MID', pixelRatioCap: 1.5, antialias: true, particles: 256, snow: 100, stars: 250, outlines: true },
@@ -73,8 +75,59 @@ async function fallbackKit() {
   const quality = { pixelRatio: budget.pixelRatio, outlines: !!budget.outlines, particleScale: 1, cones: true, steps: [] };
   return { K: hub.kit(tier), hub, tier, budget, quality };
 }
+/* the games' people helper (KU-CH16, window.SLGamePeople) when the page has it, else null: an older
+   page keeps the V4.54 staging (the pet kicks, the avatar cheers on the touchline) */
+function peopleHelper() {
+  const G = typeof window !== 'undefined' ? window.SLGamePeople : null;
+  return G && typeof G.playerRig === 'function' && typeof G.clipFor === 'function' && typeof G.petOf === 'function' ? G : null;
+}
+/* ---------------- the vox exposure fit (crisp CR5; contracts.vox) ----------------
+   The striker (a mascot, a pet in land gear, later the child's character) is a voxel rig drawn by
+   the shared 'pixel-vox' program, whose uVoxGain scales its lit colour. Fitted to this scene's two
+   lights (K.vox.fitGain), a lit top face never comes out brighter than its palette token: 0.84 under
+   the white build lights, 0.94 by day in a day stadium, 1 at night and at Showtime. Refitted only
+   when a light changes, written before every render (the stage puts it back to 1 at each lease
+   grant). Feature-detected: an older vox-gl or a stub stage has no fit and keeps today's look. */
+function voxFitter(K, hemi, sun) {
+  let V = null;
+  try { V = K ? K.vox : null; } catch (e) { V = null; }
+  const on = !!V && typeof V.fitGain === 'function' && typeof V.setGain === 'function';
+  const was = new Float64Array(9).fill(NaN), cur = new Float64Array(9);
+  let gain = 1;
+  /* the lights' fingerprint: intensities, linear colours and the sun's height (its direction's y) */
+  const changed = () => {
+    const hc = hemi.color, sc = sun.color, p = sun.position, t = sun.target ? sun.target.position : null;
+    const dx = p.x - (t ? t.x : 0), dy = p.y - (t ? t.y : 0), dz = p.z - (t ? t.z : 0);
+    cur[0] = hemi.intensity; cur[1] = hc.r; cur[2] = hc.g; cur[3] = hc.b;
+    cur[4] = sun.intensity; cur[5] = sc.r; cur[6] = sc.g; cur[7] = sc.b;
+    cur[8] = dy / (Math.sqrt(dx * dx + dy * dy + dz * dz) || 1);
+    let diff = false;
+    /* a tolerance, not ===: rounding noise in lights recomputed every frame never forces a refit */
+    for (let i = 0; i < 9; i++) if (!(Math.abs(cur[i] - was[i]) <= 1e-9)) { was[i] = cur[i]; diff = true; }
+    return diff;
+  };
+  return {
+    on,
+    gain: () => gain,
+    /* refit if a light changed, then write the gain (→ the gain written) */
+    apply() {
+      if (!on) return 1;
+      try {
+        if (changed()) { const g = Number(V.fitGain(hemi, sun)); gain = g > 0 && g < Infinity ? g : 1; }
+      } catch (e) { gain = 1; }
+      try { V.setGain(gain); } catch (e) { /* the hub is gone */ }
+      return gain;
+    },
+    /* today's look for whoever renders next */
+    reset() {
+      gain = 1; was.fill(NaN);
+      if (on) { try { V.setGain(1); } catch (e) { /* the hub is gone */ } }
+    }
+  };
+}
 
 export async function create(mid, opts) {
+  const born = now();
   opts = opts || {};
   const cfg = opts.cfg || {}, api = opts.api || {}, demo = !!(opts.demo || cfg.demo);
   const reduced = !!(opts.reduced || cfg.reduced || api.reduced);
@@ -96,6 +149,30 @@ export async function create(mid, opts) {
     if (!fb) throw new Error('penalty3d: no 3D kit');
     K = fb.K; hub = fb.hub; tier = fb.tier; budget = fb.budget; quality = fb.quality;
   }
+  const who = cfg.member || cfg.user || {};
+  const sigHex = C.normHex(who.color) || '#6C5CE7';
+
+  /* ---------------- who plays (kids update KU-CH19a; plan-ku KU8, characters.json design.games) ----------------
+     With the games' people helper the child's figure takes every kick: their character as a person rig
+     at GEO.PERSON_SCALE (1.15: clear of the goal mouth from the kicker cam), or the classic avatar when
+     they have none (or the voxels do not arrive inside this view's deadline: a game started from the
+     2D island loads them first). The pet cheers from the touchline at SIDEKICK_SCALE, or nobody when
+     there is no pet. No helper, or no figure at all (no stage) → the V4.54 staging. Either way petStage
+     places and times the kicker; nothing here touches a rule, a timing or a hitbox. Asked before the
+     renderer is leased, so the island keeps drawing while the voxels load. */
+  const GP = SL3D && !hub ? peopleHelper() : null;
+  let kickRig = null;
+  if (GP) {
+    try {
+      kickRig = await GP.playerRig(SL3D, cfg, tier, C.GEO.PERSON_SCALE,
+        { deadlineMs: Math.max(0, DEADLINE_MS - (now() - born)), color: sigHex, emoji: who.avatar || '🙂' });
+    } catch (e) { kickRig = null; }
+    if (kickRig && !kickRig.root) kickRig = null;
+  }
+  const people = !!kickRig;
+  const fanPet = people ? GP.petOf(cfg) : null;
+  const sig = people && kickRig.figure === 'person' && typeof GP.sigOf === 'function' ? GP.sigOf(cfg) : null;
+  function dropKickRig() { if (kickRig) { try { kickRig.dispose(); } catch (e) { /* gone */ } } }
   let disposed = false, failed = false, lost = false, revoked = false, lostCount = 0;
   function fail(reason) { if (failed || disposed) return; failed = true; try { onFail(reason); } catch (e) { /* the shell is gone */ } }
   let L = null, renderer = null, ownRenderer = false;
@@ -124,7 +201,7 @@ export async function create(mid, opts) {
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, budget.pixelRatioCap || 1.5));
       }
     } catch (e) { renderer = null; }
-    if (!renderer) { if (hub) hub.dispose(); throw new Error('penalty3d: no renderer'); }
+    if (!renderer) { if (hub) hub.dispose(); dropKickRig(); throw new Error('penalty3d: no renderer'); }
     ownRenderer = true;
   }
   const canvasEl = renderer.domElement;
@@ -139,11 +216,16 @@ export async function create(mid, opts) {
   applyRenderer();
 
   /* ---------------- look ---------------- */
-  const who = cfg.member || cfg.user || {};
-  const sigHex = C.normHex(who.color) || '#6C5CE7';
   const stadiumId = C.STADIUM_LOOK[cfg.stadium] ? cfg.stadium : 'stadium_day', look = C.stadiumLook(stadiumId);
   const ballId = C.BALL_LOOK[cfg.ball] ? cfg.ball : 'ball_classic', ballLook = C.ballLook(ballId);
   const petId = (cfg.pet && cfg.pet.id) || 'pet_puppy', petAcc = (cfg.pet && cfg.pet.acc) || {}, petName = (cfg.pet && cfg.pet.name) || 'Pet';
+  /* the roles: the kicker (the pet in the V4.54 staging, the child's figure with the people helper) and
+     the touchline fan (the avatar, or the pet; none without a pet); the LED cheers the kicker on */
+  const kickScale = people ? (kickRig.gameScale || C.GEO.PERSON_SCALE) : C.GEO.PET_SCALE;
+  const fanScale = people ? C.GEO.SIDEKICK_SCALE : C.GEO.AVATAR_SCALE;
+  const voiceId = people ? (fanPet ? fanPet.id : null) : petId;
+  const kickName = people ? (charName() || (typeof who.name === 'string' && who.name) || petName) : petName;
+  function charName() { const ch = typeof GP.charOf === 'function' ? GP.charOf(cfg) : null; return ch && typeof ch.name === 'string' ? ch.name : ''; }
   const seed = ((cfg.day ? String(cfg.day).split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) : 7) ^ 0x5eed) >>> 0;
   const rimSaved = K.uniforms ? { c: K.uniforms.uRimColor.value.clone(), s: K.uniforms.uRimStrength.value } : null;
 
@@ -155,11 +237,13 @@ export async function create(mid, opts) {
   const sun = new THREE.DirectionalLight(0xffffff, 2.4);
   sun.position.set(-7, 14, 9); sun.target.position.set(0, 0, 0);
   scene.add(hemi, sun, sun.target);
+  const voxFit = voxFitter(K, hemi, sun);               /* crisp CR5: 0.84 under these white build lights */
+  voxFit.apply();
   scene.fog = new THREE.Fog(0xffe3f1, 30, 70);
-  let hud = null, built = null, pet = null, avatar = null;
+  let hud = null, built = null, kicker = null, fan = null;
   try {
     built = buildScene();
-    pet = built.pet; avatar = built.avatar;
+    kicker = built.kicker; fan = built.fan;
     if (!demo) {
       hud = HUDM.makeHud(mid, { reduced, sig: sigHex, copy: C.COPY });
       hud.setVisible(false);
@@ -189,23 +273,36 @@ export async function create(mid, opts) {
     const snow = look.snow ? FXM.makeSnow(A, budget.snow || (tier === 'LOW' ? 60 : tier === 'HIGH' ? 150 : 100)) : null;
     if (snow) scene.add(snow.mesh);
     const blobs = K.blobs(16); scene.add(blobs.mesh);
-    let pet = null, avatar = null;
-    try { if (SL3D && typeof SL3D.makeRig === 'function') pet = SL3D.makeRig(petId, petAcc, tier); } catch (e) { pet = null; }
-    if (!pet || !pet.root) pet = M.makeFallbackPet(A, petId);
-    pet.root.scale.setScalar(C.GEO.PET_SCALE); scene.add(pet.root);
-    try { if (SL3D && typeof SL3D.makeAvatar === 'function') avatar = SL3D.makeAvatar({ color: sigHex, emoji: who.avatar || '🙂' }, tier); } catch (e) { avatar = null; }
-    if (!avatar || !avatar.root) avatar = M.makeFallbackAvatar(A, { color: sigHex, emoji: who.avatar });
-    if (avatar.setWand) avatar.setWand(true);
-    avatar.root.scale.setScalar(C.GEO.AVATAR_SCALE); scene.add(avatar.root);
+    let kicker = null, fan = null;
+    if (people) {
+      /* kids update: the child's figure takes the kicks (no new rig: it replaces the touchline avatar),
+         the pet cheers from the touchline through the same rig seam as before */
+      kicker = kickRig; scene.add(kicker.root);
+      if (fanPet) {
+        try { if (typeof SL3D.makeRig === 'function') fan = SL3D.makeRig(fanPet.id, fanPet.acc || {}, tier); } catch (e) { fan = null; }
+        if (!fan || !fan.root) fan = M.makeFallbackPet(A, fanPet.id);
+        fan.root.scale.setScalar(fanScale); scene.add(fan.root);
+      }
+    } else {
+      try { if (SL3D && typeof SL3D.makeRig === 'function') kicker = SL3D.makeRig(petId, petAcc, tier); } catch (e) { kicker = null; }
+      if (!kicker || !kicker.root) kicker = M.makeFallbackPet(A, petId);
+      kicker.root.scale.setScalar(C.GEO.PET_SCALE); scene.add(kicker.root);
+      try { if (SL3D && typeof SL3D.makeAvatar === 'function') fan = SL3D.makeAvatar({ color: sigHex, emoji: who.avatar || '🙂' }, tier); } catch (e) { fan = null; }
+      if (!fan || !fan.root) fan = M.makeFallbackAvatar(A, { color: sigHex, emoji: who.avatar });
+      if (fan.setWand) fan.setWand(true);
+      fan.root.scale.setScalar(C.GEO.AVATAR_SCALE); scene.add(fan.root);
+    }
     const qa = isQa() ? M.buildQa(A, P.MAP.REACH_U, P.MAP.CORNER_U) : null;
     if (qa) scene.add(qa);
-    return { sky, stadium, goal, crowd, layout, led, cones, keeper, ball, trail, aim, spot, fx, snow, blobs, pet, avatar, qa };
+    return { sky, stadium, goal, crowd, layout, led, cones, keeper, ball, trail, aim, spot, fx, snow, blobs, kicker, fan, qa };
   }
 
   /* reserved pool slots: crowd wand halos, the ball halo, Glowy's glove halos, the dizzy stars */
   const nFans = layout.length, haloIdx = fx.reserve('halo', nFans), ballHalo = fx.reserve('halo', 1)[0], gloveHalo = fx.reserve('halo', 2), dizzyIdx = fx.reserve('glow', 3);
   /* blob shadows: 4 movers + static decals under the frame, the stands and the towers */
-  const blobKeeper = blobs.alloc(), blobPet = blobs.alloc(), blobAvatar = blobs.alloc(), blobBall = blobs.alloc();
+  const blobKeeper = blobs.alloc(), blobKick = blobs.alloc(), blobFan = blobs.alloc(), blobBall = blobs.alloc();
+  const kickBlob = people ? 0.62 : 0.75, fanBlob = people ? 0.62 : 0.85;
+  if (!fan) blobs.set(blobFan, 0, -5, 0, 0.001, 0.001);
   [[-3, 0, 0.6, 0.6], [3, 0, 0.6, 0.6], [0, -0.6, 6.6, 1.6], [0, -4.9, 15.5, 1.4], [-8.4, 0, 1.4, 8.8], [8.4, 0, 1.4, 8.8]]
     .concat(C.GEO.TOWERS.map((t) => [t[0], t[2], 1.0, 1.0])).forEach((d) => { const i = blobs.alloc(); if (i >= 0) blobs.set(i, d[0], 0.004, d[1], d[2], d[3]); });
   blobs.commit();
@@ -229,6 +326,12 @@ export async function create(mid, opts) {
   const bp = {};
   const psIn = { lp: 'ready', phaseT: 0, shot: 0, flight: 0, resT: 0, res: null, idleT: 0, reduced }, ps = {};
   const petOpts = { reduced, speed: 0, rate: 1, bpm: C.DANCE_BPM, intensity: 1 }, avOpts = { reduced, speed: 0, rate: 1, bpm: C.DANCE_BPM };
+  const kickOpts = people ? avOpts : petOpts, fanOpts = people ? petOpts : avOpts;
+  /* the child's figure (kids update): petStage's moments → clips through the people helper */
+  const kmIn = { lp: '', phaseT: 0, resT: 0, res: null, rushed: false, decider: false }, km = {};
+  const skIn = { lp: '', res: null, resT: 0, encore: false, star: false, clock: 0 }, sk = {};
+  const clipOpts = { res: null, star: false, sig, pet: !!fanPet };
+  let shrugKick = -1, readyKick = -1;
   const mt = {}, menuTellOut = {}, ca = {}, pre = C.makePreset(), pips = [0, 0, 0, 0, 0, 0, 0, 0], ct = {};
   const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), prevBall = new THREE.Vector3(0, 0.11, 7.5), qBall = new THREE.Quaternion();
   const ZAXIS = new THREE.Vector3(0, 0, 1), rimC = new THREE.Color(), tmpC = new THREE.Color();
@@ -256,8 +359,8 @@ export async function create(mid, opts) {
   /* ---------------- sound (view-owned cues only; the logic plays the rest) ---------------- */
   function sfx(name, vol, step) { if (demo) return; try { if (typeof api.sound === 'function') api.sound(name, vol, step); } catch (e) { /* sound is optional */ } }
   function petVoice() {
-    if (demo) return;
-    try { if (api.sound && typeof api.sound.pet === 'function') api.sound.pet(petId, 0.8); else sfx(PET_VOICE[petId] || 'yip', 0.8); } catch (e) { /* optional */ }
+    if (demo || !voiceId) return;
+    try { if (api.sound && typeof api.sound.pet === 'function') api.sound.pet(voiceId, 0.8); else sfx(PET_VOICE[voiceId] || 'yip', 0.8); } catch (e) { /* optional */ }
   }
   function ooh() {
     if (demo) return;
@@ -298,11 +401,11 @@ export async function create(mid, opts) {
   function attach(round) {
     roundRef = round; st = round.state;
     lastN = st.evN || 0; lastClock = st.clock || 0;
-    landedKick = catchKick = heartsKick = tadaKick = glowKick = -1; catchIdx = -1;
+    landedKick = catchKick = heartsKick = tadaKick = glowKick = -1; catchIdx = -1; shrugKick = readyKick = -1;
     waveT = -1; boostT = -1; finale = null; trail.reset(); fx.clear(); clearSchedule();
     keeper.setRival(st.rival);
     if (hud) { hud.reset(); hud.setRival(rival()); hud.setHype(st.hype, false); hud.setEncore(!!st.encore); }
-    led.setText(C.ledText(st.encore ? 'encore' : 'start', { pet: petName }));
+    led.setText(C.ledText(st.encore ? 'encore' : 'start', { pet: kickName }));
     led.setPips(C.ledPips(st.log, st.shot, pips));
     C.tweenTo(showTw, C.showLevel(st.hype), 0, 0); showTw.v = showTw.to;
     setWands(C.wandsLit(st.hype, !!look.night), true);
@@ -373,7 +476,7 @@ export async function create(mid, opts) {
       if (e.final) {
         led.setText(C.ledText('final'));
         if (hud) hud.banner(C.bannerFor(e, null, P.resultLabel));
-      } else if (e.shot === 0) led.setText(C.ledText('start', { pet: petName }));
+      } else if (e.shot === 0) led.setText(C.ledText('start', { pet: kickName }));
     } else if (t === 'strike') {
       fx.sparkles(0, 0.16, 7.5, 8, 2.2, null, 0.4, 0.13);
       fx.dust(0, 0.05, 7.55, 6, grassCol);
@@ -412,20 +515,24 @@ export async function create(mid, opts) {
       else for (let k = 0; k < e.from - e.to; k++) schedule(0.3 + k * 0.08, 'pop', 0.35);
       setWands(C.wandsLit(e.to, !!look.night), false);
       C.tweenTo(showTw, C.showLevel(e.to), reduced ? 0.25 : 1.6, reduced ? 0.25 : 0.8);
-      if (!st.encore) led.setText(e.to >= 1 && e.to < 4 ? C.ledText('hype', { hype: e.to }) : C.ledText('start', { pet: petName }));
+      if (!st.encore) led.setText(e.to >= 1 && e.to < 4 ? C.ledText('hype', { hype: e.to }) : C.ledText('start', { pet: kickName }));
     } else if (t === 'encore') {
       if (hud) hud.setEncore(!!e.on);
       if (e.on) {
         if (hud) hud.banner(C.bannerFor(e, null, P.resultLabel));
         fx.streamers(24);
         led.setText(C.ledText('encore'));
-      } else led.setText(st.hype >= 1 ? C.ledText('hype', { hype: st.hype }) : C.ledText('start', { pet: petName }));
+      } else led.setText(st.hype >= 1 ? C.ledText('hype', { hype: st.hype }) : C.ledText('start', { pet: kickName }));
     } else if (t === 'boost') {
       const b = C.bannerFor(e, null, P.resultLabel);
       if (hud && b) { hud.banner(b); hud.say(b.say); }
       boostT = 0; sfx('boost', 0.5);
     } else if (t === 'finale') {
       finale = { encoreDance: !!e.encoreDance, medal: e.medal || null };
+    } else if (t === 'rushed') {
+      shrugKick = e.kick != null ? e.kick : st.kick;      /* KU gameEvents: the keeper read it, the kicker shrugs */
+    } else if (t === 'decider') {
+      readyKick = e.kick != null ? e.kick : st.kick;      /* KU gameEvents: a decider kick, the kicker stands ready */
     }
   }
 
@@ -511,11 +618,14 @@ export async function create(mid, opts) {
     if (lp === 'result' && res === 'goal' && st.final && tadaKick !== kickKey() && st.resT >= (reduced || !st.replay ? 0.6 : C.CAM.REPLAY_AT + C.CAM.REPLAY_DUR + 0.05)) {
       tadaKick = kickKey(); sfx('tada');
     }
-    /* the kicker pet and the touchline avatar */
+    /* the kicker and the touchline: petStage places and times the kicker either way */
     psIn.lp = lp; psIn.phaseT = st.phaseT; psIn.shot = st.shot; psIn.flight = flightI; psIn.resT = st.resT; psIn.res = res; psIn.idleT = st.idleT;
     C.petStage(psIn, ps);
-    posePet(ps.x, ps.z, ps.yaw, ps.clip, ps.ct, ps.speed, ps.sy, ps.tap ? st.clock : -1);
-    placeAvatar(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, C.avatarClip(lp, res, st.resT, !!st.encore), lp === 'result' ? st.resT : viewT);
+    if (people) stagePeople(lp, res);
+    else {
+      poseKicker(ps.x, ps.z, ps.yaw, ps.clip, ps.ct, ps.speed, ps.sy, ps.tap ? st.clock : -1);
+      placeFan(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, C.avatarClip(lp, res, st.resT, !!st.encore), lp === 'result' ? st.resT : viewT);
+    }
     /* the aim UI */
     updateAim(lp, axI, ayI, rv);
     /* crowd, cones, show level */
@@ -567,37 +677,64 @@ export async function create(mid, opts) {
     const h = Math.max(0, bp.y - 0.11), sh = 0.32 * Math.max(0.15, 1 - h / 2.6);
     blobs.set(blobBall, bp.x, 0.004, bp.z, sh, sh);
   }
-  function posePet(x, z, yaw, clip, t, speed, sy, tapClock) {
-    pet.root.position.set(x, 0, z);
-    pet.root.rotation.set(0, yaw, 0);
-    pet.root.scale.set(C.GEO.PET_SCALE, C.GEO.PET_SCALE * sy, C.GEO.PET_SCALE);
-    petOpts.speed = speed; petOpts.rate = 1;
-    try {
-      const pose = pet.play(clip, t, petOpts);
-      if (tapClock >= 0 && pose && typeof pet.setPose === 'function' && !reduced) {
-        pose.legFR = 22 * Math.abs(Math.sin(TAU * 2 * tapClock)); pet.setPose(pose);     /* the impatient foot tap */
-      }
-    } catch (e) { swapPet(); }
-    if (pet.setShow) pet.setShow(mode === 'play' && st && st.encore ? 1 : 0);   /* the shades turn PEARL in ENCORE MODE */
-    blobs.set(blobPet, x, 0.004, z, 0.75, 0.75);
+  /* the child's figure kicks (petStage's moments mapped by the people helper: kick → shoot, a goal → cheer
+     or the signature move, a save → shrug then thumbs-up, a miss → oops, 'rushed' → shrug, 'decider' →
+     ready); the pet cheers from the touchline (hop, dance, sit: never sad) */
+  function starNow(lp, res) {
+    if (lp !== 'result' || res !== 'goal') return false;
+    const e = st.log[st.log.length - 1];
+    return !!(e && e.star) || !!st.encore;
   }
-  function placeAvatar(x, z, yaw, clip, t) {
-    avatar.root.position.set(x, 0, z);
-    avatar.root.rotation.set(0, yaw, 0);
-    try { avatar.play(clip, t, avOpts); } catch (e) { swapAvatar(); }
-    if (avatar.setShow) avatar.setShow(showTw.v);
-    blobs.set(blobAvatar, x, 0.004, z, 0.85, 0.85);
+  function stagePeople(lp, res) {
+    kmIn.lp = lp; kmIn.phaseT = st.phaseT; kmIn.resT = st.resT; kmIn.res = res;
+    kmIn.rushed = !!st.rushed && shrugKick === st.kick;
+    kmIn.decider = st.decider > 0 && !st.waitDecide && readyKick === st.kick;
+    C.kickerMoment(kmIn, ps, km);
+    clipOpts.res = res; clipOpts.star = starNow(lp, res);
+    poseKicker(ps.x, ps.z, ps.yaw, GP.clipFor('kicker', km.moment, clipOpts), km.ct, ps.speed, km.sy, ps.tap ? st.clock : -1);
+    if (!fan) return;
+    skIn.lp = lp; skIn.res = res; skIn.resT = st.resT; skIn.encore = !!st.encore; skIn.star = clipOpts.star; skIn.clock = st.clock;
+    C.sidekickMoment(skIn, sk);
+    placeFan(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, GP.clipFor('sidekick', sk.moment, clipOpts), sk.ct);
+  }
+  function poseKicker(x, z, yaw, clip, t, speed, sy, tapClock) {
+    kicker.root.position.set(x, 0, z);
+    kicker.root.rotation.set(0, yaw, 0);
+    kicker.root.scale.set(kickScale, kickScale * sy, kickScale);
+    kickOpts.speed = speed; kickOpts.rate = 1;
+    try {
+      const pose = kicker.play(clip, t, kickOpts);
+      if (tapClock >= 0 && pose && typeof kicker.setPose === 'function' && !reduced) {
+        /* the impatient foot tap (a pet's paw at 4 taps a second, as in V4.54; a person's foot at 1.5) */
+        if (people) pose.legR = TAP_DEG * Math.abs(Math.sin(Math.PI * TAP_HZ * tapClock));
+        else pose.legFR = 22 * Math.abs(Math.sin(TAU * 2 * tapClock));
+        kicker.setPose(pose);
+      }
+    } catch (e) { swapKicker(); }
+    /* a pet's shades turn PEARL in ENCORE MODE; the classic avatar's wand glows with the show */
+    if (kicker.setShow) kicker.setShow(people ? showTw.v : mode === 'play' && st && st.encore ? 1 : 0);
+    blobs.set(blobKick, x, 0.004, z, kickBlob, kickBlob);
+  }
+  function placeFan(x, z, yaw, clip, t) {
+    if (!fan) return;
+    fan.root.position.set(x, 0, z);
+    fan.root.rotation.set(0, yaw, 0);
+    try { fan.play(clip, t, fanOpts); } catch (e) { swapFan(); }
+    if (fan.setShow) fan.setShow(people ? (mode === 'play' && st && st.encore ? 1 : 0) : showTw.v);
+    blobs.set(blobFan, x, 0.004, z, fanBlob, fanBlob);
   }
   /* a rig that throws once is replaced by the primitive fallback for the rest of the visit */
-  function swapPet() {
-    if (pet.fallback) return;
-    try { pet.dispose(); } catch (e) { /* gone */ }
-    pet = M.makeFallbackPet(A, petId); pet.root.scale.setScalar(C.GEO.PET_SCALE); scene.add(pet.root);
+  function swapKicker() {
+    if (kicker.fallback) return;
+    try { kicker.dispose(); } catch (e) { /* gone */ }
+    kicker = people ? M.makeFallbackAvatar(A, { color: sigHex, emoji: who.avatar }) : M.makeFallbackPet(A, petId);
+    kicker.root.scale.setScalar(kickScale); scene.add(kicker.root);
   }
-  function swapAvatar() {
-    if (avatar.fallback) return;
-    try { avatar.dispose(); } catch (e) { /* gone */ }
-    avatar = M.makeFallbackAvatar(A, { color: sigHex, emoji: who.avatar }); avatar.root.scale.setScalar(C.GEO.AVATAR_SCALE); scene.add(avatar.root);
+  function swapFan() {
+    if (!fan || fan.fallback) return;
+    try { fan.dispose(); } catch (e) { /* gone */ }
+    fan = people ? M.makeFallbackPet(A, fanPet.id) : M.makeFallbackAvatar(A, { color: sigHex, emoji: who.avatar });
+    fan.root.scale.setScalar(fanScale); scene.add(fan.root);
   }
   function updateAim(lp, axI, ayI, rv) {
     const aiming = lp === 'aimX' || lp === 'aimY', locked = lp === 'windup' || lp === 'strike';
@@ -653,6 +790,11 @@ export async function create(mid, opts) {
 
   /* ---------------- RESULTS (the Encore dance break or the signature move) ---------------- */
   const DANCE_SPOT = { pet: [0, 2.95], avatar: [-1.15, 2.6], keeper: [1.3, 2.3] };
+  /* the child's character's signature move, then a 1 s cheer, at least every 3 s */
+  const sigCycle = sig ? Math.max(3, clipLen(kicker, sig, 2.2) + 1) : 3;
+  function clipLen(r, clip, d) {
+    try { const i = r && typeof r.info === 'function' ? r.info(clip) : null; return i && i.dur > 0 ? i.dur : d; } catch (e) { return d; }
+  }
   function updateResults(dt) {
     resultsT += dt;
     if (st) consume();
@@ -666,15 +808,17 @@ export async function create(mid, opts) {
       fx.confetti(-C.GEO.POST, 0.2, 1.5, n, 0.3, 1, 0.2, 0.7); fx.confetti(C.GEO.POST, 0.2, 1.5, n, -0.3, 1, 0.2, 0.7);
     }
     C.tweenTo(showTw, dance ? 1 : C.showLevel(st ? st.hype : 0), reduced ? 0.25 : 1.6, reduced ? 0.25 : 0.8);
-    let petClip = 'idle', petT = resultsT, avClip = 'cheer';
+    /* the kicker hops to the front of the stage, the touchline fan joins it; the child's figure leaps,
+       arms up, already facing the camera from its last kick (so it never turns round mid-air) */
+    let kickClip = people && !reduced && resultsT < 0.6 ? 'jump' : 'idle', kickT = resultsT, fanClip = people ? (reduced || resultsT >= 0.6 ? 'cheer' : 'hop') : 'cheer';
     if (dance && resultsT >= 0.6) {
-      petClip = 'dance'; petT = dT; avClip = 'dance';
+      kickClip = 'dance'; kickT = dT; fanClip = 'dance';
       C.keeperDance(dT, reduced, DANCE_SPOT.keeper[0], DANCE_SPOT.keeper[1], kp);
       const dc = C.danceCount(dT, C.DANCE_BPM), loop = Math.floor(dT / (8 * dc.beat));
       if (dc.c === 7 && danceLoop !== loop) {
         danceLoop = loop;
         /* count 8: finger hearts and a 32-sparkle burst; the first time also fireworks and a cheer */
-        fx.hearts(px, 1.4, pz, 4); fx.hearts(DANCE_SPOT.avatar[0], 1.6, DANCE_SPOT.avatar[1], 4); fx.hearts(DANCE_SPOT.keeper[0], 2.2, DANCE_SPOT.keeper[1], 4);
+        fx.hearts(px, people ? 2.0 : 1.4, pz, 4); if (fan) fx.hearts(DANCE_SPOT.avatar[0], people ? 1.1 : 1.6, DANCE_SPOT.avatar[1], 4); fx.hearts(DANCE_SPOT.keeper[0], 2.2, DANCE_SPOT.keeper[1], 4);
         fx.sparkles(0, 1.6, 2.6, 32, 2.6, null, 0.8, 0.14);
         if (!cheerDone) {
           cheerDone = true; sfx('cheer');
@@ -682,10 +826,14 @@ export async function create(mid, opts) {
         }
       }
     } else {
-      /* under 5 goals: the pet's signature move every 3 s; the keeper waves, a good sport */
-      if (resultsT >= 0.6) {
+      /* under 5 goals: the pet's signature move every 3 s (the child's figure: their character's own
+         signature move, then a cheer; a cheer for a figure without one); the keeper waves, a good sport */
+      if (resultsT >= 0.6 && people) {
+        const cyc = dT % sigCycle;
+        if (sig && cyc < sigCycle - 1) { kickClip = sig; kickT = cyc; } else { kickClip = 'cheer'; kickT = sig ? cyc - (sigCycle - 1) : dT; }
+      } else if (resultsT >= 0.6) {
         const cyc = dT % 3, beat = 60 / C.DANCE_BPM;
-        if (cyc < 1.02) { petClip = 'dance'; petT = 4 * beat + cyc * 2 * beat * 0.98; } else { petClip = 'cheer'; petT = cyc; }
+        if (cyc < 1.02) { kickClip = 'dance'; kickT = 4 * beat + cyc * 2 * beat * 0.98; } else { kickClip = 'cheer'; kickT = cyc; }
       }
       kIn.lp = 'menu'; kIn.tellType = rival().tell; kIn.tell = null; kIn.clock = resultsT; kIn.reduced = reduced; kIn.bop = rival().id === 'rival_bop'; kIn.worried = false;
       C.keeperPose(kIn, kp);
@@ -700,9 +848,10 @@ export async function create(mid, opts) {
       }
     }
     keeper.apply(kp);
-    posePet(px, pz, reduced ? 0 : C.lerp(Math.PI, 0, Math.min(1, resultsT / 0.4)), petClip, petT, 0, 1, -1);
-    pet.root.position.y = lift;
-    placeAvatar(C.lerp(av[0], DANCE_SPOT.avatar[0], hop), C.lerp(av[2], DANCE_SPOT.avatar[1], hop), C.lerp(C.GEO.AVATAR_YAW, 0, hop), avClip, dance ? dT : resultsT);
+    poseKicker(px, pz, reduced || people ? 0 : C.lerp(Math.PI, 0, Math.min(1, resultsT / 0.4)), kickClip, kickT, 0, 1, -1);
+    kicker.root.position.y = lift;
+    placeFan(C.lerp(av[0], DANCE_SPOT.avatar[0], hop), C.lerp(av[2], DANCE_SPOT.avatar[1], hop), C.lerp(C.GEO.AVATAR_YAW, 0, hop), fanClip, dance ? dT : resultsT);
+    if (fan && people) fan.root.position.y = lift;
     /* the ball rests on the spot; the stage lights stay on */
     ball.root.position.set(0.9, 0.11, 3.6); ball.root.quaternion.identity(); ball.root.scale.set(1, 1, 1);
     blobs.set(blobBall, 0.9, 0.004, 3.6, 0.3, 0.3);
@@ -737,8 +886,8 @@ export async function create(mid, opts) {
     for (let i = 0; i < 3; i++) fx.glowPool.set(dizzyIdx[i], 0, -5, 0, 0.1, cGold, 0, 0, 0);
     fx.halos.set(ballHalo, 0, -5, 0, 0.1, cSig, 0, 0, 0);
     const K0 = C.GEO.KICKER;
-    posePet(K0[0], K0[2], reduced ? 0.5 : 0.5 + 0.15 * Math.sin(TAU * 0.05 * menuT), 'idle', menuT, 0, 1, -1);
-    placeAvatar(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, 'idle', menuT);
+    poseKicker(K0[0], K0[2], reduced ? 0.5 : 0.5 + 0.15 * Math.sin(TAU * 0.05 * menuT), 'idle', menuT, 0, 1, -1);
+    placeFan(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, 'idle', menuT);
     ball.root.position.set(0, 0.11, 7.5); ball.root.quaternion.identity(); ball.root.scale.set(1, 1, 1);
     blobs.set(blobBall, 0, 0.004, 7.5, 0.3, 0.3);
     aim.group.visible = false; aim.setHelp(P.MAP.REACH_U.stay, 0); trail.reset(); goal.ripple(null);
@@ -842,6 +991,7 @@ export async function create(mid, opts) {
     /* the comet ribbon faces the camera, so it is built after the camera moves */
     if (mode === 'play') trail.draw(camera.position, trailMode ? 0.11 : 0.08, 0.9, trailColor); else trail.reset();
     applyRenderer();
+    voxFit.apply();                                       /* stepShared may have moved the lights on */
     renderer.render(scene, camera);
     if (phase === 'playing') {
       if (L) L.sample(now() - t0); else selfMonitor(t0);
@@ -861,8 +1011,9 @@ export async function create(mid, opts) {
   }
   function cleanup() {
     try { scene.traverse((o) => { if (o.isInstancedMesh) o.dispose(); }); } catch (e) { /* partial scene */ }
+    if (!built) dropKickRig();                            /* the child's figure was made before the scene */
     if (built) {
-      ['keeper', 'ball', 'pet', 'avatar'].forEach((k) => { const x = k === 'pet' ? pet || built.pet : k === 'avatar' ? avatar || built.avatar : built[k]; try { if (x && x.dispose) x.dispose(); } catch (e) { /* gone */ } });
+      [built.keeper, built.ball, kicker || built.kicker, fan || built.fan].forEach((x) => { try { if (x && x.dispose) x.dispose(); } catch (e) { /* gone */ } });
       try { built.fx.dispose(); } catch (e) { /* gone */ }
       try { if (built.snow) built.snow.dispose(); } catch (e) { /* gone */ }
       try { built.blobs.dispose(); } catch (e) { /* gone */ }
@@ -870,6 +1021,7 @@ export async function create(mid, opts) {
     try { A.dispose(); } catch (e) { /* gone */ }
     scene.clear();
     if (rimSaved && K.setRim) { try { K.setRim(rimSaved.c, rimSaved.s); } catch (e) { /* kit gone */ } }
+    voxFit.reset();                                       /* the next holder starts from today's look */
     if (ownRenderer) {
       canvasEl.removeEventListener('webglcontextlost', onCtxLost, false);
       canvasEl.removeEventListener('webglcontextrestored', onCtxRestored, false);
@@ -893,7 +1045,10 @@ export async function create(mid, opts) {
     const ri = renderer.info;
     return { tier, mode, lease: !!L, calls: ri.render.calls, tris: ri.render.triangles, programs: ri.programs ? ri.programs.length : 0,
       geometries: ri.memory.geometries, textures: ri.memory.textures, crowd: crowdShown, show: showTw.v, camera: camKey,
-      variant, rival: menuRival, stadium: stadiumId, ball: ballId };
+      variant, rival: menuRival, stadium: stadiumId, ball: ballId, voxGain: voxFit.gain(),
+      /* who plays (kids update): 'person' | 'classic' (the child's figure) | 'pet' (V4.54), and the touchline */
+      kicker: people ? (kicker.fallback ? 'fallback' : kicker.figure || 'person') : kicker.fallback ? 'fallback' : 'pet',
+      touchline: fan ? (people ? 'pet' : 'avatar') : null };
   }
 
   /* compile behind the menu so the first kick doesn't stutter (hidden parts too) */

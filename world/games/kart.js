@@ -7,15 +7,30 @@
    the 2D top-down renderer (the fallback whenever 3D isn't running).
    A lap still only counts through gates 1-2-3 then the line, and the
    score is still the honest race clock.
-   V4.55: the course menu (Remix courses first, a classic track only
-   for a child with a best on it), and the sounds, words and 2D drawing
-   of everything on a Remix course's road. With a cached V4.54
+   V4.55: the course menu, and the sounds, words and 2D drawing of
+   everything on a Remix course's road. With a cached V4.54
    kart-logic.js (no API mark) the game is the V4.54 one.
+   V4.55 fix run (25 Oct 2026): every owned track's Classic is on the
+   menu and a new driver starts there, the Remix being the next step
+   (B1); two short How-to-play cards, the rest as first-time tips in
+   the race, and the Glow Crew and Camera rows under "More options"
+   until the first finish (B5); '⬇ Brake', the place shown once (B11);
+   a TV camera that is saved as TV, one name per camera; the results
+   say what happened and one next step, the numbers behind "Details".
    V4.55 Race together: the menu button (the lobby and the race
    network are loaded only when it is tapped), and the live round the
    lobby hands over (cfg.kartLive): the other children's karts, the
    finish sent once, no pause, and the shared results table. Nothing
    about another child is kept anywhere but in this round's memory.
+   Kids update (KG7): '⚔️ Challenge' and '🔑 Join with a code' beside
+   Race together when the host offers challenges (cfg.duels); both go
+   into the Race together sheets with a room addressed by a game word
+   (kart-lobby.js). A family pop-up's Join launches the game with
+   cfg.challenge = {join: 'FROG'}. After a hard race, one kind coach
+   line (GP-2).
+   Kids update (KU-CH19b): with a character (cfg.char) the 2D kart's
+   driver is the child's head from above, their pet's ears or wing tips
+   behind it (driverLook / riderLook). Drawing only.
    ================================================================ */
 (function () {
   'use strict';
@@ -32,8 +47,22 @@
   var GOO = { bubblegum: '#FF8FC8', 'toffee-lava': '#F2A03D', seaweed: '#3FA66B', 'wet-sand': '#B98F54' };
   function own(o, key) { return !!o && Object.prototype.hasOwnProperty.call(o, key); }
 
-  /* ---------- per-profile options: localStorage 'slKart:v1:<profileKey>' ---------- */
-  var OPT_KEY = 'slKart:v1:', MODES = ['race', 'solo'], CAMS = ['chase', 'stage', 'map'];
+  /* ---------- per-profile options: localStorage 'slKart:v1:<profileKey>' ----------
+     V4.55 fix run: 'tv' is a camera that is saved too (it used to fall back to the one before it,
+     so the next game opened top-down); course = the course this profile last raced (a device's
+     'slgVar:kart' is shared by brothers and sisters); tips = the first-time race tips already shown
+     (TIP bits). An older kart.js reads none of the new fields and keeps working. */
+  var OPT_KEY = 'slKart:v1:', MODES = ['race', 'solo'], CAMS = ['chase', 'stage', 'map', 'tv'];
+  var TIP = { strip: 1, drift: 2, trick: 4 }, TIP_ALL = 7;
+  /* the first-time race tips (makeRound's tipsStep): what each says, how long it stays (s), the gap
+     after one, the earliest race time for the first one and for the bend one, and the bend (rad over
+     170 px, 220 px ahead) that counts — Island Loop's sharpest is 0.59 */
+  var TIP_TEXT = {
+    strip: '⏩ Drive over the arrow strips for a boost!',
+    trick: '🤸 Tap ✨ in the air off the ramp for a trick!',
+    drift: '↪️ In a bend, hold ✨ to drift. Let go for a boost!'
+  };
+  var TIP_SEC = 3.5, TIP_GAP = 2, TIP_FIRST = 1.5, TIP_DRIFT_T = 5, TIP_BEND = 0.5;
   function pbMs(cfg, variant) { var r = cfg && cfg.pb && cfg.pb['kart:' + variant]; return r && r.ms != null ? r.ms : null; }
   function hasKartPb(cfg) { return Object.keys((cfg && cfg.pb) || {}).some(function (k) { return k.indexOf('kart:') === 0 && cfg.pb[k] && cfg.pb[k].ms != null; }); }
   /* this page session's copy of each profile's options, for when localStorage is blocked */
@@ -58,6 +87,9 @@
       if (CAMS.indexOf(stored.cam) >= 0) o.cam = stored.cam;
       /* V4.55: the How-to-play cards with the Remix wording were shown (the key is only there once they were) */
       if (stored.remixSeen === true) o.remixSeen = true;
+      /* V4.55 fix run (each key only there once it was set): the last course raced, the tips shown */
+      if (typeof stored.course === 'string' && stored.course.length <= 40) o.course = stored.course;
+      if (stored.tips === (stored.tips & TIP_ALL) && stored.tips > 0) o.tips = stored.tips;
     }
     /* … and from then on it is the child's last choice (spec-kart MENU OPTIONS): the default is
        saved the first time it is read, so finishing race 1 (which sets a kart time) never turns
@@ -69,9 +101,11 @@
   function saveOpts(cfg, o) {
     cfg.kartOpts = o;
     if (cfg.profileKey == null) return;
-    memo[cfg.profileKey] = { mode: o.mode, cls: o.cls, easy: o.easy, cam: o.cam };
-    if (o.remixSeen) memo[cfg.profileKey].remixSeen = true;
-    try { localStorage.setItem(OPT_KEY + cfg.profileKey, JSON.stringify(o)); } catch (e) {}
+    var m = memo[cfg.profileKey] = { mode: o.mode, cls: o.cls, easy: o.easy, cam: o.cam };
+    if (o.remixSeen) m.remixSeen = true;
+    if (typeof o.course === 'string') m.course = o.course;
+    if (o.tips > 0) m.tips = o.tips;
+    try { localStorage.setItem(OPT_KEY + cfg.profileKey, JSON.stringify(m)); } catch (e) {}
   }
   /* V4.55 courses: are they in the loaded race logic? (a cached V4.54 kart-logic.js has no API mark;
      the game then offers the classic tracks exactly as V4.54 did) */
@@ -108,9 +142,10 @@
     L.courseIds().forEach(function (id) { if (L.isCourse(id) && L.courseBase(id)) best = Math.max(best, L.medalFor(id, pbMs(cfg, id))); });
     return best;
   }
-  /* The course chips, in order: the Remix of every owned track; each new road behind its unlock rule
-     (Starlight Twist: a Silver time on any Remix course); then 'Classic: <track>' for each owned
-     track on which the child already has a best. A course with no medal times shows no medal. */
+  /* The course chips, in order (V4.55 fix run B1: new drivers start on Classic, the Remix is the next
+     step): for each owned track, in the tracks' own order, 'Classic: <track>' and then its Remix;
+     then each new road behind its unlock rule (Starlight Twist: a Bronze time on any Remix course).
+     A course with no medal times shows no medal. */
   function menuVariants(cfg) {
     var L = logic(), ids = L.courseIds(), owned = ownedTracks(cfg), out = [];
     function chip(id, name, more) {
@@ -118,14 +153,23 @@
       if (more) { c.locked = true; c.lockText = more; }
       out.push(c);
     }
-    ids.forEach(function (id) { if (L.isCourse(id) && owned.indexOf(L.courseBase(id)) >= 0) chip(id, L.courseName(id)); });
+    ids.forEach(function (base) {
+      if (L.isCourse(base) || owned.indexOf(base) < 0) return;
+      chip(base, 'Classic: ' + L.courseName(base));
+      ids.forEach(function (id) { if (L.isCourse(id) && L.courseBase(id) === base) chip(id, L.courseName(id)); });
+    });
     ids.forEach(function (id) {
       if (!L.isCourse(id) || L.courseBase(id)) return;
       var u = L.COURSES[id].unlock, M = u ? L.MEDALS[u.medal] : null;
       chip(id, L.courseName(id), M && remixMedal(cfg) < u.medal ? 'Get a ' + M.icon + ' ' + M.name + ' time on any Remix course' : '');
     });
-    owned.forEach(function (id) { if (pbMs(cfg, id) != null) chip(id, 'Classic: ' + L.courseName(id)); });
     return out;
+  }
+  /* the Remix of a classic track, or null */
+  function remixOf(base) {
+    var L = logic(), hit = null;
+    L.courseIds().forEach(function (id) { if (!hit && L.isCourse(id) && L.courseBase(id) === base) hit = id; });
+    return hit;
   }
   /* The island's track model follows the course a child races. Called when a round of the child's
      own starts on the menu's course: a course whose classic track the child owns, and which is not
@@ -139,9 +183,18 @@
     cfg._kartIsland = base;
     try { cfg._kartIslandSelect(base); } catch (e) {}
   }
+  /* the child's own round on the menu's course: this profile's course, for the next start */
+  function rememberCourse(cfg, variant) {
+    if (!cfg || !cfg._kartStart || cfg.demo || cfg.profileKey == null || variant !== cfg.variant) return;
+    var o = loadOpts(cfg);
+    if (o.course !== variant) { o.course = variant; saveOpts(cfg, o); }
+  }
   /* Before the shell starts the game (its start is wrapped below):
-     - the island's selected track is remembered, and the game opens on the course this device chose
-       last, else on the Remix of the island's track (cfg.variant is what the shell opens on);
+     - the island's selected track is remembered, and the game opens (V4.55 fix run B1) for a new
+       driver — no kart time anywhere yet — on the island's track itself, its Classic; for anyone
+       else on the course this profile raced last, else the one this device chose last, else that
+       Classic too. cfg.variant is what the game opens on, and the device's 'slgVar:kart' is set to
+       match (the shell reads it, and it may be a brother's or sister's choice);
      - the How-to-play cards are shown once more to a child who saw the V4.54 ones: cfg.tutSeen counts
        as false until this profile's remixSeen option is set, which closing the cards does;
      - on the test copy (window.SL_QA_COPY) a finished course round is not saved. */
@@ -150,14 +203,16 @@
     if (!cfg || cfg._kartStart || !coursesOn()) return;
     cfg._kartStart = true;
     hookVariant(cfg);
-    var L = logic(), list = menuVariants(cfg), stored = null;
+    var L = logic(), list = menuVariants(cfg), stored = null, fresh = !hasKartPb(cfg), mine = loadOpts(cfg).course, pick;
     function open(id) { return id != null && list.some(function (v) { return v.id === id && !v.locked; }); }
     cfg._kartIsland = own(L.TRACKS, cfg.variant) ? cfg.variant : L.courseBase(cfg.variant);
     try { stored = localStorage.getItem('slgVar:' + def.key); } catch (e) { stored = null; }
-    var remix = list.filter(function (v) { return !v.locked && L.isCourse(v.id) && L.courseBase(v.id) === cfg._kartIsland; })[0];
-    if (open(stored)) cfg.variant = stored;
-    else if (remix && cfg._kartIsland) cfg.variant = remix.id;
-    else if (!open(cfg.variant)) cfg.variant = (list.filter(function (v) { return !v.locked; })[0] || list[0] || { id: cfg.variant }).id;
+    if (!fresh && open(mine)) pick = mine;
+    else if (!fresh && open(stored)) pick = stored;
+    else if (open(cfg._kartIsland)) pick = cfg._kartIsland;
+    else pick = open(cfg.variant) ? cfg.variant : (list.filter(function (v) { return !v.locked; })[0] || list[0] || { id: cfg.variant }).id;
+    cfg.variant = pick;
+    if (stored !== pick && pick != null) { try { localStorage.setItem('slgVar:' + def.key, pick); } catch (e) { /* the shell opens on cfg.variant then */ } }
     if (!loadOpts(cfg).remixSeen) {
       var seen = cfg.onTutorialSeen;
       cfg.tutSeen = false;
@@ -229,7 +284,48 @@
   }
 
   function ordinal(n) { return n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'); }
+  /* the next step after a first Classic finish (V4.55 fix run B1): the line, and its button */
+  var REMIX_NEXT = 'Try the Remix: more obstacles!', REMIX_GO = '🔀 Try the Remix: more obstacles', REMIX_AGAIN = '↻ Race Classic again';
+  function TIME_UP(laps) { return 'Time’s up — great driving! Finish all ' + laps + ' laps to set a time.'; }
+  /* a game shell of API 3 (V4.55 fix run) lays out the results itself: nextStep, Details, nextVariant, hud3d */
+  function shell3() { return !!Shell && Shell.API >= 3; }
   var MEDAL_KIND = ['ribbon', 'bronze', 'silver', 'gold', 'crown'];
+
+  /* ---------- after a hard race: one kind coach line (GP-2) ----------
+     Only after a finished race that earned no medal: a medal race already gets its nudge, and the
+     V4.54 results of a medal race stay word for word. The first that fits, in this order: three or
+     more knock-overs (with Easy Drive on, the Glow Line goes round them), three or more wall
+     scrapes, no Spark Boost at all. Each says what to try next; none says fail, lose, bad or wrong. */
+  var COACH = {
+    bumps: 'You bumped {n} things — the Glow Line in Easy Drive goes round them.',
+    easy: 'Follow the Glow Line round the {things}.',
+    walls: 'Ease off in the bends: ⬇ brakes a bit before the turn.',
+    spark: 'Hold ✨ in a bend until the sparks go pink, then let go for a boost!'
+  };
+  var COACH_SEP = '\n💡 ';                    /* in the summary text: a line break, then the tip */
+  /* what a course's knock-over things and crossers are called, by their look */
+  var THINGS = { cone: 'cones', crystal: 'crystals', sandcastle: 'sandcastles', 'stage-bot': 'stage-bots', 'lava-rock': 'lava rocks', crab: 'crabs' };
+  function thingsOf(F) {
+    var sk = (F && F.skins) || {}, out = [];
+    if ((F.obstacles || []).length) out.push(THINGS[sk.obstacle] || 'cones');
+    if ((F.crossers || []).length) out.push(THINGS[sk.crosser] || 'crossers');
+    return out.join(' and ') || 'cones';
+  }
+  /* On the results sheet the coach line leaves the long stats line and gets a line of its own under
+     the medals, in lemon ink (contrast over 12:1 on the sheet), so a child sees the tip first. The
+     shell's summary text keeps it (it is read out with the rest). */
+  function coachShow(el, line) {
+    var sc = el && el.parentNode, p = null, d, tip;
+    try { p = sc ? sc.querySelector('p') : null; } catch (e) { p = null; }
+    if (!p || !line) return;
+    if (typeof p.textContent === 'string' && p.textContent.indexOf(COACH_SEP) >= 0) p.textContent = p.textContent.split(COACH_SEP)[0];
+    d = el.ownerDocument || document;
+    tip = d.createElement('p');
+    tip.className = 'slg-coach';
+    tip.textContent = COACH_SEP.slice(1) + line;
+    if (tip.style) { tip.style.color = '#ffe27a'; tip.style.fontWeight = '800'; }
+    sc.insertBefore(tip, el);
+  }
 
   /* ---------- a round ---------- */
   /* the shell's hook: a round the child plays (the idle picture builds one too, through makeRound).
@@ -238,13 +334,15 @@
   function newRound(api, variant, cfg) {
     var ses = liveSession(cfg);
     islandSync(cfg, variant);
-    return makeRound(api, variant, cfg, ses);
+    if (!ses) rememberCourse(cfg, variant);
+    return makeRound(api, variant, cfg, ses, true);
   }
-  function makeRound(api, variant, cfg, ses) {
+  /* mine: a round the child plays (newRound), not the idle picture: only it shows first-time tips */
+  function makeRound(api, variant, cfg, ses, mine) {
     api = api || { sound: function () {} };
     cfg = cfg || {};
     var L = logic(), MEDALS = L.MEDALS;
-    var o = loadOpts(cfg), prevPb = pbMs(cfg, variant);
+    var o = loadOpts(cfg), prevPb = pbMs(cfg, variant), remixBefore = !cfg.demo && coursesOn() ? remixMedal(cfg) : 0;
     var demo = !!cfg.demo, style = demo || !!cfg.autoStyle;
     var mode = demo || ses ? 'race' : o.mode, cls = demo ? (L.PAR[variant] ? 1 : 0) : ses ? 0 : effCls(cfg, o, variant);
     /* the Stage classes open before this round (its result may open one: the nudge says so) */
@@ -260,6 +358,8 @@
     var kartCol = hex((arts.KARTS || {})[cfg.kart], '#e94b4b');
     var sigCol = hex(cfg.user && cfg.user.color, '#6C5CE7');
     var petCol = hex(((arts.PETCOL || {})[cfg.pet && cfg.pet.id] || (arts.PETCOL3 || {})[cfg.pet && cfg.pet.id] || {}).body, STAR_GOLD);
+    /* KU-CH19b: the child at the wheel in 2D, their pet behind (null: V4.55's pet-coloured head) */
+    var drv2d = driverLook(cfg), rider2d = drv2d ? riderLook(cfg, arts) : null;
     var held = {}, fxq = [], realT = 0, later = [], lastSkid = -9, lastChip = -9, lastPip = 0, purrN = 0, lastGap = null;
     var cam = { x: 0, y: 0 };
     function camTarget() { return [Math.max(0, Math.min(L.WW - LW, k.x + Math.cos(k.h) * 90 - LW / 2)), Math.max(0, Math.min(L.WH - LH, k.y + Math.sin(k.h) * 60 - LH / 2))]; }
@@ -335,7 +435,7 @@
       done: false, kart: k, progress: pr, track: track, state: s, race: race,
       fx: fxq, events: [], wantEvents: false,
       opts: { mode: mode, cls: cls, easy: race.opts.easy, cam: o.cam },
-      kartColor: kartCol, sigColor: sigCol, petColor: petCol, cam: cam, fxDt: 0,
+      kartColor: kartCol, sigColor: sigCol, petColor: petCol, driver2d: drv2d, rider2d: rider2d, cam: cam, fxDt: 0,
       step: function (dt, h) {
         if (round.done) return;
         if (lv) lv.frame();         /* a shared race: once per drawn frame, the others' karts and mine on the wire */
@@ -343,6 +443,7 @@
         race.step(dt, held);
         realT += dt; round.fxDt += dt;
         drain();
+        tipsStep();
         for (var i = later.length - 1; i >= 0; i--) if (realT >= later[i].at) { snd(later[i].name); later.splice(i, 1); }
         engine();
         var tgt = camTarget(), f = Math.min(1, dt * 5);
@@ -364,11 +465,15 @@
         return '';
       },
       forceEnd: function () { round.done = true; purrStop(); if (lv) lv.stop(); },
+      /* the shell's text pill: the lap and the clock. The place is shown once, big, by the race view
+         itself (the 3D HUD's place chip, the 2D place chip) — V4.55 fix run B11 */
       hud: function () {
         if (lv) lv.drawn();
         var t = s.finishT != null ? s.finishT : s.t;
-        return (race.rivals.length ? 'P' + s.place + ' · ' : '') + 'Lap ' + Math.min(LAPN, pr.lap + 1) + '/' + LAPN + ' · ⏱ ' + L.fmt(t * 1000);
+        return 'Lap ' + Math.min(LAPN, pr.lap + 1) + '/' + LAPN + ' · ⏱ ' + L.fmt(t * 1000);
       },
+      /* the first-time tip on screen now ('' for none): the 2D and 3D views both show it */
+      tip: function () { return tip ? tip.text : ''; },
       result: function () { return race.result(); },
       /* the place: in a shared race the results table's, read now (null: none to show) */
       summaryTitle: function () {
@@ -382,13 +487,26 @@
         if (!res) return 'Not finished';
         return (race.rivals.length && p != null ? ordinal(p) + ' · ' : '') + L.fmt(res.ms);
       },
-      summaryText: function () {
+      /* V4.55 fix run B7: the results say what happened and ONE next step — '1st in this race ·
+         Silver time · Try the Remix: more obstacles!' (nextStep); how the race went (laps, sparks,
+         strips, notes, …) is behind the shell's Details (summaryDetails). A shell of API 3 shows
+         nextStep under the personal best and puts summaryText behind Details, so that is empty
+         there; an older shell shows summaryText, which is then the same line. In a shared race the
+         place is left to the big line and the table, which follow the results. */
+      nextStep: function () {
         var res = race.result();
-        if (!res) return 'Time’s up — great driving! Finish all ' + LAPN + ' laps to set a time.';
-        var parts = [], m = L.medalFor(track.id, res.ms);
-        parts.push(m ? MEDALS[m].icon + ' ' + MEDALS[m].name + ' time!' : 'Finisher!');
-        parts.push(nudge(res.ms));
-        parts.push('Laps ' + pr.laps.map(function (l) { return l.toFixed(1); }).join(' · '));
+        if (!res) return TIME_UP(LAPN);
+        var m = L.medalFor(track.id, res.ms), p = lv ? null : placeNow();
+        return [race.rivals.length && p > 0 ? ordinal(p) + ' in this race' : '', m ? MEDALS[m].name + ' time' : 'Finished', nudge(res.ms)].filter(Boolean).join(' · ');
+      },
+      summaryText: function () { return shell3() ? '' : round.nextStep(); },
+      /* the pill over the 3D view (shell API 3): the lap and the clock, as hud() — which a shared race
+         needs called once per drawn frame (lv.drawn) */
+      hud3d: function () { return round.hud(); },
+      /* everything else about the race, for the shell's Details ('' when it was not finished) */
+      summaryDetails: function () {
+        if (!race.result()) return '';
+        var parts = ['Laps ' + pr.laps.map(function (l) { return l.toFixed(1); }).join(' · ')];
         var sp = s.sparks[0] + s.sparks[1] + s.sparks[2], sub = [];
         if (s.sparks[1]) sub.push(s.sparks[1] + ' pink'); if (s.sparks[2]) sub.push(s.sparks[2] + ' gold');
         /* a course adds its Zap Cells and its touches of cones and crossers (a classic track has neither) */
@@ -401,8 +519,9 @@
         if (s.spins) w.push(s.spins + ' spin-out' + (s.spins > 1 ? 's' : ''));
         if (s.scrapes) w.push(s.scrapes + ' scrape' + (s.scrapes > 1 ? 's' : ''));
         parts.push(w.length ? w.join(' · ') : 'no wall bumps!');
-        return parts.filter(Boolean).join(' · ');
+        return parts.join(' · ');           /* the coach line (GP-2) is not here: it has its own line under the medals (coachShow) */
       },
+      coachLine: coachLine,
       summaryBadges: function () {
         var res = race.result(), out = [];
         if (!res) return [{ text: '🏁 Finish all ' + LAPN + ' laps for a medal', kind: 'hint' }];
@@ -415,7 +534,11 @@
         if (s.rocket) out.push({ text: '🚀 Rocket start', kind: 'ribbon' });
         return out;
       },
-      onFinish: function () { purrStop(); },
+      onFinish: function () {
+        purrStop();
+        /* a coach line gets a line of its own on the results sheet (a shared race's table block does the same) */
+        if (!lv && coachLine() && typeof round.resultsExtra !== 'function') round.resultsExtra = function (el) { coachShow(el, coachLine()); if (el && el.style) el.style.display = 'none'; };
+      },
       autoHeld: {},
       autopilot: function () { round.autoHeld = style ? race.driveStyle() : race.drivePlain(); },
       render: function (ctx) { if (lv) lv.drawn(); draw(ctx, round); },
@@ -423,13 +546,61 @@
       dispose: function () { purrStop(); mus('layer', 'arp', false); mus('key', 0); if (lv) lv.dispose(); }
     };
     function placeNow() { return lv ? lv.place() : s.finishPlace; }
+    /* GP-2: the one coach line after a finished race with no medal, or '' */
+    function coachLine() {
+      var res = race.result(), F = track.feat;
+      if (demo || !res || L.medalFor(track.id, res.ms) > 0) return '';
+      if (s.hits >= 3) return race.opts.easy ? COACH.easy.replace('{things}', thingsOf(F)) : COACH.bumps.replace('{n}', String(s.hits));
+      if (s.scrapes >= 3) return COACH.walls;
+      return s.sparks[0] + s.sparks[1] + s.sparks[2] ? '' : COACH.spark;
+    }
+    /* ---------- first-time tips (V4.55 fix run B5) ----------
+       Said in the race, once per profile (the option store's tips bits), the first time each is
+       useful: strips just ahead, a ramp just ahead, a bend just ahead (after the first few seconds).
+       One at a time, for TIP_SEC, then a 2 s gap; a still line, nothing moves or blinks. Only in a
+       round the child plays (not the idle picture or a shop preview). */
+    var tip = null, tipNext = TIP_FIRST, tipsOn = !!mine && !demo;
+    function tipsStep() {
+      if (!tipsOn) return;
+      if (s.phase !== 'race') { tip = null; return; }
+      if (tip) { if (s.t < tip.until) return; tip = null; tipNext = s.t + TIP_GAP; }
+      var o = loadOpts(cfg), seen = o.tips | 0;
+      if ((seen & TIP_ALL) === TIP_ALL) { tipsOn = false; return; }
+      if (s.t < tipNext) return;
+      var F = track.feat, J = F.jumps || (F.jump ? [F.jump] : []), key = null, i;
+      function near(at, lo, hi) { var d = ((at - pr.s) % track.len + track.len) % track.len; return d >= lo && d <= hi; }
+      if (!(seen & TIP.strip)) for (i = 0; i < F.pads.length && !key; i++) if (near(F.pads[i].s, 120, 420)) key = 'strip';
+      if (!key && !(seen & TIP.trick)) for (i = 0; i < J.length && !key; i++) if (J[i] && near(J[i].s, 150, 450)) key = 'trick';
+      if (!key && !(seen & TIP.drift) && s.t >= TIP_DRIFT_T && L.bendAt(track, pr.idx + Math.round(220 / track.spacing), 170) > TIP_BEND) key = 'drift';
+      if (!key) return;
+      o.tips = seen | TIP[key]; saveOpts(cfg, o);
+      tip = { key: key, text: TIP_TEXT[key], until: s.t + TIP_SEC };
+    }
     if (ses) lv = liveLink(round, race, ses, cfg);
     /* ONE nudge for the results: an unlock, a near miss, or the next medal */
+    /* (V4.55 fix run B1) the first finish on a Classic track: its Remix is the next step */
+    function remixNext() {
+      var rid = !demo && !ses && !track.course && prevPb == null && race.result() && coursesOn() ? remixOf(track.id) : null;
+      return rid && pbMs(cfg, rid) == null ? rid : null;
+    }
+    /* a new road this result opened (Starlight Twist: the first Bronze on any Remix), or null */
+    function roadNext() {
+      var res = race.result(), m, hit = null;
+      if (demo || ses || !res || !track.course || !track.base || !coursesOn()) return null;
+      m = Math.max(remixBefore, L.medalFor(track.id, res.ms));
+      L.courseIds().forEach(function (id) {
+        var u = !hit && L.isCourse(id) && !L.courseBase(id) ? L.COURSES[id].unlock : null;
+        if (u && remixBefore < u.medal && m >= u.medal) hit = id;
+      });
+      return hit;
+    }
     function nudge(ms) {
-      var par = L.PAR[track.id];
+      var par = L.PAR[track.id], C = L.CLASSES, road = roadNext();
+      if (remixNext()) return REMIX_NEXT;
+      if (road) return 'New course open: ' + L.courseName(road) + '!';
       if (par) {
-        if (ms <= par.silver && !open2) return '👑 Headliner Stage unlocked on ' + track.name + '!';
-        if (ms <= par.bronze && !open1) return '🎤 Debut Stage unlocked on ' + track.name + '!';
+        if (ms <= par.silver && !open2) return C[2].icon + ' ' + C[2].name + ' crew unlocked on ' + track.name + '!';
+        if (ms <= par.bronze && !open1) return C[1].icon + ' ' + C[1].name + ' crew unlocked on ' + track.name + '!';
       }
       if (race.rivals.length && s.finishPlace > 1) {
         var ahead = null;
@@ -440,6 +611,15 @@
       return nm ? 'Next: ' + nm.icon + ' ' + nm.name + ' ' + L.fmt(nm.ms) + ' — ' + (nm.gap / 1000).toFixed(1) + ' s to go' : '';
     }
     round.lastGap = function () { return lastGap; };
+    /* the results' next step as a course to go to (the shell's next-variant action, API 3): after
+       the first finish on a Classic track its Remix, after the result that opened a new road that
+       road → {id, label, again?}; undefined otherwise (no opinion: the shell may still offer a
+       course this round opened) */
+    round.nextVariant = function () {
+      var rid = remixNext(), road = rid ? null : roadNext();
+      if (rid) return { id: rid, label: REMIX_GO, again: REMIX_AGAIN };
+      return road ? { id: road, label: '▶ Try ' + L.courseName(road) } : undefined;
+    };
     return round;
   }
 
@@ -617,7 +797,83 @@
   }
   function hexRgb(h) { var n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
   function mix(a, b, t) { var A = hexRgb(a), B = hexRgb(b); return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * t) + ',' + Math.round(A[1] + (B[1] - A[1]) * t) + ',' + Math.round(A[2] + (B[2] - A[2]) * t) + ')'; }
-  /* one kart sprite: body colour, optional stripe + initial (rivals), driver head colour */
+
+  /* ---------- the driver from above (kids update KU-CH19b; characters.json design.games.neonGrandPrix.twoD) ----------
+     With a character (cfg.char, SLPeopleCore.avatarInfo) the child drives the top-down kart: their head is a disc
+     in the colour seen from above — the hair, or the hat, helmet, hood or covering on it: the most-drawn colour
+     of SLPeopleArt's top view, the recipe the 3D rig is built from (the palette's hair or covering colour until
+     the art is in) — with a skin-tone face edge at the front, and their pet (cfg.pet) rides behind as two ears,
+     or two wing tips for a winged species. Worked out once per look and kept in memory only. No character (the
+     classic avatar has no 2D figure) or no people core on the page → V4.55's head in the pet's colour. Drawing
+     only: nothing here reads or writes the race. */
+  var HEX6 = /^#[0-9a-f]{6}$/i, TOP_BONES = ['head', 'eyes', 'hairTail'], driverMemo = [];
+  function hexOk(c) { return typeof c === 'string' && HEX6.test(c) ? c : null; }
+  function lookKey(ch) {
+    try { return [ch.lk || JSON.stringify(ch.look), ch.wr || JSON.stringify([ch.wear || {}, ch.vr || {}])].join('|'); } catch (e) { return null; }
+  }
+  /* the most-drawn colour of the head seen from above (SLPeopleArt's top view), or null */
+  function topColour(A, ch) {
+    var sp = null, n = {}, best = null, i, r, c;
+    try { sp = A.sprite({ look: ch.look, wear: ch.wear || {}, vr: ch.vr || {} }, { view: 'top', pose: 'drive', px: 2, bones: TOP_BONES }); } catch (e) { sp = null; }
+    if (!sp || !Array.isArray(sp.rows) || !sp.pal) return null;
+    for (i = 0; i < sp.rows.length; i++) {
+      r = String(sp.rows[i]);
+      for (var k = 0; k < r.length; k++) { c = r.charAt(k); if (c !== '.' && c !== 'o') n[c] = (n[c] || 0) + 1; }
+    }
+    Object.keys(n).forEach(function (q) { if (hexOk(sp.pal[q]) && (best === null || n[q] > n[best])) best = q; });
+    return best === null ? null : sp.pal[best].toUpperCase();
+  }
+  function driverLook(cfg) {
+    var W = win(), P = W && W.SLPeopleCore, ch = cfg && cfg.char, key, res = null, i;
+    if (!P || typeof P.resolve !== 'function' || !ch || typeof ch !== 'object' || !ch.look || typeof ch.look !== 'object' || !(key = lookKey(ch))) return null;
+    for (i = 0; i < driverMemo.length; i++) if (driverMemo[i].key === key) return driverMemo[i];
+    try { res = P.resolve(ch.look, ch.wear || {}, ch.vr || {}); } catch (e) { res = null; }
+    var C = res && res.colours, lk = (res && res.look) || {}, face = C && C.skin && hexOk(C.skin.hex);
+    if (!face) return null;
+    var m = { key: key, face: face, top: hexOk(lk.cv && C.covering && C.covering.hex) || hexOk(res.flags && res.flags.hair && C.hair && C.hair.hex) || face, art: false };
+    driverMemo.unshift(m);
+    if (driverMemo.length > 2) driverMemo.length = 2;
+    var fromArt = function () { var A = W.SLPeopleArt, t = A && typeof A.sprite === 'function' ? topColour(A, ch) : null; if (t) { m.top = t; m.art = true; } return m.art; };
+    /* the art comes with the people files (the host's slLoadPeople, loaded once); until then the palette's colour */
+    if (!fromArt() && typeof W.slLoadPeople === 'function') {
+      try { Promise.resolve(W.slLoadPeople()).then(fromArt, function () {}); } catch (e) { /* the palette's colour stays */ }
+    }
+    return m;
+  }
+  /* the pet behind the driver: its shape from above and its colours (PETCOL / PETCOL3), or null */
+  function riderLook(cfg, arts) {
+    var W = win(), pet = cfg && cfg.pet, id = pet && typeof pet.id === 'string' ? pet.id : '';
+    if (!id) return null;
+    var row = (arts.PETCOL || {})[id] || (arts.PETCOL3 || {})[id] || {}, LK = W && W.SLIslandLook, GP = W && W.SLGamePeople;
+    var sp = LK && LK.SPECIES3 && Object.prototype.hasOwnProperty.call(LK.SPECIES3, id) ? LK.SPECIES3[id] : null, flies = false;
+    try { flies = !!(GP && typeof GP.flies === 'function' && GP.flies(id)); } catch (e) { flies = false; }
+    var kind = id === 'pet_dragon' || flies || (sp && sp.biped) ? 'wings' : id === 'pet_bunny' ? 'long' : id === 'pet_puppy' ? 'flop' : id === 'pet_kitten' ? 'point' : 'round';
+    var body = hexOk(row.body) || STAR_GOLD;
+    return { kind: kind, col: kind === 'wings' ? hexOk(row.light) || body : kind === 'flop' || kind === 'point' ? hexOk(row.dark) || body : body };
+  }
+  /* in the kart's own frame (x forward): the pet's ears or wing tips behind the seat, then the head with its face edge */
+  function driverHead(ctx, d, pet) {
+    if (pet) {
+      ctx.fillStyle = pet.col; ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
+      [-1, 1].forEach(function (sd) {
+        ctx.beginPath();
+        if (pet.kind === 'wings') { ctx.moveTo(-11, sd * 5); ctx.lineTo(-20, sd * 9); ctx.lineTo(-13, sd * 16); ctx.closePath(); }
+        else if (pet.kind === 'long') ctx.ellipse(-17, sd * 3.2, 6.5, 2.3, sd * 0.12, 0, 7);
+        else if (pet.kind === 'flop') ctx.ellipse(-15, sd * 6, 3.6, 2.4, sd * 0.5, 0, 7);
+        else if (pet.kind === 'point') { ctx.moveTo(-12.5, sd * 1.5); ctx.lineTo(-19.5, sd * 3.5); ctx.lineTo(-14, sd * 8); ctx.closePath(); }
+        else ctx.arc(-15, sd * 4.5, 3, 0, 7);
+        ctx.fill(); ctx.stroke();
+      });
+    }
+    /* the face edge: the front 4 px of the disc (about 3 px of it shows inside the outline) */
+    ctx.fillStyle = d.face; ctx.beginPath(); ctx.arc(-4, 0, 7, 0, 7); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(-4, 0, 7, 0, 7); ctx.clip();
+    ctx.fillStyle = d.top; ctx.beginPath(); ctx.arc(-8, 0, 7, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(-4, 0, 7, 0, 7); ctx.stroke();
+  }
+  /* one kart sprite: body colour, optional stripe + initial (rivals), driver head colour (o.driver: the child's
+     head and o.rider their pet, KU-CH19b) */
   function kartSprite(ctx, x, y, h, body, o) {
     o = o || {};
     ctx.save(); ctx.translate(x, y); ctx.rotate(h);
@@ -628,7 +884,8 @@
     ctx.fillStyle = body; ctx.strokeStyle = o.edge || INK; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(-20, -10); ctx.lineTo(18, -8); ctx.lineTo(26, 0); ctx.lineTo(18, 8); ctx.lineTo(-20, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
     if (o.stripe) { ctx.fillStyle = o.stripe; ctx.fillRect(-18, -3, 40, 6); }
-    ctx.fillStyle = o.head || STAR_GOLD; ctx.beginPath(); ctx.arc(-4, 0, 7, 0, 7); ctx.fill(); ctx.stroke();
+    if (o.driver) driverHead(ctx, o.driver, o.rider);
+    else { ctx.fillStyle = o.head || STAR_GOLD; ctx.beginPath(); ctx.arc(-4, 0, 7, 0, 7); ctx.fill(); ctx.stroke(); }
     if (o.initial) {
       ctx.translate(-4, 0); ctx.rotate(-h); ctx.fillStyle = INK; ctx.font = '800 10px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(o.initial, 0, 0);
@@ -859,7 +1116,7 @@
        under reduced motion, where the word and the lost speed say it */
     var still = !!s.tumbling && red;
     var spinA = k.spinT <= 0 || still ? 0 : s.tumbling ? (1 - k.spinT / L.PHYS.TUMBLE_T) * 2 * Math.PI : (1 - k.spinT / L.PHYS.SPIN_T) * 4 * Math.PI;
-    kartSprite(ctx, k.x, k.y - air * 0.4, k.h + spinA, R.kartColor, { scale: sc, head: R.petColor });
+    kartSprite(ctx, k.x, k.y - air * 0.4, k.h + spinA, R.kartColor, { scale: sc, head: R.petColor, driver: R.driver2d, rider: R.driver2d && R.rider2d });
     if ((k.spinT > 0 && !still) || (R._dizzy != null && s.t - R._dizzy < 1.2)) {
       ctx.fillStyle = STAR_GOLD; ctx.font = '800 14px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       for (var dz = 0; dz < 3; dz++) { var a = s.t * 5 + dz * 2.09; ctx.fillText('✦', k.x + Math.cos(a) * 20, k.y - 26 + Math.sin(a) * 6); }
@@ -908,7 +1165,17 @@
       ctx.beginPath(); ctx.arc(LW / 2 - (track.laps - 1) * 14 + i * 28, 22, 9, 0, 7); ctx.fill(); ctx.stroke();
     }
     if (s.wrongT > 0.6) banner(ctx, '↩ WRONG WAY — turn around!', '#ff8a8a');
+    else if (R.tip && R.tip()) tipLine(ctx, R.tip());
     if (J) J.bn.draw(ctx, LW / 2, LH * 0.36);
+  }
+  /* a first-time tip: one still line on a dark pill under the lap pips (white on near-black) */
+  function tipLine(ctx, txt) {
+    ctx.font = '800 20px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var w = Math.min(LW - 360, ctx.measureText(txt).width + 32), x = LW / 2 - w / 2, y = 52;
+    ctx.fillStyle = 'rgba(19,12,46,0.86)'; ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, 36, 18); else ctx.rect(x, y, w, 36);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fillText(txt, LW / 2, y + 19, w - 24);
   }
   function idle(ctx, cfg) {
     hookVariant(cfg);
@@ -949,12 +1216,14 @@
     if (!W || (cfg && cfg.demo) || typeof W.Peer === 'undefined' || !Shell || !(Shell.API >= 2) || !L || L.NET !== 1) return false;
     return !(S && S.ON && S.ON.race === false);
   }
-  /* the three files, each once (a tag another loader added is waited for; one that fails is taken out, so a later tap tries again) */
-  function liveLoad(done) {
-    var W = win(), left = 0, bad = false;
-    function have() { return !!(W.SLSocialCore && W.SLKartNet && W.SLKartLobby); }
+  /* The three files, each once (a tag another loader added is waited for; one that fails is taken
+     out, so a later tap tries again). duel: the challenge words and copy too (duel-core.js). */
+  function liveLoad(duel, done) {
+    var W = win(), left = 0, bad = false, files = duel ? LIVE_FILES.concat([DUEL_FILE]) : LIVE_FILES;
+    function have() { return files.every(function (f) { return !!W[f[0]]; }); }
     if (have()) return done(true);
-    if (liveWait) return liveWait.push(done);
+    /* a load already on its way: wait for it, then ask for whatever this tap still needs */
+    if (liveWait) return liveWait.push(function (ok) { if (ok && !have()) liveLoad(duel, done); else done(ok && have()); });
     liveWait = [done];
     function settle() {
       if (--left > 0) return;
@@ -962,7 +1231,7 @@
       liveWait = null;
       list.forEach(function (f) { try { f(ok); } catch (e) {} });
     }
-    LIVE_FILES.forEach(function (f) {
+    files.forEach(function (f) {
       if (W[f[0]]) return;
       var sc = document.getElementById(f[2]);
       if (!sc) {
@@ -977,25 +1246,72 @@
     });
     if (!left) { left = 1; settle(); }
   }
-  /* greyed with its one line when the lobby (once loaded) says why it can't be offered, or when the device is offline */
+  /* Greyed with its one line when the lobby (once loaded) says why it can't be offered, or when the
+     device is offline. Challenges are Race together rooms with a word: the same gates, so the one
+     line under the row speaks for all three buttons. They are there only when the host offers
+     challenges (cfg.duels) and the release switch is on, so a half-built challenge is never shown. */
   function menuButtons(cfg) {
     if (!liveOn(cfg)) return [];
-    var K = win().SLKartLobby, why = null, note = liveNote;
+    var K = win().SLKartLobby, why = null, note = liveNote, out;
     liveNote = '';
     try { if (K && typeof K.reason === 'function') why = K.reason(cfg); } catch (e) { why = null; }
     if (!why && typeof navigator !== 'undefined' && navigator && navigator.onLine === false) why = { text: LIVE.offline };
-    return [{ id: 'race', label: LIVE.label, disabled: !!why, note: why ? String(why.text || '') : note }];
+    out = [{ id: 'race', label: LIVE.label, disabled: !!why, note: why ? String(why.text || '') : note }];
+    if (duelsOn(cfg)) {
+      duelCss();
+      out.push({ id: 'challenge', label: DUEL.challenge, disabled: !!why }, { id: 'join', label: DUEL.join, disabled: !!why });
+      takeChallenge(cfg, !why);
+    }
+    return out;
   }
   function onMenuButton(id, ctl, cfg) {
-    if (id !== 'race' || !ctl || !liveOn(cfg)) return;
-    var root = null, b = null;
-    try { root = document.querySelector('.slg'); b = document.querySelector('[data-mbtn="race"]'); if (b) b.disabled = true; } catch (e) {}
-    liveLoad(function (ok) {
+    var duel = id === 'challenge' || id === 'join', opts;
+    if ((id !== 'race' && !duel) || !ctl || !liveOn(cfg) || (duel && !duelsOn(cfg))) return;
+    opts = { mode: id === 'challenge' ? 'host' : id };
+    if (id === 'join' && autoJoin && autoJoin.cfg === cfg) opts.code = autoJoin.code;
+    autoJoin = null;
+    var root = null;
+    try {
+      root = document.querySelector('.slg');
+      document.querySelectorAll('[data-mbtn="race"],[data-mbtn="challenge"],[data-mbtn="join"]').forEach(function (b) { b.disabled = true; });
+    } catch (e) {}
+    liveLoad(duel, function (ok) {
       /* only for a child still on this game's menu: not one who exited or pressed Play meanwhile */
       if ((root && root.isConnected === false) || ctl.phase() !== 'menu') return;
       if (!ok) { liveNote = LIVE.offline; ctl.menu(); return; }
-      try { win().SLKartLobby.open(ctl, cfg); } catch (e) { ctl.menu(); }
+      try { win().SLKartLobby.open(ctl, cfg, undefined, opts); } catch (e) { ctl.menu(); }
     });
+  }
+  /* ---------- challenges (the kids update, KG7) ---------- */
+  var DUEL = { challenge: '⚔️ Challenge', join: '🔑 Join with a code' };
+  var DUEL_FILE = ['SLDuelCore', 'duel-core.js', 'slDuelCoreJs'];
+  var autoJoin = null;
+  function duelsOn(cfg) {
+    var S = win() && win().SLSocialCore;
+    return !!cfg && cfg.duels === true && liveOn(cfg) && !(S && S.ON && S.ON.duels === false);
+  }
+  /* the shell draws a disabled button like a live one: greyed, so a child sees the line under the row matters */
+  function duelCss() {
+    if (typeof document === 'undefined' || document.getElementById('slkDuelCss')) return;
+    var st = document.createElement('style');
+    st.id = 'slkDuelCss';
+    st.textContent = '.slg-b[data-mbtn="challenge"]:disabled,.slg-b[data-mbtn="join"]:disabled{opacity:.45;cursor:default;}';
+    document.head.appendChild(st);
+  }
+  /* a family pop-up's word (cfg.challenge.join), taken once: with the menu up, its 🔑 is pressed
+     for the child, so the join sheet opens with the word in and looking (not when it is greyed) */
+  function takeChallenge(cfg, can) {
+    var c = cfg.challenge, w;
+    if (!c) return;
+    cfg.challenge = null;
+    w = typeof c.join === 'string' ? c.join.replace(/\s+/g, '').toUpperCase() : '';
+    if (!can || !/^[A-Z0-9]{4}$/.test(w)) return;
+    autoJoin = { cfg: cfg, code: w };
+    setTimeout(function () {
+      var b = null;
+      try { b = document.querySelector('[data-mbtn="join"]'); } catch (e) { b = null; }
+      if (b && !b.disabled) b.click(); else if (autoJoin && autoJoin.cfg === cfg) autoJoin = null;
+    }, 0);
   }
   /* the session the lobby handed over for this round, when it is one */
   function liveSession(cfg) {
@@ -1133,6 +1449,7 @@
     R.resultsExtra = function (el) {
       var again, row, note;
       box = el; liveCss(el.ownerDocument); paint();
+      coachShow(el, R.coachLine());
       try {
         again = el.parentNode.querySelector('#slgAgain'); row = again && again.parentNode; note = el.parentNode.querySelector('#slgAgainNote');
         if (row && row.classList) { row.classList.add('slk-again'); if (note) row.insertBefore(note, row.firstChild); }
@@ -1183,34 +1500,49 @@
   }
 
   /* ---------- shell hooks ---------- */
+  /* the brake pad says what it does (V4.55 fix run B11: a bare ⬇ read as 'down') */
   function controlsFor(cfg) {
     var o = loadOpts(cfg);
-    var c = [{ id: 'left', label: '⬅', side: 'left' }, { id: 'right', label: '➡', side: 'left' }, { id: 'down', label: '⬇', side: 'right', aria: 'Brake' }];
+    var c = [{ id: 'left', label: '⬅', side: 'left' }, { id: 'right', label: '➡', side: 'left' }, { id: 'down', label: '⬇ Brake', side: 'right', aria: 'Brake' }];
     /* Easy Drive holds the gas, so GO goes and ✨ becomes the big pad */
     if (o.easy) c.push({ id: 'drift', label: '✨ DRIFT', side: 'right', wide: true, aria: 'Drift and trick' });
     else c.push({ id: 'drift', label: '✨', side: 'right', aria: 'Drift and trick' }, { id: 'up', label: 'GO', side: 'right', wide: true, aria: 'Accelerate' });
     return c;
   }
+  /* the camera chips (the HUD's 🎥 button cycles through the same four, with the same names) */
+  var CAM_CHIPS = [{ value: 'chase', label: '🎥 Chase' }, { value: 'stage', label: '🎤 Stage' }, { value: 'map', label: '🗺️ Map' }, { value: 'tv', label: '📺 TV' }];
+  /* the Glow Crew row and the Camera row wait under "More options" until this child's first finish
+     (V4.55 fix run B5): a new driver sees the course, Race or Solo and Easy Drive */
+  function moreOpen(cfg) { return !!(cfg && cfg._kartMore) || hasKartPb(cfg); }
   function menuOptions(cfg) {
     hookVariant(cfg);
-    var L = logic(), o = loadOpts(cfg), variant = (cfg && cfg.variant) || 'track_loop', out = [];
+    var L = logic(), o = loadOpts(cfg), variant = (cfg && cfg.variant) || 'track_loop', out = [], more = moreOpen(cfg), extra = false;
+    /* the cards follow the course on the menu (the shell shows them only from this menu) */
+    if (coursesOn()) def.tutorial = cardsFor(cfg);
     /* the play-test copy says so on the menu (a row with a label and nothing to choose) */
     if (qaCopy()) out.push({ id: 'qa', label: 'TEST COPY: times are not saved', value: '', options: [] });
     out.push({ id: 'mode', label: 'Mode', value: o.mode, options: [{ value: 'race', label: '🏁 Race' }, { value: 'solo', label: '⏱️ Solo' }] });
+    out.push({ id: 'easy', label: 'Easy Drive', value: !!o.easy, options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] });
     if (o.mode === 'race') {
-      /* a course with no medal times yet has no time to aim for "here", so no lock note */
+      extra = true;
+      /* the Glow Crew's speed (this row was 'Stage': that word is now only the camera). A course with
+         no medal times yet has no time to aim for "here", so no lock note */
       var cls = effCls(cfg, o, variant), C = L.CLASSES, here = !!L.PAR[variant];
-      out.push({ id: 'cls', label: 'Stage — ' + C[cls].name + ': ' + C[cls].tip, value: cls, options: C.map(function (c, i) {
-        var locked = !clsOpen(cfg, variant, i);
-        return { value: i, label: c.icon + ' ' + c.name, locked: locked, note: locked && here ? (i === 1 ? '🔒 Get a 🥉 Bronze time here to unlock 🎤 Debut' : '🔒 Get a 🥈 Silver time here to unlock 👑 Headliner') : '' };
+      if (more) out.push({ id: 'cls', label: 'Glow Crew — ' + C[cls].name + ': ' + C[cls].tip, value: cls, options: C.map(function (c, i) {
+        var locked = !clsOpen(cfg, variant, i), M = L.MEDALS[i];
+        return { value: i, label: c.icon + ' ' + c.name, locked: locked, note: locked && here ? '🔒 Get a ' + M.icon + ' ' + M.name + ' time here to unlock ' + c.icon + ' ' + c.name : '' };
       }) });
     }
-    out.push({ id: 'easy', label: 'Easy Drive', value: !!o.easy, options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] });
-    if (view3dOn(cfg)) out.push({ id: 'cam', label: 'Camera', value: o.cam, options: [{ value: 'chase', label: '🎥 Chase' }, { value: 'stage', label: '🎤 Stage' }, { value: 'map', label: '🗺️ Map' }] });
+    if (view3dOn(cfg)) {
+      extra = true;
+      if (more) out.push({ id: 'cam', label: 'Camera', value: CAMS.indexOf(o.cam) >= 0 ? o.cam : 'chase', options: CAM_CHIPS });
+    }
+    if (extra && !more) out.push({ id: 'more', label: '', value: false, options: [{ value: true, label: '⚙️ More options' }] });
     return out;
   }
   function setOption(cfg, id, value) {
     var o = loadOpts(cfg);
+    if (id === 'more') { if (cfg) cfg._kartMore = value === true; return; }      /* for this visit only */
     if (id === 'mode' && MODES.indexOf(value) >= 0) o.mode = value;
     else if (id === 'cls' && (value === 0 || value === 1 || value === 2)) o.cls = value;
     else if (id === 'easy') o.easy = !!value;
@@ -1229,18 +1561,28 @@
       (nm ? ' · Next: ' + nm.icon + ' ' + nm.name + ' ' + L.fmt(nm.ms) + ' (' + (nm.gap / 1000).toFixed(1) + ' s to go)' : ' · Top of the podium!');
   }
 
-  /* the four How-to-play cards: the V4.54 wording (kept for a cached V4.54 kart-logic.js, whose
-     tracks have none of the new things), and the Remix wording, which changes cards 3 and 4 */
+  /* The How-to-play cards. V4.55 fix run B5: two short cards (V4.55's four held about 18 ideas);
+     drifting, the strips and tricks are said in the race instead, the first time each is useful
+     (TIP_TEXT). The cards follow the menu's course and Easy Drive: the Glow Line is only there with
+     Easy Drive on, and card 2 names what is on this road. CARDS_V454 is kept, word for word, for a
+     cached V4.54 kart-logic.js (whose tracks have none of the new things). */
   var CARDS_V454 = [
     ['🏎️', 'Hold GO to drive · ⬅ ➡ steer · ⬇ brake. Easy Drive does the GO for you!'],
     ['✨', 'In a bend, hold ✨ while you steer. Sparks go blue → pink → gold — let go for a boost!'],
     ['🎵', 'Zoom over Beat Strips (pink = on the beat!), grab ♪ notes, and tap ✨ in the air off the jump.'],
     ['🎤', 'Fill your Hype Wand for SPOTLIGHT! Gates 1-2-3 then the finish — pass the Glow Crew and beat your best!']
   ];
-  var CARDS = [CARDS_V454[0], CARDS_V454[1],
-    ['🎵', 'Zoom over Beat Strips (pink = on the beat!) and lime Zoom Strips, grab ♪ notes and ⚡ cells, and tap ✨ in the air off a ramp.'],
-    ['🚧', 'Steer round cones, sticky patches and crossers to keep your Hype for SPOTLIGHT. The course changes every lap — gates 1-2-3, then the finish!']
-  ];
+  var CARD_EASY = ['🏎️', 'Steer ⬅ ➡ · Easy Drive does the GO for you'], CARD_GO = ['🏎️', 'Hold GO to drive · steer ⬅ ➡ · ⬇ Brake slows you'];
+  /* what a course's knock-over things are called, by their look */
+  var OB_NAME = { cone: 'cones', crystal: 'crystals', sandcastle: 'sandcastles' };
+  function cardsFor(cfg) {
+    var L = logic(), v = (cfg && cfg.variant) || def.defaultVariant, F = null, things = '';
+    try { F = L.buildTrack(v).feat; } catch (e) { F = null; }
+    if (F && (F.obstacles || []).length) things = OB_NAME[(F.skins || {}).obstacle] || 'cones';
+    if (loadOpts(cfg).easy === false) return [CARD_GO, ['🏁', (things ? 'Steer round the ' + things + ' · g' : 'G') + 'ates 1-2-3, then the finish line!']];
+    return [CARD_EASY, ['🛣️', 'Follow the Glow Line round the ' + (things || 'bends')]];
+  }
+  var CARDS = [CARD_EASY, ['🛣️', 'Follow the Glow Line round the cones']];
   var def = {
     key: 'kart', title: 'Neon Grand Prix', emoji: '🏎️', LW: LW, LH: LH, defaultVariant: 'track_loop',
     tutorial: CARDS,
@@ -1276,7 +1618,8 @@
     module.exports = {
       buildTrack: KL.buildTrack, newRound: newRound, newProgress: KL.newProgress, updateProgress: KL.updateProgress, nearest: KL.nearest,
       TRACKS: KL.TRACKS, LAPS: KL.LAPS, CHECKS: KL.CHECKS, WALL: KL.WALL, VMAX: KL.VMAX,
-      def: def, loadOpts: loadOpts, controlsFor: controlsFor, menuOptions: menuOptions, setOption: setOption, pbText: pbText
+      def: def, loadOpts: loadOpts, controlsFor: controlsFor, menuOptions: menuOptions, setOption: setOption, pbText: pbText,
+      COACH: COACH, DUEL: DUEL
     };
   }
 })();

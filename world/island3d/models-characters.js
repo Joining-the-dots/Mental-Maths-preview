@@ -99,8 +99,47 @@
      SL3D.vox.makeRig(petId, acc, tier, {game: true}), the island's voxel rig (same PetRig shape,
      same clips). If SL3D.vox is missing, or its makeRig throws, → the mascot's SPECIES3 standIn
      (a V4.54 pet: itself) as a toon rig in the pet's V4.54 accessories, tagged {source:
-     'standIn', forId}. canRig(id) = any of the 14 species; rigSource(petId, acc, SL3D?) →
+     'standIn', forId}. canRig(id) = any of the 28 species; rigSource(petId, acc, SL3D?) →
      'toon' | 'vox' | 'standIn' (the route makeRig takes; SL3D defaults to the page's).
+
+   THE KIDS UPDATE — 28 SPECIES: GAIT GEOMETRY AND PACE (P2.4; pets.json rigs.gaitOverrides, D-pets 23).
+     PETS grows to 28 through SPECIES3 (P1.3); the clip set is unchanged. syncSpecies also copies
+       pace   0.4–1.2 (PACE; a row without one, every mascot, is 1): the WALK cadence of the pet's gait is
+              × pace, then held inside that gait's own walk floor and cap — pets-brain moves the pet at
+              WALK.speed × pace and actors sample 'walk' at WALK.speed, so the stride still matches the
+              ground; 'run' is sampled at the real speed (already × pace) and is not scaled again. The two
+              slow pets (sloth 0.4, tortoise 0.5) never step faster than 2 Hz at any walk speed.
+       geom   names the species' row of GAIT_GEOM_SPECIES ('flamingo' → pet_flamingo): its own contact
+              geometry for its gait (data only, a GAIT_GEOM row's shape: leg, cy, legs). The flamingo
+              waddles on 0.22 u legs, the peacock on 0.14 u legs, both with feet nearer the middle.
+     gaitGeomOf(id, gait?) → the contact geometry the clip layer grounds that species with (its override,
+     else the gait's GAIT_GEOM row; null for trot / hop / flutter, which keep V4.54's own bob). On an
+     override the waddle's roll is scaled so the body sways the same distance over the planted foot as
+     the duckling's (a tall bird leans less, never more than ±8°). The V4.54 four and the ten mascots
+     sample exactly as before (pace 1, no override; the v2 digests stay pinned).
+
+   THE KIDS UPDATE — THE PEOPLE'S CLIPS (KU-CH3; characters.json rigAndClips). Additive avatar clips on
+     the same 23 AV_KEYS (no new channel; the pets' CLIP_INFO, CLIP_NAMES and the v2 digests untouched),
+     tuned on the person's regular body (SLPxCrew.AV joints: body centre 0.4, hips 0.275, a 0.45 u head)
+     and safe on the classic avatars:
+       shoot      0.75 s  the Shootout kick on the pet 'kick' timing (strike at KICK_STRIKE); o.left mirrors
+       oops       1 s     hands to the head, then a thumbs-up (never a slump)
+       shrug      0.9 s   arms out low, palms up, a rise and a head tilt
+       slideFlat  loop    on its back, feet first, arms tucked, squashed flat: ≤ SLIDE.maxH (0.36 u at game
+                          scale 0.9); o.bodyY (the rig's body centre) keeps any body on the floor
+       jumpTuck   0.6 s   knees up and ONE front flip, rising TUCK_LIFT clear of the floor (+ o.height)
+       duo        loop    one arm out to the pet (its right; o.left its left), the other up, a 1 Hz bounce
+       ready      loop    the decider stance: leaning in, the kicking foot back, eyes down, a 0.5 Hz breath
+       sig*       the 12 signature moves (the catalogue's move ids), one-shots of each character's sec
+     AV_INFO[name] {loop, dur, rate?, mirror?, strike?, maxH?, sig?, maxHz?, travel?} is read before
+     CLIP_INFO (avInfo(name, o) → {loop, dur} for any avatar clip, the classic avatar's info() uses it);
+     these clips never play faster than authored (o.rate > 1 is ignored). Every new clip and move is
+     ≤ 2 Hz by the sustained-repeat rule and ≤ its maxHz; reduced motion = ONE constant pose (the named
+     end pose). avPlant(out, P) leans the whole figure without lifting the feet; avMirror swaps sides.
+     Beside the pose: avatarExtras(name, t, out, o) → {visor 0..1 (Lena's helmet hinge), antenna (deg,
+     Priya's gadget pack), sparkle 1 → 0 and spread 0 → 1 (Jude's ✦ burst, 8 cubes the rig draws)};
+     avatarBlink(t, lookCode, {reduced, photocard}) → the eyes' y scale (0.15 for 0.12 s every 3–6 s, never
+     reduced or on a photocard); hairSway(t, speed, o) → {roll, pitch} of a hair tail (1.4 Hz, ±10°).
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -175,13 +214,28 @@
 
   /* species motion character (sig = the dance-break signature move) */
   var SPECIES = {
-    pet_puppy:  { gait: 'trot',    tailHz: 1.5, happyHz: 4,   tailAmp: 26, hover: 0, sig: 'point' },
-    pet_kitten: { gait: 'trot',    tailHz: 0.45, happyHz: 1.6, tailAmp: 18, hover: 0, sig: 'step' },
-    pet_bunny:  { gait: 'hop',     tailHz: 0.7, happyHz: 2.5, tailAmp: 8,  hover: 0, sig: 'hopTurn' },
-    pet_dragon: { gait: 'flutter', tailHz: 0.6, happyHz: 1.8, tailAmp: 16, hover: 0.12, wingHz: 3, sig: 'spin' }
+    pet_puppy:  { gait: 'trot',    tailHz: 1.5, happyHz: 4,   tailAmp: 26, hover: 0, sig: 'point', pace: 1 },
+    pet_kitten: { gait: 'trot',    tailHz: 0.45, happyHz: 1.6, tailAmp: 18, hover: 0, sig: 'step', pace: 1 },
+    pet_bunny:  { gait: 'hop',     tailHz: 0.7, happyHz: 2.5, tailAmp: 8,  hover: 0, sig: 'hopTurn', pace: 1 },
+    pet_dragon: { gait: 'flutter', tailHz: 0.6, happyHz: 1.8, tailAmp: 16, hover: 0.12, wingHz: 3, sig: 'spin', pace: 1 }
   };
   var SPECIES_KEYS = ['gait', 'tailHz', 'happyHz', 'tailAmp', 'hover', 'sig'];   /* a full clip-layer row (D111) */
   var GAITS = ['trot', 'hop', 'flutter', 'scuttle', 'waddle', 'canter', 'galumph'];
+  var PACE = { min: 0.4, max: 1.2, dflt: 1 };   /* P2.4: SPECIES3.pace, the walk speed and cadence factor (a row without one is 1) */
+  /* P2.4 (pets.json rigs.gaitOverrides): a species' own contact geometry for its gait — data only, in a
+     GAIT_GEOM row's shape (below): the two long-legged birds waddle on longer legs with their feet nearer
+     the middle and their body centre higher. SPECIES3.geom names the row ('flamingo' → pet_flamingo). */
+  var GAIT_GEOM_SPECIES = {
+    pet_flamingo: { waddle: { leg: 0.22, cy: 0.42, legs: { legBL: [0.06, 0, 0.05], legBR: [-0.06, 0, 0.05] } } },
+    pet_peacock: { waddle: { leg: 0.14, cy: 0.34, legs: { legBL: [0.08, 0, 0.05], legBR: [-0.08, 0, 0.05] } } }
+  };
+  (function freeze(o) { Object.keys(o).forEach(function (k) { if (o[k] && typeof o[k] === 'object') freeze(o[k]); }); return Object.freeze(o); }(GAIT_GEOM_SPECIES));
+  /* the GAIT_GEOM_SPECIES key a SPECIES3 geom names ('flamingo' or 'pet_flamingo'), or null */
+  function geomKey(g) {
+    if (typeof g !== 'string' || !g) return null;
+    var k = g.indexOf('pet_') === 0 ? g : 'pet_' + g;
+    return Object.prototype.hasOwnProperty.call(GAIT_GEOM_SPECIES, k) ? k : null;
+  }
   var BIPED_WING = 0.6, BIPED_WING_MIN = -6, BIPED_WING_MAX = 110;
   var RATE_MAX = 2;                       /* a mascot's tail never beats faster (MAX_FLASH_HZ) */
   var STAND_IN = {};                      /* mascot → the V4.54 species a game shows without voxels (D98) */
@@ -196,7 +250,8 @@
   /* the ten mascots' rows from SLIslandLook.SPECIES3 (D111): the clip-layer fields, checked (a gait
      or sig this layer does not know falls back to the trot / the step-touch; rates ≤ 2 Hz); PETS,
      MASCOTS, STAND_IN and DANCE_PLAN follow. Runs at load (world-look loads first on every page)
-     and again on a miss until it has found them. */
+     and again on a miss until it has found them. The kids update's rows (P2.4) also bring pace
+     (held in PACE; none = 1) and geom (kept only when it names a GAIT_GEOM_SPECIES row). */
   var synced = false;
   function syncSpecies() {
     if (synced) return true;
@@ -209,8 +264,10 @@
         gait: GAITS.indexOf(r.gait) >= 0 ? r.gait : 'trot',
         tailHz: clamp(num(r.tailHz, 0), 0, RATE_MAX), happyHz: clamp(num(r.happyHz, 0), 0, RATE_MAX),
         tailAmp: clamp(num(r.tailAmp, 0), 0, 30), hover: clamp(num(r.hover, 0), 0, 0.2),
-        sig: DANCE_MOVES.indexOf(r.sig) >= 0 ? r.sig : 'step', biped: r.biped === true
+        sig: DANCE_MOVES.indexOf(r.sig) >= 0 ? r.sig : 'step', biped: r.biped === true,
+        pace: clamp(num(r.pace, PACE.dflt), PACE.min, PACE.max)
       };
+      if (geomKey(r.geom)) SPECIES[id].geom = r.geom;
       STAND_IN[id] = TOON_PETS.indexOf(r.standIn) >= 0 ? r.standIn : 'pet_puppy';
       if (PETS.indexOf(id) < 0) { PETS.push(id); MASCOTS.push(id); }
       DANCE_PLAN[id] = planOf(SPECIES[id].sig);
@@ -231,8 +288,16 @@
     'legFL', 'legFR', 'legBL', 'legBR', 'legFLz', 'legFRz', 'wingL', 'wingR',
     'eye', 'spark', 'sparkSpin', 'glint', 'cape', 'wave', 'scarf', 'faceCam', 'blush'];
   var POSE_ONE = { sx: 1, sy: 1, sz: 1, eye: 1 };
+  /* a new rest pose as one literal (POSE_KEYS in order): a fixed shape, so a clip sampled without a reused
+     pose (the tests' 28-species loops, a photocard) costs a fraction of building the object key by key */
+  function freshPose() {
+    return { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, sx: 1, sy: 1, sz: 1, hips: 0, neck: 0,
+      headPitch: 0, headYaw: 0, headRoll: 0, earL: 0, earR: 0, earBack: 0, tailYaw: 0, tailPitch: 0, tailCurl: 0,
+      legFL: 0, legFR: 0, legBL: 0, legBR: 0, legFLz: 0, legFRz: 0, wingL: 0, wingR: 0,
+      eye: 1, spark: 0, sparkSpin: 0, glint: 0, cape: 0, wave: 0, scarf: 0, faceCam: 0, blush: 0 };
+  }
   function restPose(out) {
-    out = out || {};
+    if (!out) return freshPose();
     for (var i = 0; i < POSE_KEYS.length; i++) { var k = POSE_KEYS[i]; out[k] = POSE_ONE[k] || 0; }
     return out;
   }
@@ -395,6 +460,38 @@
   var GAIT_LEGS = { scuttle: ['legFL', 'legFR', 'legBL', 'legBR'], waddle: ['legBL', 'legBR'], canter: ['legFL', 'legFR', 'legBL', 'legBR'], galumph: [] };
   var WADDLE = { stride: 0.6, roll: 8, wings: 20, run: 1.5, maxHz: [3.2, 4] };   /* × the trot's stride and swing; deg; deg; run = × 1.5; walk / run cadence caps (a rocking body, not a buzz) */
   var SCUTTLE = { yaw: -90, swing: 26 }, CANTER = { pitch: 5, swing: 34, stride: 1 }, GALUMPH = { pitch: 6, pull: 22, trail: -14 };
+  /* P2.4: the contact geometry a species is grounded with for gait `name` (its GAIT_GEOM_SPECIES row when its
+     SPECIES row names one that covers every leg of the gait, else the gait's own row) */
+  var GEOM_OK = {};
+  function geomUsable(G, name) {
+    if (!G || typeof G !== 'object' || !(G.leg >= 0) || !(G.cy >= 0) || !G.legs) return false;
+    for (var i = 0; i < GAIT_LEGS[name].length; i++) { var h = G.legs[GAIT_LEGS[name][i]]; if (!h || h.length !== 3) return false; }
+    return true;
+  }
+  function geomOf(sp, name) {
+    var k = sp && geomKey(sp.geom), G = k && GAIT_GEOM_SPECIES[k][name];
+    if (G && !own(GEOM_OK, k + '|' + name)) GEOM_OK[k + '|' + name] = geomUsable(G, name);
+    return G && GEOM_OK[k + '|' + name] ? G : GAIT_GEOM[name];
+  }
+  /* gaitGeomOf(id, gait?) → the geometry the clip layer grounds species id with (gait defaults to its own);
+     null for the V4.54 gaits (trot, hop, flutter), which keep their own bob */
+  function gaitGeomOf(id, name) {
+    var sp = speciesOf(id);
+    name = typeof name === 'string' ? name : sp.gait;
+    return own(GAIT_GEOM, name) ? geomOf(sp, name) : null;
+  }
+  /* a species' walk cadence: the gait's (raw held in [lo, hi]) × its pace, held in the same floor and cap —
+     pace 1 (every V4.54 pet and mascot) gives the gait's exact cadence. The run is not paced here: it is
+     sampled at the pet's real speed, which pets-brain has already scaled by pace. */
+  function paceOf(sp) { return sp && typeof sp.pace === 'number' && isFinite(sp.pace) ? clamp(sp.pace, PACE.min, PACE.max) : PACE.dflt; }
+  function walkHz(raw, lo, hi, sp) { return clamp(clamp(raw, lo, hi) * paceOf(sp), lo, hi); }
+  /* the waddle's roll: ±8° on the waddle's own geometry; on a taller bird's override, the angle that sways
+     the body centre the same distance over the planted foot (a tall bird leans less, never more) */
+  function waddleRoll(G) {
+    var B = GAIT_GEOM.waddle;
+    if (!G || G === B || !(G.cy > B.cy)) return WADDLE.roll;
+    return Math.asin(B.cy * Math.sin(WADDLE.roll * DEG) / G.cy) / DEG;
+  }
   /* the height of an item-space point after the whole-body turn: roll, then pitch, about (0, cy, 0)
      (the rigs' YXZ order; yaw keeps heights; the gaits never squash) */
   function turnedY(x, y, z, pitch, roll, cy) {
@@ -419,62 +516,65 @@
     return lo === Infinity ? 0 : lo;
   }
   /* the root height that sets the lowest contact on the ground plane: never floating, never sinking */
-  function ground(out, name) { out.y = -contactLow(out, GAIT_GEOM[name], GAIT_LEGS[name]); return out; }
+  function ground(out, name, G) { out.y = -contactLow(out, G || GAIT_GEOM[name], GAIT_LEGS[name]); return out; }
   /* scuttle (the crab): it travels side-on, its left side leading (the root turned -90°, so the pet
      course's side-on camera sees its face), with its legs in two pairs half a cycle apart (FL + BR,
      then FR + BL); the two stubs on each bone rock heel and toe, so the body bobs about 0.01 u, and
      the claws (wingL / wingR) sway against the step. Reduced: side-on, still. */
-  function scuttle(t, out, v, run, I, red) {
+  function scuttle(t, out, v, run, I, red, sp) {
     out.yaw = SCUTTLE.yaw;
     if (red) return out;
-    var f = run ? clamp(v / 0.4, 2, 4.5) : clamp(v / 0.24, 1.2, 3.6), s = Math.sin(TAU * f * t), a = SCUTTLE.swing * I;
+    var f = run ? clamp(v / 0.4, 2, 4.5) : walkHz(v / 0.24, 1.2, 3.6, sp), s = Math.sin(TAU * f * t), a = SCUTTLE.swing * I;
     out.legFL = out.legBR = a * s; out.legFR = out.legBL = -a * s;
     out.wingL = 6 - 5 * s; out.wingR = 6 + 5 * s;
     out.headRoll = 3 * s; out.scarf = 8 * s;
-    return ground(out, 'scuttle');
+    return ground(out, 'scuttle', geomOf(sp, 'scuttle'));
   }
   /* waddle (the bipeds): short quick steps on legBL / legBR — the trot's stride and swing × 0.6 —
      rolling ±8° over the planted foot (the right one at phase 0) while the body sways over it (that
      foot keeps its place); the wing on the high side rides out. Run = the same × 1.5 with the wings
-     held out 20°, no flapping. Reduced: standing, the wings a touch out (held out 20° for run). */
-  function waddle(t, out, v, run, I, red) {
+     held out 20°, no flapping. Reduced: standing, the wings a touch out (held out 20° for run).
+     P2.4: grounded on the species' own geometry (the flamingo's and the peacock's long legs), with the
+     roll that sways it as far as the duckling (waddleRoll); the walk cadence × pace. */
+  function waddle(t, out, v, run, I, red, sp) {
     if (red) { if (run) out.wingL = out.wingR = WADDLE.wings; else out.legFLz = out.legFRz = 8; return out; }
-    var k = run ? WADDLE.run : 1, f = clamp(v / (0.34 * WADDLE.stride * k), 1.2, WADDLE.maxHz[run ? 1 : 0]);
+    var k = run ? WADDLE.run : 1, raw = v / (0.34 * WADDLE.stride * k);
+    var f = run ? clamp(raw, 1.2, WADDLE.maxHz[1]) : walkHz(raw, 1.2, WADDLE.maxHz[0], sp), G = geomOf(sp, 'waddle');
     var ph = TAU * f * t, s = Math.sin(ph), c = Math.cos(ph), A = 26 * WADDLE.stride * I * (run ? k : Math.min(1, v / 0.6 + 0.3));
     out.legBL = A * s; out.legBR = -A * s;
-    out.roll = WADDLE.roll * I * c; out.headRoll = -0.5 * out.roll;
+    out.roll = waddleRoll(G) * I * c; out.headRoll = -0.5 * out.roll;
     if (run) { out.wingL = out.wingR = WADDLE.wings; out.earBack = 20; }
     else { out.legFLz = 8 + 8 * Math.max(0, c); out.legFRz = 8 + 8 * Math.max(0, -c); out.earBack = 4; }
     out.scarf = 8 * s;
-    ground(out, 'waddle');
-    var G = GAIT_GEOM.waddle, foot = (c >= 0 ? G.legs.legBR : G.legs.legBL)[0], r = out.roll * DEG;
+    ground(out, 'waddle', G);
+    var foot = (c >= 0 ? G.legs.legBR : G.legs.legBL)[0], r = out.roll * DEG;
     out.x = foot - (foot * Math.cos(r) + G.cy * Math.sin(r));
     return out;
   }
   /* canter (the pony's run; its walk is the trot): a three-beat rocking-horse stride — hind right, then
      the diagonal (hind left with fore right), then fore left, a third of a cycle apart — rocking ±5°,
      nose down as the leading fore lands, the head steady and high. Reduced: standing, head up. */
-  function canter(t, out, v, I, red) {
+  function canter(t, out, v, I, red, sp) {
     out.earBack = 18;
     if (red) { out.headPitch = -6; return out; }
     var ph = TAU * clamp(v / CANTER.stride, 1.6, 3.2) * t, a = CANTER.swing * I, third = TAU / 3;
     out.legBR = a * Math.sin(ph); out.legBL = out.legFR = a * Math.sin(ph - third); out.legFL = a * Math.sin(ph - 2 * third);
     out.pitch = CANTER.pitch * I * Math.sin(ph - 2 * third);
     out.headPitch = -6 - 0.8 * out.pitch; out.tailPitch = 26; out.scarf = 10 * Math.sin(ph);
-    return ground(out, 'canter');
+    return ground(out, 'canter', geomOf(sp, 'canter'));
   }
   /* galumph (the seal): no leg cycle but a body wave — pitch ±6°; both front flippers (legFL / legFR)
      pull back together while the chest rises, the tail flippers (legBL / legBR) trail the wave and
      the head stays level; the tummy's ends keep the ground. Reduced: lying still, tail flippers back. */
-  function galumph(t, out, v, run, I, red) {
+  function galumph(t, out, v, run, I, red, sp) {
     out.legBL = out.legBR = GALUMPH.trail;
     if (red) return out;
-    var ph = TAU * (run ? clamp(v / 0.5, 1.6, 3) : clamp(v / 0.28, 1, 2.2)) * t, s = Math.sin(ph);
+    var ph = TAU * (run ? clamp(v / 0.5, 1.6, 3) : walkHz(v / 0.28, 1, 2.2, sp)) * t, s = Math.sin(ph);
     out.pitch = GALUMPH.pitch * I * s;
     out.legFL = out.legFR = -GALUMPH.pull * I * Math.cos(ph);
     out.legBL = out.legBR = GALUMPH.trail - 8 * I * Math.sin(ph - 1);
     out.headPitch = -0.8 * out.pitch; out.earBack = run ? 16 : 6; out.scarf = 6 * s;
-    return ground(out, 'galumph');
+    return ground(out, 'galumph', geomOf(sp, 'galumph'));
   }
 
   /* walking gaits: trot (diagonal pairs), bunny hops (0.18 u), dragon flutter (0.12 u up, wings 3 Hz) */
@@ -485,7 +585,7 @@
     out.wave = t;
     tailMotion(t, out, sp, run, red);
     if (sp.gait === 'hop' && !red) {
-      var rate = clamp(v / (run ? 0.75 : 0.42), 1.2, run ? 3.2 : 2.6), u = frac(t * rate), H = (run ? 0.13 : 0.18) * I;
+      var rate = run ? clamp(v / 0.75, 1.2, 3.2) : walkHz(v / 0.42, 1.2, 2.6, sp), u = frac(t * rate), H = (run ? 0.13 : 0.18) * I;
       out.y = H * arc(u);
       var push = u < 0.25 ? Math.sin(PI * u / 0.25) : 0;
       out.legBL = out.legBR = -45 * push - 20 * Math.sin(PI * u);
@@ -506,12 +606,12 @@
       out.earBack = run ? 25 : 10;
       return out;
     }
-    if (sp.gait === 'scuttle') return scuttle(t, out, v, run, I, red);
-    if (sp.gait === 'waddle') return waddle(t, out, v, run, I, red);
-    if (sp.gait === 'galumph') return galumph(t, out, v, run, I, red);
-    if (sp.gait === 'canter' && run) return canter(t, out, v, I, red);
+    if (sp.gait === 'scuttle') return scuttle(t, out, v, run, I, red, sp);
+    if (sp.gait === 'waddle') return waddle(t, out, v, run, I, red, sp);
+    if (sp.gait === 'galumph') return galumph(t, out, v, run, I, red, sp);
+    if (sp.gait === 'canter' && run) return canter(t, out, v, I, red, sp);
     if (sp === SPECIES.pet_dragon) wingsFolded(out);
-    var f = run ? clamp(v / 0.75, 2.2, 4.5) : clamp(v / 0.34, 1.2, 4), ph = TAU * f * t, s = Math.sin(ph);
+    var f = run ? clamp(v / 0.75, 2.2, 4.5) : walkHz(v / 0.34, 1.2, 4, sp), ph = TAU * f * t, s = Math.sin(ph);
     var a = (red ? 12 : run ? 42 : 26) * I * (run ? 1 : Math.min(1, v / 0.6 + 0.3));
     if (run && !red) {
       /* gallop: the front pair then the back pair */
@@ -1147,14 +1247,387 @@
     if (!o.reduced) out.y = 0.01 * Math.sin(TAU * 2 * t);
     return out;
   };
+
+  /* ---- the kids update (KU-CH3): the people's clips — the games' moments and the 12 signature moves ----
+     Pure, additive and on the same 23 AV_KEYS (no new channel). Geometry is tuned on the person's regular
+     joints (= SLPxCrew.AV: body centre 0.4, hips 0.275, a 0.45 u head), and every clip runs on the classic
+     avatars too. One-shots hold their last pose; reduced motion is one constant pose per clip. */
+  var AV_HIP_D = 0.125;                    /* the body centre above the hip joints (0.4 − 0.275) */
+  var AV_BODY_Y_PERSON = 0.4;              /* SLPxCrew.AV.bodyY: the rig turns the body about this */
+  var SLIDE = { pitch: -86, sz: 0.8, leg: -22, arm: 6, wiggle: 4, hz: 1, y: -0.232, maxH: 0.4 };   /* slideFlat (maxH × game scale 0.9 = 0.36 u) */
+  var DUO = { hz: 1, bounce: 0.035 };
+  var READY = { hz: 0.5, pitch: 7 };
+  var AV_EXTRAS = ['visor', 'antenna', 'sparkle', 'spread'];
+  function seg(t, a, b) { return clamp01((t - a) / (b - a)); }
+  function lerp(a, b, k) { return a + (b - a) * k; }
+  /* lean the whole figure pitch P° about its body centre and keep both feet where they stand */
+  function avPlant(out, P) {
+    var r = P * DEG;
+    out.pitch += P; out.legL += P; out.legR += P;
+    out.y -= AV_HIP_D * (1 - Math.cos(r)); out.z += AV_HIP_D * Math.sin(r);
+    return out;
+  }
+  /* a whole-body roll about the body centre tips one foot's outer edge (0.175 u out) into the floor: lift it back out */
+  function avRollLift(out) {
+    var r = Math.abs(out.roll) * DEG;
+    out.y += Math.max(0, 0.175 * Math.sin(r) - AV_BODY_Y_PERSON * (1 - Math.cos(r)));
+    return out;
+  }
+  /* left ↔ right: the figure's own sides swap, everything that turns flips */
+  var AV_FLIP = ['x', 'yaw', 'roll', 'hips', 'lean', 'headYaw', 'headRoll'];
+  function avMirror(out) {
+    var s;
+    s = out.armL; out.armL = out.armR; out.armR = s;
+    s = out.armLf; out.armLf = out.armRf; out.armRf = s;
+    s = out.legL; out.legL = out.legR; out.legR = s;
+    for (var i = 0; i < AV_FLIP.length; i++) out[AV_FLIP[i]] = -out[AV_FLIP[i]];
+    return out;
+  }
+  /* blend every channel of `out` toward the pose `to` by k */
+  function avToward(out, to, k) {
+    for (var key in to) if (own(to, key)) out[key] = lerp(out[key], to[key], k);
+    return out;
+  }
+  var TO = {};                              /* the scratch target pose a clip eases toward (no allocation per frame) */
+
+  /* shoot (0.75 s): the Encore Shootout kick on the pet 'kick' timing — wind-up (kicking leg back, the
+     other arm out for balance), the strike at KICK_STRIKE, the follow-through, then standing. The right
+     leg kicks; o.left the left one. Reduced: the strike pose. */
+  function shootStrike(out) {
+    out.legR = 45; out.legL = 0; out.armL = 50; out.armLf = -5; out.armR = 28; out.armRf = 20;
+    out.hips = 8; out.headPitch = 10;
+    return avPlant(out, 4);
+  }
+  AV.shoot = function (t, out, o) {
+    if (o.reduced) shootStrike(out);
+    else {
+      var w = inOut(t / 0.28), s = outQuad(seg(t, 0.28, 0.36)), e = inOut(seg(t, 0.36, 0.75));
+      if (t < 0.28) {
+        out.legR = -55 * w; out.legL = 10 * w; out.armL = 8 + 40 * w; out.armLf = 30 * w; out.armR = 8 + 25 * w; out.armRf = -25 * w;
+        out.hips = -12 * w; out.headPitch = 10 * w; out.pitch = -6 * w; out.z = -0.02 * w; out.y = 0.012 * Math.sin(PI * w);
+      } else if (t < 0.36) {
+        out.legR = -55 + 140 * s; out.legL = 10 * (1 - s); out.armL = 48 + 12 * s; out.armLf = 30 - 40 * s; out.armR = 33 - 3 * s; out.armRf = -25 + 50 * s;
+        out.hips = -12 + 26 * s; out.headPitch = 10 + 4 * s; out.pitch = -6 + 14 * s; out.z = -0.02 + 0.07 * s; out.y = 0.03 * s + 0.012 * Math.sin(PI * s);
+      } else {
+        out.legR = 85 * (1 - e); out.armL = lerp(60, 12, e); out.armLf = lerp(-10, 0, e); out.armR = lerp(30, 12, e); out.armRf = 25 * (1 - e);
+        out.hips = 14 * (1 - e); out.headPitch = lerp(14, -4, e); out.pitch = 8 * (1 - e); out.z = 0.05 * (1 - e); out.y = 0.03 * (1 - e);
+      }
+    }
+    return o.left ? avMirror(out) : out;
+  };
+  /* oops (1 s): a miss or a save — hands to the head, then a thumbs-up with a grin. Never a slump: the
+     body never leans forward and the head never drops. Reduced: the thumbs-up. */
+  function thumbsUp(out) { out.armR = 25; out.armRf = 80; out.armL = 10; out.headRoll = 8; out.faceCam = 1; return out; }
+  AV.oops = function (t, out, o) {
+    if (o.reduced) return thumbsUp(out);
+    var a = inOut(t / 0.2), b = inOut(seg(t, 0.5, 0.8));
+    out.armL = lerp(8 + 147 * a, 10, b); out.armLf = 20 * a * (1 - b);
+    out.armR = lerp(8 + 147 * a, 25, b); out.armRf = lerp(20 * a, 80, b);
+    out.headPitch = -6 * a * (1 - b); out.pitch = -3 * a * (1 - b);
+    out.headRoll = lerp(7 * Math.sin(PI * seg(t, 0.2, 0.5)), 8, b);
+    out.faceCam = b;
+    if (t > 0.8) out.y = 0.02 * arc(seg(t, 0.8, 1));
+    return out;
+  };
+  /* shrug (0.9 s): the keeper guessed right — arms out low, palms up, a rise and a head tilt, held, then
+     eased a little. Reduced: the shrug. */
+  function shrugPose(out, k, still) {
+    out.armL = out.armR = 8 + 37 * k; out.armLf = out.armRf = 30 * k; out.y = still ? 0 : 0.025 * k;
+    out.headRoll = 12 * k; out.headPitch = -4 * k; out.lean = 3 * k; out.faceCam = k;
+    return out;
+  }
+  AV.shrug = function (t, out, o) {
+    if (o.reduced) return shrugPose(out, 1, true);
+    return shrugPose(out, inOut(t / 0.25) * (1 - 0.45 * inOut(seg(t, 0.6, 0.9))));
+  };
+  /* slideFlat (loop): the Debut Run slide under the LED gate — on its back, feet first, arms tucked,
+     squashed flat (SLIDE.sz) so the figure stays ≤ SLIDE.maxH tall (≤ 0.36 u at game scale 0.9). Only the
+     arms wiggle, sideways along the floor (never upward). o.bodyY = the rig's body centre (default the
+     person's 0.4) keeps it on the floor for every body shape. Reduced: still. */
+  AV.slideFlat = function (t, out, o) {
+    var S = SLIDE, wig = o.reduced ? 0 : S.wiggle * Math.sin(TAU * S.hz * t);
+    out.pitch = S.pitch; out.sz = S.sz; out.legL = out.legR = S.leg;
+    out.armL = S.arm + wig; out.armR = S.arm - wig;
+    out.y = S.y - (num(o.bodyY, AV_BODY_Y_PERSON) - AV_BODY_Y_PERSON);
+    return out;
+  };
+  /* jumpTuck (0.6 s): the Debut Run double jump — knees up, arms round the shins, ONE front flip, then
+     out of the tuck to land, rising TUCK_LIFT as it turns so the head clears the floor; o.height adds the
+     hop (as 'jump'). Reduced: a still tuck. */
+  var TUCK_LIFT = 0.24;                    /* a flip about the body centre clears the floor with this rise */
+  function tuck(out, k) { out.legL = out.legR = 80 * k; out.armLf = out.armRf = 70 * k; out.armL = out.armR = 8 - 14 * k; out.headPitch = 15 * k; return out; }
+  AV.jumpTuck = function (t, out, o) {
+    if (o.reduced) return tuck(out, 1);
+    tuck(out, smooth(0, 0.1, t) * (1 - smooth(0.5, 0.6, t)));
+    var land = smooth(0.5, 0.6, t);
+    out.armL = out.armR = lerp(out.armL, 40, land); out.armLf = out.armRf = lerp(out.armLf, 20, land);
+    if (t < 0.5) out.pitch = 360 * inOut(seg(t, 0.08, 0.5));
+    var h = num(o.height, 0);
+    out.y = (h > 0 ? h * arc(t / 0.6) : 0) + TUCK_LIFT * Math.sin(PI * seg(t, 0.04, 0.56));
+    return out;
+  };
+  /* duo (loop, 1 s): finish lines and podiums with the pet — one arm out to the pet, the other up, a
+     1 Hz bounce. The pet stands at the figure's right; o.left: at its left. Reduced: still. */
+  AV.duo = function (t, out, o) {
+    out.armR = 95; out.armRf = 35; out.armL = 140; out.armLf = 10; out.headYaw = -15; out.headRoll = -5; out.faceCam = 1;
+    if (!o.reduced) {
+      var u = arc(frac(t * DUO.hz));
+      out.y = DUO.bounce * u; out.armL += 10 * u; out.legL = out.legR = -6 * u;
+    }
+    return o.left ? avMirror(out) : out;
+  };
+  /* ready (loop): the Shootout's decider — set over the ball, leaning in, the kicking foot back, eyes
+     down, a slow breath. The right foot kicks; o.left the left. Reduced: still. */
+  AV.ready = function (t, out, o) {
+    var b = o.reduced ? 0 : Math.sin(TAU * READY.hz * t);
+    out.armL = out.armR = 24 + 2 * b; out.armLf = out.armRf = 22; out.headPitch = 10; out.hips = -6;
+    out.sy = 0.97 + 0.006 * b;
+    avPlant(out, READY.pitch);
+    out.legR -= 14; out.legL += 6; out.y += 0.02;              /* the straight back leg would dig its toe in */
+    return o.left ? avMirror(out) : out;
+  };
+
+  /* ---- the 12 signature moves (one per ready-made character; the move ids are the catalogue's sig).
+     Each is a one-shot of the character's sec, every repeat at or under its maxHz; reduced = its named
+     pose, constant. Effects ride avatarExtras (the visor hinge, the antenna nod, the ✦ burst). ---- */
+  function freezePoseAv(out) {                /* crouched on one hand, the other arm up (FK-fitted: hand and a foot on the floor) */
+    out.roll = 32; out.y = -0.138; out.legL = 70; out.legR = 90; out.armR = 20; out.armRf = 15; out.armL = 140; out.armLf = 10;
+    out.headRoll = -10; out.faceCam = 1;
+    return out;
+  }
+  AV.sigFreeze = function (t, out, o) {      /* Theo, 2.2 s: two bounces on the beat, drop, freeze (held 0.8 s) */
+    if (o.reduced) return freezePoseAv(out);
+    if (t < 1.2) {
+      var u = frac(t / 0.6), dip = 0.5 - 0.5 * Math.cos(TAU * u), side = t < 0.6 ? 1 : -1;
+      out.sy = 1 - 0.06 * dip; out.armL = out.armR = 20;                 /* the bounce squashes about the feet */ out.armLf = out.armRf = 30 + 25 * dip;
+      out.headPitch = 6 * dip; out.hips = 10 * side * Math.sin(PI * u);
+      return out;
+    }
+    var k = inOut(seg(t, 1.2, 1.4));
+    out.armL = out.armR = 20; out.armLf = out.armRf = 30;
+    avToward(out, freezePoseAv(restAvatar(TO)), k);
+    out.y = TO.y * k * k * k; out.roll = TO.roll * k * k;     /* legs forward first, then down and over: nothing digs in */
+    return out;
+  };
+  function fingerUp(out) { out.armR = 145; out.armRf = 18; out.headPitch = -8; out.headRoll = 6; out.faceCam = 1; return out; }
+  AV.sigEureka = function (t, out, o) {      /* Priya, 1.6 s: a finger up, a hop, the antenna nods once */
+    if (o.reduced) return fingerUp(out);
+    fingerUp(out);
+    var a = inOut(t / 0.3);
+    out.armR = lerp(8, 145, a); out.armRf = 18 * a; out.headPitch = -12 * a + 4 * smooth(0.75, 1.2, t); out.headRoll = 6 * a; out.faceCam = smooth(0.6, 1, t);
+    if (t > 0.3 && t < 0.75) {
+      var u = seg(t, 0.3, 0.75);
+      out.y = 0.12 * arc(u); out.sy = squishAt(u); out.legL = out.legR = -15 * Math.sin(PI * u); out.armL = 8 + 30 * Math.sin(PI * u);
+    }
+    return out;
+  };
+  function pointUp(out) { out.armR = 150; out.armRf = 35; out.headPitch = -10; out.headRoll = 8; out.hips = 10; out.faceCam = 1; return out; }
+  AV.sigStarpoint = function (t, out, o) {   /* Jude, 1.8 s: points at the sky, the ✦ burst, a grin back to the camera */
+    if (o.reduced) return pointUp(out);
+    var a = inOut(t / 0.35), b = inOut(seg(t, 1.15, 1.6));
+    out.armR = lerp(8, 150, a); out.armRf = 35 * a; out.headPitch = lerp(-20 * a, -10, b);
+    out.headRoll = 8 * b; out.hips = 10 * b; out.faceCam = b;
+    out.pitch = -5 * a * (1 - b);
+    return out;
+  };
+  function saluteAv(out) { out.armR = 150; out.armRf = 25; out.armL = 8; out.headRoll = 4; out.faceCam = 1; return out; }
+  function wingsOut(out) { out.armL = out.armR = 90; out.armLf = out.armRf = -5; return out; }
+  AV.sigSwoop = function (t, out, o) {       /* Wren, 2.4 s: arms out like wings, bank left and right (0.8 Hz), a salute */
+    if (o.reduced) return wingsOut(out);
+    var a = inOut(t / 0.3), c = inOut(seg(t, 1.55, 1.9));
+    out.armL = out.armR = 8 + 82 * a; out.armLf = out.armRf = -5 * a;
+    if (t > 0.3 && t < 1.55) {
+      var b = Math.sin(TAU * 0.8 * (t - 0.3));
+      out.roll = 14 * b; out.armL += 18 * b; out.armR -= 18 * b; out.hips = 8 * b; out.yaw = -10 * b;
+      avRollLift(out);
+    }
+    avPlant(out, 6 * a * (1 - c));
+    out.headPitch = -4 * a * (1 - c);
+    if (c > 0) avToward(out, saluteAv(restAvatar(TO)), c);
+    return out;
+  };
+  AV.sigEncore = function (t, out, o) {      /* Ines, 2 s: a mic-point to the crowd, a step-touch, the finger-heart */
+    if (o.reduced) return avHeart(out);
+    var e = smooth(0, 0.25, t), s = seg(t, 0.6, 1.3), h = inOut(seg(t, 1.3, 1.55));
+    out.armRf = lerp(85 * e, 30, smooth(0.6, 0.9, t)); out.armR = 8 + 10 * e; out.armL = 8 + 4 * e; out.faceCam = e;
+    out.headPitch = -5 * e * (1 - s);
+    if (t >= 0.6 && t < 1.3) {
+      out.x = 0.06 * Math.sin(PI * s); out.legR = 25 * Math.sin(PI * seg(s, 0.2, 0.8));
+      out.lean = 4 * Math.sin(PI * s); out.armL = 12 + 10 * Math.sin(PI * s);
+    }
+    if (h > 0) { avToward(out, avHeart(restAvatar(TO)), h); out.y = 0.012 * arc(seg(t, 1.3, 1.7)); }
+    return out;
+  };
+  function kneelArms(out) { out.legL = out.legR = -90; out.pitch = -8; out.y = -0.114; out.armL = out.armR = 140; out.armLf = out.armRf = 10; out.headPitch = -10; out.faceCam = 1; return out; }
+  function kneeRun(out, t) {
+    var a = smooth(0, 0.12, t), s = a * Math.sin(TAU * 1.4 * t);
+    out.armLf = 40 * s; out.armRf = -40 * s; out.armL = out.armR = 8; out.legL = -36 * s; out.legR = 36 * s;
+    out.pitch = 8 * a; out.y = 0.016 * a; out.z = 0.2 * (t / 0.45);   /* a lift, not a bob: the strides stay out of the floor */
+    return out;
+  }
+  AV.sigKnee = function (t, out, o) {        /* Omar, 1.6 s: a short run, a 0.6 u knee slide, both arms up (travels AV_INFO.sigKnee.travel) */
+    if (o.reduced) return kneelArms(out);
+    kneeRun(out, Math.min(t, 0.45));
+    if (t < 0.45) return out;
+    var k = inOut(seg(t, 0.45, 0.7)), y0 = out.y;
+    avToward(out, kneelArms(restAvatar(TO)), k);
+    out.y = lerp(y0, TO.y, k * k) + 0.03 * Math.sin(PI * k);    /* the legs fold back before the body drops */
+    out.z = 0.2 + 0.6 * outQuad(seg(t, 0.45, 1.2));
+    return out;
+  };
+  function visorWave(out) { out.armR = 140; out.armL = 10; out.headRoll = 6; out.faceCam = 1; return out; }
+  AV.sigVisor = function (t, out, o) {       /* Lena, 1.8 s: flips the helmet visor up (0.3 s), waves twice (≤ 1.2 Hz) */
+    if (o.reduced) return visorWave(out);
+    var a = inOut(t / 0.15), b = inOut(seg(t, 0.3, 0.45));
+    out.armRf = lerp(150 * a, 0, b); out.armR = lerp(8 + 27 * a, 140, b); out.armL = 8 + 2 * a;
+    out.headPitch = -6 * a * (1 - b); out.headRoll = 6 * b; out.faceCam = b;
+    if (t > 0.45 && t < 1.75) out.armR += 18 * Math.sin(TAU * (1.5 / 1.3) * (t - 0.45));
+    return out;
+  };
+  function surfStance(out, k) {
+    out.yaw = 45 * k; out.headYaw = -30 * k; out.legL = 22 * k; out.legR = -22 * k;
+    out.armL = out.armR = 8 + 62 * k; out.armLf = 12 * k; out.armRf = -12 * k; out.sy = 1 - 0.04 * k;
+    out.lean = 3 * k; out.y = 0.026 * k; out.faceCam = 0;           /* legs apart: lifted so the back toe stays out of the floor */
+    return out;
+  }
+  AV.sigSurf = function (t, out, o) {        /* Malu, 2.4 s: drops into a surf stance and rides two slow waves (0.68 Hz) */
+    if (o.reduced) return surfStance(out, 1);
+    surfStance(out, inOut(t / 0.4));
+    var env = smooth(0.4, 0.7, t) * (1 - smooth(2.05, 2.4, t)), w = env * Math.sin(TAU * 0.68 * (t - 0.4));
+    out.y += 0.018 * (env + w); out.roll = 8 * w; out.armL += 10 * w; out.armR -= 10 * w; out.headRoll = -4 * w;
+    return avRollLift(out);
+  };
+  function binoculars(out) { out.armL = out.armR = 145; out.armLf = out.armRf = 35; out.headPitch = 6; return out; }
+  AV.sigSpy = function (t, out, o) {         /* Amara, 2.2 s: hands as binoculars, looks left then right (0.5 Hz), points */
+    if (o.reduced) return binoculars(out);
+    avToward(out, binoculars(restAvatar(TO)), inOut(t / 0.3));
+    var look = t > 0.3 ? Math.sin(TAU * 0.5 * Math.min(t - 0.3, 1.5)) : 0, p = inOut(seg(t, 1.8, 2.15));
+    out.hips = 28 * look * (1 - 0.3 * p); out.headYaw = 12 * look;
+    if (p > 0) {
+      out.armR = lerp(145, 30, p); out.armRf = lerp(35, 85, p); out.armL = lerp(145, 8, p); out.armLf = 35 * (1 - p);
+      out.headPitch = 6 * (1 - p);
+    }
+    return out;
+  };
+  function treePose(out) { out.legR = 60; out.armL = out.armR = 135; out.armLf = out.armRf = 10; out.headPitch = -5; out.lean = -3; out.faceCam = 1; return out; }
+  AV.sigTree = function (t, out, o) {        /* Rowan, 2.2 s: one foot up, arms up into branches, a slow sway (0.45 Hz) */
+    if (o.reduced) return treePose(out);
+    avToward(out, treePose(restAvatar(TO)), inOut(t / 0.4));
+    var env = smooth(0.4, 0.7, t) * (1 - smooth(1.9, 2.2, t)), w = env * Math.sin(TAU * 0.45 * (t - 0.4));
+    out.roll = 4 * w; out.armL += 6 * w; out.armR -= 6 * w; out.headRoll = -3 * w;
+    return avRollLift(out);
+  };
+  function bowPose(out) {
+    out.armR = -10; out.armRf = 55; out.armL = 30; out.armLf = -30; out.headPitch = 12; out.faceCam = 0;
+    return avPlant(out, 38);
+  }
+  AV.sigBow = function (t, out, o) {         /* Elsie, 2 s: a hand flourish (one 0.6 s circle), a deep bow held 0.6 s, up again */
+    if (o.reduced) return bowPose(out);
+    if (t < 0.6) {
+      var u = t / 0.6, up = Math.sin(PI * u);          /* one sweep: up and out to the side, round and down across the front */
+      out.armR = 8 + 95 * up; out.armRf = 55 * u * u; out.headRoll = 6 * up; out.faceCam = 1;
+      return out;
+    }
+    var k = inOut(seg(t, 0.6, 1)) * (1 - inOut(seg(t, 1.6, 2)));
+    out.armRf = 55 * (1 - smooth(1.6, 2, t)); out.faceCam = 1 - k;
+    avToward(out, bowPose(restAvatar(TO)), k);
+    return out;
+  };
+  function armsUp(out) { out.armL = out.armR = 140; out.armLf = out.armRf = 10; out.headPitch = -4; out.faceCam = 1; return out; }
+  AV.sigSpin = function (t, out, o) {        /* Noor, 1.8 s: one full spin over 1.2 s (0.83 rev/s), arms up to finish */
+    if (o.reduced) return armsUp(out);
+    var a = inOut(t / 0.2), c = inOut(seg(t, 1.4, 1.75));
+    out.armLf = out.armRf = 45 * a; out.armL = out.armR = 8 - 16 * a; out.y = 0.02 * a * (1 - c); out.legL = 12 * a * (1 - c);
+    if (t > 0.2 && t < 1.4) out.yaw = 360 * inOut(seg(t, 0.2, 1.4));
+    if (c > 0) avToward(out, armsUp(restAvatar(TO)), c);
+    return out;
+  };
+
   var AV_CLIPS = Object.keys(AV);
+  /* the people's clips: AV_INFO is read before CLIP_INFO (the pets' table and its pins are untouched).
+     sig = the catalogue character the move belongs to; maxHz = its fastest repeat; travel = how far forward
+     (u) the end pose stands; strike = when the foot meets the ball. These clips never play faster than
+     authored (o.rate above 1 is ignored: the flash rule). */
+  var AV_INFO = {
+    shoot: { loop: false, dur: 0.75, rate: true, strike: KICK_STRIKE, mirror: true },
+    oops: { loop: false, dur: 1, rate: true },
+    shrug: { loop: false, dur: 0.9, rate: true },
+    slideFlat: { loop: true, dur: 0, maxH: SLIDE.maxH },
+    jumpTuck: { loop: false, dur: 0.6, rate: true },
+    duo: { loop: true, dur: 1 / DUO.hz, rate: true, mirror: true },
+    ready: { loop: true, dur: 0, mirror: true },
+    sigFreeze: { loop: false, dur: 2.2, sig: 'char_theo', maxHz: 1 },
+    sigEureka: { loop: false, dur: 1.6, sig: 'char_priya', maxHz: 1.25 },
+    sigStarpoint: { loop: false, dur: 1.8, sig: 'char_jude', maxHz: 1 },
+    sigSwoop: { loop: false, dur: 2.4, sig: 'char_wren', maxHz: 0.8 },
+    sigEncore: { loop: false, dur: 2, sig: 'char_ines', maxHz: 1 },
+    sigKnee: { loop: false, dur: 1.6, sig: 'char_omar', maxHz: 1.5, travel: 0.8 },
+    sigVisor: { loop: false, dur: 1.8, sig: 'char_lena', maxHz: 1.2 },
+    sigSurf: { loop: false, dur: 2.4, sig: 'char_malu', maxHz: 0.7 },
+    sigSpy: { loop: false, dur: 2.2, sig: 'char_amara', maxHz: 0.5 },
+    sigTree: { loop: false, dur: 2.2, sig: 'char_rowan', maxHz: 0.5 },
+    sigBow: { loop: false, dur: 2, sig: 'char_elsie', maxHz: 1 },
+    sigSpin: { loop: false, dur: 1.8, sig: 'char_noor', maxHz: 0.83 }
+  };
+  var AV_NEW = Object.keys(AV_INFO);
+  var AV_SIGS = AV_NEW.filter(function (n) { return !!AV_INFO[n].sig; });
+  /* {loop, dur} for any avatar clip (people first, then the shared table); null for an unknown name */
+  function avInfo(name, o) {
+    var a = AV_INFO[name];
+    if (a) return { loop: a.loop, dur: a.dur };
+    var c = CLIP_INFO[name];
+    return c ? { loop: c.loop, dur: durOf(name, o) } : null;
+  }
   function sampleAvatar(name, t, out, o) {
     o = o || NOOPT;
     out = restAvatar(out);
-    var fn = AV[name] || AV.idle, info = CLIP_INFO[name];
-    var tt = Math.max(0, num(t, 0)) * (name === 'walk' || name === 'run' ? 1 : Math.max(0, num(o.rate, 1)));
-    if (info && !info.loop) tt = Math.min(tt, durOf(name, o));
+    var fn = AV[name] || AV.idle, ai = own(AV_INFO, name) ? AV_INFO[name] : null, info = ai || CLIP_INFO[name];
+    var rate = Math.max(0, num(o.rate, 1));
+    if (ai) rate = ai.rate ? Math.min(rate, 1) : 1;
+    var tt = Math.max(0, num(t, 0)) * (name === 'walk' || name === 'run' ? 1 : rate);
+    if (info && !info.loop) tt = Math.min(tt, ai ? ai.dur : durOf(name, o));
     return fn(tt, out, o);
+  }
+  /* the effects a clip drives beside the pose (the person rig's optional bones and the ✦ burst):
+     visor 0 down … 1 up (Lena's helmet hinge) · antenna nod (deg, Priya's gadget pack) · sparkle the ✦
+     burst's opacity 1 → 0 and spread its reach 0 → 1 (Jude: 8 cubes, fading over 0.8 s; reduced motion:
+     the same fade at a fixed reach). Every other clip leaves them at 0. */
+  function restExtras(out) { out = out || {}; for (var i = 0; i < AV_EXTRAS.length; i++) out[AV_EXTRAS[i]] = 0; return out; }
+  function avatarExtras(name, t, out, o) {
+    o = o || NOOPT;
+    out = restExtras(out);
+    var ai = own(AV_INFO, name) ? AV_INFO[name] : null;
+    if (!ai || !ai.sig) return out;
+    var tt = Math.min(Math.max(0, num(t, 0)), ai.dur), red = !!o.reduced;
+    if (name === 'sigVisor') out.visor = red ? 1 : smooth(0.12, 0.3, tt);
+    else if (name === 'sigEureka') out.antenna = red || tt <= 0.75 || tt >= 1.25 ? 0 : 25 * Math.sin(PI * (tt - 0.75) / 0.5);
+    else if (name === 'sigStarpoint' && tt >= 0.35 && tt < 1.15) {
+      var u = seg(tt, 0.35, 1.15);
+      out.sparkle = 1 - u; out.spread = red ? 0.6 : outQuad(u);
+    }
+    return out;
+  }
+  /* the person's blink: eyes y × 0.15 for 0.12 s at deterministic 3–6 s gaps (seed = the look code);
+     never under reduced motion, never on a photocard */
+  var BLINK = { y: 0.15, dur: 0.12, lo: 3, hi: 6 };
+  function avatarBlink(t, seed, o) {
+    if (o && (o.reduced || o.photocard)) return 1;
+    var e = eventSince(Math.max(0, num(t, 0)), seedOf(seed) ^ 0x27d4eb2f, BLINK.lo, BLINK.hi), u = e.since / BLINK.dur;
+    if (!(u >= 0 && u < 1)) return 1;
+    var c = u < 0.3 ? u / 0.3 : u > 0.7 ? (1 - u) / 0.3 : 1;
+    return 1 - (1 - BLINK.y) * c;
+  }
+  /* a ponytail's, pigtails' or braids' sway (the hairTail bone) from the root speed (u/s; pass a smoothed
+     speed): a fixed HAIR.hz swing growing with speed, streaming back as it runs; ±HAIR.amp at most; still
+     at rest and under reduced motion */
+  var HAIR = { hz: 1.4, amp: 10, full: 3 };
+  function hairSway(t, speed, o, out) {
+    out = out || {};
+    var k = o && o.reduced ? 0 : clamp01(num(speed, 0) / HAIR.full), ph = TAU * HAIR.hz * num(t, 0) + (seedOf(o && o.seed) % 628) / 100;
+    if (!k) { out.roll = 0; out.pitch = 0; return out; }
+    out.roll = HAIR.amp * k * Math.sin(ph);
+    out.pitch = -HAIR.amp * k * (0.7 + 0.3 * Math.cos(ph));
+    return out;
   }
 
   /* crown sparkle: one 0.4 s sheen every 3 s (SLMotion.glint shape), none under reduced motion */
@@ -2168,10 +2641,11 @@
         for (var i = 0; i < OPT_KEYS.length; i++) { var k = OPT_KEYS[i]; o2[k] = o ? o[k] : undefined; }
         if (o2.seed == null) o2.seed = seed;
         o2.phase = phase;
+        o2.bodyY = AV_BODY_Y;                 /* this rig's body centre: slideFlat lies on the floor */
         sampleAvatar(clip, t, pose, o2);
         return setPose(pose), pose;
       },
-      info: function (clip) { var c = CLIP_INFO[clip]; return c ? { loop: c.loop, dur: durOf(clip, o2) } : null; },
+      info: function (clip) { return avInfo(clip, o2); },
       dispose: function () {
         if (disposed) return;
         disposed = true;
@@ -2278,7 +2752,7 @@
     SOCKET_BONE: SOCKET_BONE, BODY_Y: BODY_Y, BUDGET: BUDGET, SPECIES: SPECIES, CAPE: CAPE, KICK_STRIKE: KICK_STRIKE, DANCE_BPM: DANCE_BPM,
     DANCE_MOVES: DANCE_MOVES, DANCE_PLAN: DANCE_PLAN, POSE_KEYS: POSE_KEYS, CLIP_NAMES: CLIP_NAMES, CONTRACT_CLIPS: CONTRACT_CLIPS,
     V3_CLIPS: V3_CLIPS, RIDE: RIDE, PADDLE_SINK: PADDLE_SINK,
-    CLIP_INFO: CLIP_INFO, AV_KEYS: AV_KEYS, AV_CLIPS: AV_CLIPS, TOP_Y: TOP_Y, EYE_OPEN: EYE_OPEN, IDLE_SQUASH: IDLE_SQUASH,
+    CLIP_INFO: CLIP_INFO, AV_KEYS: AV_KEYS, AV_CLIPS: AV_CLIPS, AV_INFO: AV_INFO, AV_NEW: AV_NEW, AV_SIGS: AV_SIGS, AV_EXTRAS: AV_EXTRAS, TOP_Y: TOP_Y, EYE_OPEN: EYE_OPEN, IDLE_SQUASH: IDLE_SQUASH,
     OUTLINE_CHAR: OUTLINE_CHAR, OUTLINE_TOKEN: OUTLINE_TOKEN, WAND: WAND, VISOR_SCAN_HZ: VISOR_SCAN_HZ, RING_PULSE: RING_PULSE,
     AV_SHIFT_SEC: AV_SHIFT_SEC, TWIRL: TWIRL, AV_H: AV_H, FAN_DAY: FAN_DAY, FAN_NIGHT: FAN_NIGHT, FAN_WAND: FAN_WAND,
     jointsOf: jointsOf, socketsOf: socketsOf, restPose: restPose, mixPose: mixPose, sample: sampleClip, sampleClip: sampleClip,
@@ -2289,11 +2763,17 @@
     petParts: petParts, accParts: accParts, avatarParts: avatarParts, wandParts: wandParts, fanParts: fanParts,
     primTris: primTris, petTris: petTris, accTris: accTris, avatarTris: avatarTris, wandTris: wandTris,
     /* My Island v3 (W3b.11): 14 species, the new gaits, the biped map, the pose helpers, the seam's tests */
-    TOON_PETS: TOON_PETS, MASCOTS: MASCOTS, SPECIES_KEYS: SPECIES_KEYS, GAITS: GAITS, GAIT_GEOM: GAIT_GEOM,
+    TOON_PETS: TOON_PETS, MASCOTS: MASCOTS, SPECIES_KEYS: SPECIES_KEYS, GAITS: GAITS, GAIT_GEOM: GAIT_GEOM, GAIT_LEGS: GAIT_LEGS,
     WADDLE: WADDLE, SCUTTLE: SCUTTLE, CANTER: CANTER, GALUMPH: GALUMPH, BIPED_WING: BIPED_WING,
     speciesOf: speciesOf, syncSpecies: syncSpecies, bipedMap: bipedMap, contactLow: contactLow,
     rearUp: rearUp, legsTuck: legsTuck, wingsFlap: wingsFlap, wingsFolded: wingsFolded, pawsUp: pawsUp,
-    canRig: canRig, rigSource: rigSource, standInOf: standInOf, isMascot: isMascot, isLandGear: isLandGear, wearsGear: wearsGear
+    canRig: canRig, rigSource: rigSource, standInOf: standInOf, isMascot: isMascot, isLandGear: isLandGear, wearsGear: wearsGear,
+    /* the kids update (P2.4): per-species gait geometry and pace */
+    GAIT_GEOM_SPECIES: GAIT_GEOM_SPECIES, PACE: PACE, gaitGeomOf: gaitGeomOf, paceOf: paceOf, walkHz: walkHz, waddleRoll: waddleRoll,
+    /* the kids update (KU-CH3): the people's clips, their effects, the blink and the hair sway */
+    SLIDE: SLIDE, DUO: DUO, READY: READY, TUCK_LIFT: TUCK_LIFT, BLINK: BLINK, HAIR: HAIR, AV_HIP_D: AV_HIP_D, AV_BODY_Y_PERSON: AV_BODY_Y_PERSON,
+    avInfo: avInfo, avatarExtras: avatarExtras, restExtras: restExtras, avatarBlink: avatarBlink, hairSway: hairSway,
+    avMirror: avMirror, avPlant: avPlant
   };
   var api = {};
   Object.keys(POSE_API).forEach(function (k) { api[k] = POSE_API[k]; });

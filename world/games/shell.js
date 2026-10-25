@@ -21,6 +21,9 @@
   /* count-in rings are a beat pulse: never more often than the art bible's 1.97 Hz
      (118 BPM). A faster count-in (Debut Run, 128 BPM) rings every other beat. */
   var BEAT_PULSE_HZ = 1.97, RING_GAP_MS = 1000 / BEAT_PULSE_HZ;
+  /* a game's def.preload gets PRELOAD_MS to settle, then 'Couldn’t start' (Try again · Back);
+     results buttons wake GUARD_MS after the sheet is drawn (a tapping finger can't hit them) */
+  var PRELOAD_MS = 10000, GUARD_MS = 650;
   window.SLGames = window.SLGames || {};
 
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -96,6 +99,21 @@
       'html body .slg .slg-scr .slg-b.go{padding:6px 22px;font-size:18px;}',
       'html body .slg .slg-pb{font-size:16px;padding:4px 14px;}',
       '}'
+    ].join('\n');
+    document.head.appendChild(c);
+  }
+  /* API 3 sheets only (the focus-order results): their own small sheet, so a game that uses
+     none of the new hooks gets exactly the V4.54 styles. The selectors out-rank the island
+     skin's 'html body .slg .slg-scr p' */
+  function injectCss3() {
+    if (document.getElementById('slgCss3')) return;
+    var c = document.createElement('style'); c.id = 'slgCss3';
+    c.textContent = [
+      'html body .slg .slg-scr p.slg-next{font-weight:800;color:#ffe27a;}',
+      'html body .slg .slg-b.slg-more{font-size:15px;background:transparent;border-color:rgba(255,255,255,.3);}',
+      '.slg-details{display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;}',
+      '.slg-details[hidden]{display:none;}',
+      'html body .slg .slg-scr .slg-details p{font-size:15px;white-space:pre-line;}'
     ].join('\n');
     document.head.appendChild(c);
   }
@@ -198,6 +216,27 @@
                                    one line under the personal best, onResult({game, variant,
                                    result, outcome, cfg}) one line in #slgBoardSlot on the
                                    results sheet; prefetch(cfg), open({host, …})
+     API 3 (V4.55 fixes; each optional — a game using none of them draws the API 2 sheets):
+       round.nextStep()            ONE next step, a line under the personal best ('Only 130
+                                   more for Gold!'). With it the results read: title, big line,
+                                   the medal badges → the personal best (+ board line) → this
+                                   line (#slgNextStep) → the buttons; summaryText(), the 'hint'
+                                   badges and round.summaryDetails() (more lines) go behind
+                                   📊 Details (#slgDetailsBtn / #slgDetails), with the stars line
+       round.nextVariant()         {id, label, again}, null (offer nothing) or undefined (no
+                                   opinion): the course / rival to try next. Asked once
+                                   cfg.onResult answered (cfg.pb holds the new best by then; at
+                                   once with no cfg.onResult). Its button (#slgNext) is the main
+                                   one and Play again becomes `again`. Without an answer (no hook,
+                                   or undefined) the shell offers the first course / rival this round unlocked
+                                   in def.menuVariants ('🎧 Try Bop' · '↻ Replay Mochi'), and
+                                   'Change course' is re-checked then too (a first unlock). Never
+                                   on a live round, a round with its own again, or out of time
+       round.hud3d()               the top-bar pill while a 3D view (which has its own HUD) is
+                                   drawn; '' empties it (the island skin hides an empty pill)
+       the shell itself            a modal dialog: aria-modal, the page behind it inert, Tab
+                                   kept inside, focus handed back on exit; def.preload has
+                                   PRELOAD_MS (10 s), then 'Couldn’t start' · Try again · Back
      The shell also owns, for every 3D view: the stage's 2D verdict (no 3D view —
      so no WebGL context — once SLIsland3D.failed() or .remembered() says 2D), a
      ~60 fps draw cap (logic still steps every frame), ~30 fps menus/results, and a
@@ -282,6 +321,37 @@
       s = String(s).trim(); return /[.!?…]$/.test(s) ? s : s + '.';
     }).join(' ');
   }
+  /* E5: while a game is up the page behind it is inert (no Tab stops, hidden from screen
+     readers; aria-hidden too, for an iPad without inert). Only what this changed is put back. */
+  var NOT_SHOWN = /^(script|style|link|meta|template|noscript)$/i;
+  function shutBehind(root) {
+    var out = [], host = root && root.parentNode, kids = host ? host.children : [];
+    for (var i = 0; i < kids.length; i++) {
+      var n = kids[i];
+      if (!n || n === root || NOT_SHOWN.test(n.localName || '')) continue;
+      var rec = { n: n, inert: n.hasAttribute('inert'), hid: n.getAttribute('aria-hidden') };
+      if (!rec.inert) { n.setAttribute('inert', ''); try { n.inert = true; } catch (e) {} }
+      if (rec.hid == null) n.setAttribute('aria-hidden', 'true');
+      out.push(rec);
+    }
+    return out;
+  }
+  function openBehind(list) {
+    (list || []).forEach(function (r) {
+      try {
+        if (!r.inert) { r.n.removeAttribute('inert'); try { r.n.inert = false; } catch (e) {} }
+        if (r.hid == null) r.n.removeAttribute('aria-hidden');
+      } catch (e) {}
+    });
+  }
+  /* what Tab can reach inside the game: enabled, not tabindex -1, not in a hidden part */
+  function tabStops(root) {
+    return Array.prototype.filter.call(root.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), function (n) {
+      if (n.disabled || n.getAttribute('tabindex') === '-1') return false;
+      for (var p = n; p && p !== root; p = p.parentNode) if (p.hidden || (p.style && p.style.display === 'none')) return false;
+      return true;
+    });
+  }
   var ROT_HTML = '<div class="slg-rot" aria-hidden="true">📱↻ Turn sideways for a bigger view</div>';
   /* ================================================================
      define(def) -> { start(cfg), demo(host, opts) }
@@ -299,8 +369,12 @@
       var sound = (window.SLSound && typeof SLSound.make === 'function') ? SLSound.make(cfg) : makeSound(cfg);
       var title = def.titleFor ? (function () { try { return def.titleFor(cfg) || def.title; } catch (e) { return def.title; } })() : def.title;
       var reduced = !!cfg.reduced;
+      /* E5: a modal dialog — the focus it took over goes back on exit */
+      var prevFocus = null; try { prevFocus = document.activeElement; } catch (e) { prevFocus = null; }
       var root = el('div', 'slg');
-      root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', title);
+      root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', title);
+      root.setAttribute('tabindex', '-1');
+      root.setAttribute('data-sl-modal', '1');          /* the app's one-off popups wait for it */
       /* skin hooks (world/island-encore.css): the player's colour and the count-in beat */
       if (cfg.user && /^#[0-9a-f]{6}$/i.test(cfg.user.color || '')) root.style.setProperty('--sle-member', cfg.user.color);
       if (def.countIn && def.countIn.bpm > 0) root.style.setProperty('--slg-beat', (60 / def.countIn.bpm).toFixed(3) + 's');
@@ -312,6 +386,7 @@
         '<div class="slg-mid" id="slgMid"><canvas class="slg-canvas" id="slgCanvas"></canvas><div class="slg-touch" id="slgTouch"></div></div>' +
         '<div class="slg-sr" id="slgLive" role="status" aria-live="polite" aria-atomic="true"></div>';
       document.body.appendChild(root);
+      var behind = shutBehind(root);
       var mid = root.querySelector('#slgMid'), canvas = root.querySelector('#slgCanvas'), ctx = canvas.getContext('2d');
       var hudEl = root.querySelector('#slgHud'), soundBtn = root.querySelector('#slgSound'), pauseBtn = root.querySelector('#slgPause');
       var liveEl = root.querySelector('#slgLive'), liveTimer = 0, livePending = '';
@@ -531,25 +606,83 @@
         if (cfg.arcade) cfg.arcade.flush();
         var res = round.result(), rnd = round, rv = rVariant;
         var badges = '', badgeList = [];
-        if (round.summaryBadges) { try { badgeList = round.summaryBadges() || []; badges = '<div class="slg-badges">' + badgeList.map(function (b) { return '<span class="slg-badge ' + esc(b.kind || '') + '">' + esc(b.text) + '</span>'; }).join('') + '</div>'; } catch (e) { badges = ''; badgeList = []; } }
+        if (round.summaryBadges) { try { badgeList = round.summaryBadges() || []; badges = badgeHtml(badgeList); } catch (e) { badges = ''; badgeList = []; } }
         var sTitle = round.summaryTitle ? round.summaryTitle() : 'Finished!', sBig = round.summaryBig(), sText = round.summaryText ? round.summaryText() : '';
         /* API 2: a round may bring its own block (resultsExtra) and main button (again, with
            one note line under the row); a board line gets a slot while boards.js is loaded */
         var extra = typeof rnd.resultsExtra === 'function', own = typeof rnd.again === 'function', waits = own && typeof rnd.againState === 'function';
         var boardSlot = false; try { boardSlot = !!(window.SLBoards && typeof window.SLBoards.onResult === 'function'); } catch (e) {}
-        var sc = setScreen('<h2>' + esc(sTitle) + '</h2><div class="slg-big">' + esc(sBig) + '</div><p>' + esc(sText) + '</p>' + badges + (extra ? '<div id="slgExtra"></div>' : '') +
-          '<div id="slgPbSlot" class="slg-pbslot"></div>' + (boardSlot ? '<div id="slgBoardSlot" class="slg-boardslot"></div>' : '') + '<p style="font-size:13px;opacity:.75;margin:0 0 8px;">🎮 Game scores don’t earn or spend ⭐ — learning earns ⭐.</p>' +
-          '<div class="row"><button class="slg-b go" type="button" id="slgAgain">' + (own && rnd.againLabel ? esc(rnd.againLabel) : '↻ Play again') + '</button>' +
+        /* API 3 (B7): with round.nextStep the sheet reads achievement → best → ONE next step →
+           buttons, and the numbers wait behind 📊 Details */
+        var focusL = typeof rnd.nextStep === 'function', nextLine = '', details = [], shown = badgeList;
+        if (focusL) {
+          try { nextLine = String(rnd.nextStep() || '').trim(); } catch (e) { nextLine = ''; }
+          shown = badgeList.filter(function (b) { return b && b.kind !== 'hint'; });
+          if (sText) details.push(sText);
+          if (typeof rnd.summaryDetails === 'function') {
+            try { var sd = rnd.summaryDetails(); if (sd != null) details = details.concat(Array.isArray(sd) ? sd : [sd]); } catch (e) {}
+          }
+          badgeList.forEach(function (b) { if (b && b.kind === 'hint' && b.text) details.push(b.text); });
+          details = details.filter(function (t) { return t != null && String(t).trim(); }).map(String);
+          injectCss3();
+        }
+        var STARS_P = '<p style="font-size:13px;opacity:.75;margin:0 0 8px;">🎮 Game scores don’t earn or spend ⭐ — learning earns ⭐.</p>';
+        var ROW = '<div class="row"><button class="slg-b go" type="button" id="slgAgain">' + (own && rnd.againLabel ? esc(rnd.againLabel) : '↻ Play again') + '</button>' +
           (!live && variantChoices() > 1 ? '<button class="slg-b" type="button" id="slgMenu">🗺️ Change ' + esc(def.menuVariantsLabel || 'course') + '</button>' : '') +
-          '<button class="slg-b alt" type="button" id="slgHome">🏝️ Back to my island</button></div>' + (waits ? '<p class="slg-lock" id="slgAgainNote"></p>' : ''), true);
-        /* tell a screen reader how it went (title, score, summary, medals) */
-        say(sentences([sTitle, sBig, sText].concat(badgeList.map(function (b) { return b && b.text; }))));
+          '<button class="slg-b alt" type="button" id="slgHome">🏝️ Back to my island</button></div>' + (waits ? '<p class="slg-lock" id="slgAgainNote"></p>' : '');
+        var SLOTS = '<div id="slgPbSlot" class="slg-pbslot"></div>' + (boardSlot ? '<div id="slgBoardSlot" class="slg-boardslot"></div>' : '');
+        var sc = setScreen(!focusL
+          ? '<h2>' + esc(sTitle) + '</h2><div class="slg-big">' + esc(sBig) + '</div><p>' + esc(sText) + '</p>' + badges + (extra ? '<div id="slgExtra"></div>' : '') + SLOTS + STARS_P + ROW
+          : '<h2>' + esc(sTitle) + '</h2><div class="slg-big">' + esc(sBig) + '</div>' + (shown.length ? badgeHtml(shown) : '') + (extra ? '<div id="slgExtra"></div>' : '') + SLOTS +
+            (nextLine ? '<p class="slg-next" id="slgNextStep">' + esc(nextLine) + '</p>' : '') + ROW +
+            (details.length ? '<div class="row"><button class="slg-b slg-more" type="button" id="slgDetailsBtn" aria-expanded="false" aria-controls="slgDetails">📊 Details</button></div>' +
+              '<div id="slgDetails" class="slg-details" hidden>' + details.map(function (t) { return '<p>' + esc(t) + '</p>'; }).join('') + '</div>' : '') + STARS_P, true);
+        /* tell a screen reader how it went (title, score, summary, medals — or, in the focus
+           order, the medals and the next step; Details is read when it is opened) */
+        say(sentences(focusL ? [sTitle, sBig].concat(shown.map(function (b) { return b && b.text; }), [nextLine]) : [sTitle, sBig, sText].concat(badgeList.map(function (b) { return b && b.text; }))));
         if (v3 && def.resultsGlass) sc.classList.add('glass');
         if (v3) startIdle();
         if (extra) { try { rnd.resultsExtra(sc.querySelector('#slgExtra'), ctl); } catch (e) {} }
         sc.querySelector('#slgAgain').addEventListener('click', own ? function () { try { rnd.again(ctl); } catch (e) {} } : replay);
         var mb = sc.querySelector('#slgMenu'); if (mb) mb.addEventListener('click', menu);
         sc.querySelector('#slgHome').addEventListener('click', exit);
+        var db = sc.querySelector('#slgDetailsBtn');
+        if (db) db.addEventListener('click', function () {
+          var box = sc.querySelector('#slgDetails'); if (!box) return;
+          var open = !!box.hidden; box.hidden = !open; db.setAttribute('aria-expanded', String(open));
+        });
+        var st = cfg.arcade && cfg.arcade.status();
+        var again = sc.querySelector('#slgAgain'), timeUp = !!(st && st.exhausted);
+        if (timeUp) { again.textContent = '⏱️ Time’s up for today'; again.disabled = true; again.dataset.stay = '1'; again.classList.remove('go'); }
+        /* B10: what this round opened up. The menu's open choices before the result is saved;
+           once it is (cfg.pb has the new best) a first unlock gets 'Change …' and its own main
+           button. Buttons added while the tap guard is up wait with the others; later ones
+           wait GUARD_MS on their own and never take the focus */
+        var before = openChoices().map(function (v) { return v.id; }), guarded = null, guardOn = true;
+        function offerNext() {
+          if (exited || screen !== sc || live || own || timeUp) return;
+          var row = again.parentNode, home = sc.querySelector('#slgHome'), added = [];
+          if (!row || !home) return;
+          if (!sc.querySelector('#slgMenu') && variantChoices() > 1) {
+            var cb = el('button', 'slg-b'); cb.setAttribute('type', 'button'); cb.id = 'slgMenu';
+            cb.textContent = '🗺️ Change ' + (def.menuVariantsLabel || 'course');
+            cb.addEventListener('click', menu);
+            row.insertBefore(cb, home); added.push(cb);
+          }
+          var nv = sc.querySelector('#slgNext') ? null : nextChoice(rnd, rv, before);
+          if (nv) {
+            var nb = el('button', 'slg-b go'); nb.setAttribute('type', 'button'); nb.id = 'slgNext'; nb.textContent = nv.label;
+            nb.addEventListener('click', function () { chooseVariant(nv.id); });
+            row.insertBefore(nb, again); added.push(nb);
+            again.classList.remove('go'); again.textContent = nv.again;
+          }
+          added.forEach(function (b) {
+            if (!guarded) return;                         /* drawn before the guard: it takes them */
+            b.disabled = true;
+            if (guardOn) guarded.push(b);
+            else setTimeout(function () { if (screen === sc && !exited) b.disabled = false; }, GUARD_MS);
+          });
+        }
         if (res && cfg.onResult) {
           Promise.resolve(cfg.onResult(rv, res)).then(function (r) {
             boardLine(sc, rv, res, r);
@@ -559,15 +692,15 @@
               sound('fanfare');
               if (screen === sc) say('New personal best!');
               var key = def.key + ':' + String(rv || 'std');
-              cfg.pb = cfg.pb || {}; cfg.pb[key] = res.ms != null ? { ms: res.ms } : { score: res.score };
+              var rec = res.ms != null ? { ms: res.ms } : { score: res.score };
+              if (typeof res.extra === 'number' && res.extra === Math.floor(res.extra)) rec.extra = res.extra;   /* the menu's best line keeps its medal */
+              cfg.pb = cfg.pb || {}; cfg.pb[key] = rec;
             } else if (r && r.prev) {
               slot.innerHTML = '<span style="font-weight:700;color:#d9d2f7;">' + esc(pbLine(rv)) + '</span>';
             }
+            offerNext();
           }).catch(function () {});
-        }
-        var st = cfg.arcade && cfg.arcade.status();
-        var again = sc.querySelector('#slgAgain'), timeUp = !!(st && st.exhausted);
-        if (timeUp) { again.textContent = '⏱️ Time’s up for today'; again.disabled = true; again.dataset.stay = '1'; again.classList.remove('go'); }
+        } else offerNext();
         /* a round with its own main button may hold it back with one line ('Waiting for …'):
            asked now and then twice a second while the sheet is up. The line keeps its height
            when empty, so nothing moves when the wait ends */
@@ -583,13 +716,44 @@
         /* a finger still tapping the game mustn't hit Play again / Exit by accident: the
            buttons wake after 0.65 s and then the main one takes focus (a disabled button
            can't, so focusing it earlier did nothing and Enter / Space went nowhere) */
-        var guarded = Array.prototype.filter.call(sc.querySelectorAll('button'), function (b) { return !b.disabled; });
+        guarded = Array.prototype.filter.call(sc.querySelectorAll('button'), function (b) { return !b.disabled; });
         guarded.forEach(function (b) { b.disabled = true; });
         setTimeout(function () {
+          guardOn = false;
           guarded.forEach(function (b) { if (!b.dataset.stay) b.disabled = false; });
           if (note) pollAgain();
           if (screen === sc && !exited) focusMain(sc);
-        }, 650);
+        }, GUARD_MS);
+      }
+      function badgeHtml(list) {
+        return '<div class="slg-badges">' + list.map(function (b) { return '<span class="slg-badge ' + esc(b.kind || '') + '">' + esc(b.text) + '</span>'; }).join('') + '</div>';
+      }
+      /* the menu's open choices now: [{id, name, icon}] (def.menuVariants, else the owned courses) */
+      function openChoices() {
+        if (def.menuVariants) { try { return (def.menuVariants(cfg) || []).filter(function (v) { return v && !v.locked && v.id != null; }); } catch (e) { return []; } }
+        return (cfg.ownedVariants || []).filter(function (v) { return v && v.id != null; });
+      }
+      /* B10: the course / rival to offer after a round on rv → {id, label, again} or null */
+      function nextChoice(rnd, rv, before) {
+        var now = openChoices(), find = function (id) { for (var i = 0; i < now.length; i++) if (String(now[i].id) === String(id)) return now[i]; return null; };
+        var cur = find(rv), againTxt = cur && cur.name ? '↻ Replay ' + cur.name : '↻ Play again';
+        function tryLabel(v) { return (v.icon ? v.icon : '▶') + ' Try ' + v.name; }
+        var o;                                             /* undefined: the game has no opinion */
+        if (typeof rnd.nextVariant === 'function') { try { o = rnd.nextVariant(); } catch (e) { o = null; } }
+        if (o !== undefined) {
+          var v = o && o.id != null && String(o.id) !== String(rv) ? find(o.id) : null;
+          return v ? { id: v.id, label: String(o.label || tryLabel(v)), again: String(o.again || againTxt) } : null;
+        }
+        if (!def.menuVariants) return null;                /* owned courses come from the shop, not from a round */
+        for (var i = 0; i < now.length; i++) if (before.indexOf(now[i].id) < 0 && String(now[i].id) !== String(rv)) return { id: now[i].id, label: tryLabel(now[i]), again: againTxt };
+        return null;
+      }
+      /* choose a course / rival exactly as its menu chip does, and play it */
+      function chooseVariant(id) {
+        variant = id; cfg.variant = id;
+        if (def.menuVariants) { try { localStorage.setItem('slgVar:' + def.key, id); } catch (e) {} }
+        else if (cfg.onSelectVariant) { try { cfg.onSelectVariant(id); } catch (e) {} }
+        beginRound();
       }
       /* the board line under the personal best (optional): asked once per finished round
          that was saved; whatever boards.js does, the sheet is not held up */
@@ -752,8 +916,12 @@
           round.render(ctx);
           ctx.restore();
         }
-        /* the text HUD only when no HTML HUD replaced it, and the DOM only on a change */
-        if (round && hudEl && round.hud && !hudObj) setHudText(round.hud());
+        /* the text HUD only when no HTML HUD replaced it, and the DOM only on a change; over a
+           3D view (with its own HUD) a round's hud3d() is the shorter pill (B11) */
+        if (round && hudEl && !hudObj) {
+          if (v3 && typeof round.hud3d === 'function') { var h3 = ''; try { h3 = round.hud3d(); } catch (e) { h3 = ''; } setHudText(h3); }
+          else if (round.hud) setHudText(round.hud());
+        }
         if (hudObj) { try { hudObj.update(round, phase); } catch (e) {} }
         if (round && round.padState) {
           for (var i = 0; i < pads.length; i++) { var p = pads[i], st = round.padState(p.id) || ''; if (p.st !== st) { p.st = st; p.b.dataset.st = st; } }
@@ -790,6 +958,7 @@
       /* ---------- input ---------- */
       var keyMap = def.keys || {};
       window.addEventListener('keydown', function (e) {
+        if (e.key === 'Tab') { keepTab(e); return; }
         if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') { if (phase === 'playing' || phase === 'countdown') { e.preventDefault(); pause(); } return; }
         var id = keyMap[e.key];
         if (!id) return;
@@ -802,6 +971,17 @@
         var id = keyMap[e.key]; if (!id) return;
         if (held[id]) { held[id] = false; if (round && round.input) round.input(id, false); renderTouchHeld(); }
       }, sig);
+      /* E5: Tab and Shift+Tab go round the game's own buttons and never out to the page */
+      function keepTab(e) {
+        if (exited) return;
+        var list = tabStops(root), a = document.activeElement, inside = !!a && a !== root && root.contains(a);
+        if (!list.length) { e.preventDefault(); try { root.focus({ preventScroll: true }); } catch (x) {} return; }
+        var first = list[0], last = list[list.length - 1];
+        if (!inside || (e.shiftKey ? a === first : a === last)) {
+          e.preventDefault();
+          try { (e.shiftKey ? last : first).focus({ preventScroll: true }); } catch (x) {}
+        }
+      }
       function toLogical(e) {
         var r = canvas.getBoundingClientRect();
         return { x: (e.clientX - r.left - view.ox) / view.scale, y: (e.clientY - r.top - view.oy) / view.scale };
@@ -853,6 +1033,13 @@
         ac.abort();
         if (ro) ro.disconnect();
         root.remove();
+        /* the page comes back: no longer inert, and the focus goes back where it was (the
+           host may move it on in onExit) */
+        openBehind(behind); behind = [];
+        try {
+          if (prevFocus && prevFocus !== document.body && prevFocus.isConnected !== false && !prevFocus.disabled && typeof prevFocus.focus === 'function') prevFocus.focus({ preventScroll: true });
+        } catch (e) {}
+        prevFocus = null;
         if (cfg.arcade) cfg.arcade.flush();
         if (cfg.onExit) cfg.onExit();
       }
@@ -934,15 +1121,37 @@
       if (def.hud && def.hud.mount) { try { hudObj = def.hud.mount(mid, cfg, api); } catch (e) { hudObj = null; } }
       if (hudObj) hudEl.style.display = 'none';
 
-      var ready = def.preload ? def.preload(cfg) : Promise.resolve();
-      setScreen('<p>Loading…</p>');
       var ready3d = load3d().then(function (m) { v3mod = m; if (!m) cfg.view3d = false; });
-      /* wait for 3D briefly so the menu can open in 3D; a slow load just keeps 2D */
-      Promise.all([Promise.resolve(ready), Promise.race([ready3d, new Promise(function (r) { setTimeout(r, 2500); })])]).then(function () {
-        if (exited) return;
-        resize(); menu();
-        if (v3mod) mount3d(); else ready3d.then(function () { if (!exited && v3mod && !v3) mount3d(); });
-      });
+      /* E7: def.preload (a throw, a rejection, or nothing for PRELOAD_MS) never leaves the child
+         on 'Loading…' for good: 'Couldn’t start' offers Try again (preload once more) and Back.
+         The 3D wait is brief, so the menu can open in 3D; a slow load just keeps 2D */
+      var startTry = 0;
+      function startUp() {
+        var mine = ++startTry, timer = 0;
+        setScreen('<p>Loading…</p>');
+        var pre;
+        try { pre = Promise.resolve(def.preload ? def.preload(cfg) : null); } catch (e) { pre = Promise.reject(e); }
+        var dead = new Promise(function (res, rej) { timer = setTimeout(function () { timer = 0; rej(new Error('preload: no answer')); }, PRELOAD_MS); });
+        var ready = Promise.race([pre, dead]);
+        ready.then(function () { clearTimeout(timer); }, function () { clearTimeout(timer); });
+        Promise.all([ready, Promise.race([ready3d, new Promise(function (r) { setTimeout(r, 2500); })])]).then(function () {
+          if (exited || mine !== startTry) return;
+          resize(); menu();
+          if (v3mod) mount3d(); else ready3d.then(function () { if (!exited && v3mod && !v3) mount3d(); });
+        }, function () {
+          if (exited || mine !== startTry) return;
+          cantStart();
+        });
+      }
+      function cantStart() {
+        phase = 'menu'; renderTouch(false);
+        var sc = setScreen('<div class="slg-emo">😕</div><h2>Couldn’t start</h2><p>The game didn’t load. Check the internet, then try again.</p>' +
+          '<div class="row"><button class="slg-b go" type="button" id="slgRetry">↻ Try again</button><button class="slg-b alt" type="button" id="slgLoadBack">🏝️ Back</button></div>');
+        sc.querySelector('#slgRetry').addEventListener('click', startUp);
+        sc.querySelector('#slgLoadBack').addEventListener('click', exit);
+        say('Couldn’t start. Try again, or go back.');
+      }
+      startUp();
 
       /* optional leaderboards: one async script tag per page (never for a shop preview);
          the open menu gains its button when the file lands. A tag that failed to load is
@@ -1026,6 +1235,7 @@
     });
   }
 
-  /* API 2: the boards slot, menu buttons, ctl and live rounds (see OPTIONAL HOOKS) */
-  window.SLGameShell = { API: 2, define: define, rng: rng, svgImage: svgImage, STEP: STEP, makePacer: makePacer, makeFrameWatch: makeFrameWatch, verdict2d: verdict2d, REMEMBER_DAYS: REMEMBER_DAYS, BEAT_PULSE_HZ: BEAT_PULSE_HZ };
+  /* API 2: the boards slot, menu buttons, ctl and live rounds; API 3: nextStep / Details,
+     nextVariant, hud3d and the modal shell (see OPTIONAL HOOKS). Games test API >= n. */
+  window.SLGameShell = { API: 3, define: define, rng: rng, svgImage: svgImage, STEP: STEP, makePacer: makePacer, makeFrameWatch: makeFrameWatch, verdict2d: verdict2d, REMEMBER_DAYS: REMEMBER_DAYS, BEAT_PULSE_HZ: BEAT_PULSE_HZ, PRELOAD_MS: PRELOAD_MS, GUARD_MS: GUARD_MS };
 })();

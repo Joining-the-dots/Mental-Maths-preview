@@ -45,6 +45,13 @@
      onResult({game, variant, result, outcome, cfg}) → Promise of
                            {text, kind} or null; never rejects
      menuHint(game, variant, cfg) → one line, or ''
+     noteWin({scope, code, rows, race, cfg}) → Promise of {text, kind: 'win', n, week}
+                           or null; never rejects. Chunk FR: a race or challenge round's
+                           final table; when this child came 1st among the children, one
+                           win more in its own record of that group (a transaction: 1 read,
+                           at most 1 write, 30 seconds after the last win at the soonest).
+                           The sheet's 🏆 Challenge wins table lists the group's records:
+                           only children with a win, most first, never a 0
      reset()               forget every list, roster, the class and any waiting post
      _env(overrides)       test seam: firebase, cloudState, state,
                            saveState, storage, locks, now, online,
@@ -93,8 +100,16 @@
     foot: '🎮 Game scores don’t earn or spend ⭐. Boards are for fun. Scores come from each player’s own device. This week’s board starts again every Monday.',
     takeOff: 'Take me off the boards', putBack: 'Put me back', offNow: 'You’re off the boards. Your bests are still yours.',
     tryLater: 'That didn’t work just now. Try again when you’re online.',
-    refresh: '↻ Refresh', you: ' (you)', lead: '👑 You lead this week', beat: '🎯 To beat this week: '
+    refresh: '↻ Refresh', you: ' (you)', lead: '👑 You lead this week', beat: '🎯 To beat this week: ',
+    /* chunk FR: the Challenge wins table */
+    winsEver: 'All time', winsEmptyWeek: 'No challenge wins yet this week. Come 1st in a race or a challenge to be the first one here!',
+    winsEmptyEver: 'No challenge wins yet. Every race and every challenge is a new chance!',
+    winsDevice: 'Challenge wins are kept for your family and your class. Choose 🏠 Family to see them.',
+    winsFoot: '🏆 A win is a race or a challenge round where you came 1st. Only wins are counted, never losses, and everyone who plays gets better.',
+    winNow: '🏆 A challenge win! '
   };
+  /* chunk FR: the Challenge wins table, beside the three games on the sheet */
+  var WINS = { id: 'wins', name: 'Challenge wins', icon: '🏆' };
 
   var S = null, B = null;                   /* SLSocialCore and SLBoardsCore, once both are here */
   var over = {}, loading = null, loadFailed = false;
@@ -105,6 +120,9 @@
   var spent = Object.create(null);
   /* a group's cloud board resting after a refusal (an account id and a time): f the family, c the class */
   var rest = { f: { key: '', until: 0 }, c: { key: '', until: 0 } };
+  /* chunk FR: the same for a group's Challenge wins alone (their rules may be published later than the boards'),
+     and the last rounds a win was noted for (so a table sent again counts once) */
+  var restW = { f: { key: '', until: 0 }, c: { key: '', until: 0 } }, wonRaces = [];
   var sheet = null, authOn = null, lastGame = '';
 
   function noop() {}
@@ -114,7 +132,7 @@
      read. code: the class the child's own grown-up asked for
      ('' when none); state: what that class last answered: 'wait' (asked for, no entry yet), 'off' (board off, class
      closed, or neither a request nor an entry), 'on', or '' (not asked yet) */
-  function fresh() { return { who: null, uid: '', lists: {}, loading: {}, checked: {}, busy: null, timer: 0, code: '', state: '' }; }
+  function fresh() { return { who: null, uid: '', lists: {}, loading: {}, checked: {}, busy: null, timer: 0, code: '', state: '', wins: {}, loadingW: {}, winT: 0 }; }
 
   /* ---------- the page around us (each part can be replaced by a test) ---------- */
   function given(k, d) { return has(over, k) ? over[k] : d; }
@@ -198,6 +216,7 @@
   }
   function reset() {
     if (mem.timer) clearTimeout(mem.timer);
+    if (mem.winT) clearTimeout(mem.winT);
     mem = fresh();
   }
   /* a sign-in, a sign-out, another profile, the page put away: nothing about another child
@@ -512,6 +531,108 @@
     }, SYNC_MS);
   }
 
+  /* ---------- Challenge wins (chunk FR) ---------- */
+  /* a call for the wins alone: 8 seconds, and a refusal rests the group's wins (not its board) for 10 minutes */
+  function callW(fn, k, uid) {
+    return new Promise(function (res, rej) {
+      var t = setTimeout(function () { rej({ code: 'timeout' }); }, CALL_MS);
+      Promise.resolve().then(fn).then(function (v) { clearTimeout(t); res(v); }, function (x) { clearTimeout(t); rej(x); });
+    }).then(null, function (x) {
+      if (x && x.code === 'permission-denied') { restW[k] = { key: uid, until: env().now() + REST_MS }; delete mem.wins[k]; }
+      throw x;
+    });
+  }
+  function winsFor(g) {
+    var l = g.ok ? mem.wins[g.k] : null;
+    return l && l.key === g.key && l.code === g.code && (g.k === 'f' || mem.state === 'on') ? l : null;
+  }
+  /* A group's wins records, read when the sheet shows the Challenge wins table: one list
+     read (with the rules' look-ups), kept in memory as long as the group's board list.
+     The names come from the roster read with that list. → Promise of true when in memory */
+  function loadWins(name, day, c) {
+    var e = env(), g = gates(name, false, c), was = mem, k = c ? 'c' : 'f', had = mem.wins[k];
+    if (!g.ok || !e.online || (c && mem.state !== 'on')) return Promise.resolve(false);
+    if (had && had.key === g.key && had.code === g.code && e.now() - had.at < (c ? CLS_MS : LIST_MS)) return Promise.resolve(true);
+    if (restW[k].key === g.uid && e.now() < restW[k].until) return Promise.resolve(false);
+    if (mem.loadingW[k]) return mem.loadingW[k];
+    if (!room(name, day, 'r')) return Promise.resolve(false);      /* the day's cap */
+    function count(n) { return lbCommit(name, charge(name, day, { r: Math.max(1, n) + RULE_GETS[k] })); }
+    mem.loadingW[k] = callW(function () { return refs(g, e).at.collection('wins').limit(B.MAX_CARDS).get(); }, k, g.uid).then(function (ws) {
+      var docs = [];
+      ws.forEach(function (d) { docs.push({ uid: d.id, doc: d.data() }); });
+      if (mem === was) { mem.wins[k] = { key: g.key, code: g.code, docs: docs, at: e.now() }; mem.loadingW[k] = null; }
+      return count(docs.length).then(function () { return mem === was; });
+    }, function () { if (mem === was) mem.loadingW[k] = null; return count(1).then(no); });
+    return mem.loadingW[k];
+  }
+  /* Who may add a win in a group, from what the page holds: the signed-in family profile now
+     playing, not off the boards, with boards not switched off, ticked with a password of its
+     own; the family while its races are on, or a class (by its code; the rules check the
+     membership). {ok, k, uid, code, key} or {ok: false} */
+  function winGate(name, scope, code) {
+    var e = env(), b = boundAs(name, e), u = profile(name), fam = e.familyCfg, c = scope === 'class', k = c ? 'c' : 'f';
+    if (!b.ok || !u || !CODE_RE.test(b.familyCode) || B.notebook(u).off || modeOf(name).boards === 'off') return { ok: false };
+    if (!fam || typeof fam !== 'object' || !S.memberOk(fam, b.uid)) return { ok: false };
+    if (c ? !(S.ON.classes && typeof code === 'string' && S.classLabel(code)) : !(code === b.familyCode && S.gamesCfg(fam).race === true)) return { ok: false };
+    if (restW[k].key === b.uid && e.now() < restW[k].until) return { ok: false };
+    return { ok: true, k: k, uid: b.uid, code: c ? code : b.familyCode, key: S.cacheKey(boundEnv(name, e)) };
+  }
+  function winNote(o, again) {
+    var cfg = o.cfg || {}, name = nameOf(cfg);
+    if (!S.ON.boards || !guard(name) || !B.cameFirst(o.rows)) return null;
+    if (!again && o.race != null) {
+      if (wonRaces.indexOf(o.race) >= 0) return null;
+      wonRaces.push(o.race);
+      if (wonRaces.length > 20) wonRaces.shift();
+    }
+    var e = env(), g = winGate(name, o.scope, o.code), day = dayOf(cfg), week = B.weekKey(day), was = mem, reads = 0, out = null, wait = 0;
+    if (!g.ok || !e.online || !week || !fbReady(e)) return null;
+    if (!room(name, day, 'w') || !room(name, day, 'r')) return null;      /* the day's caps */
+    var db = e.firebase.firestore(), ref = db.collection(g.k === 'c' ? 'classes' : 'families').doc(g.code).collection('wins').doc(g.uid);
+    return callW(function () {
+      return db.runTransaction(function (tx) {
+        reads += 1 + RULE_GETS[g.k];
+        return tx.get(ref).then(function (snap) {
+          var old = snap.exists ? snap.data() : null, u = profile(name), at = old && old.at;
+          out = null;
+          wait = B.winWait(at && typeof at.toMillis === 'function' ? at.toMillis() : NaN, e.now());
+          if (!u || wait || mem !== was) return;
+          var doc = B.nextWins(old, week, S.who(u));
+          if (!doc) return;
+          var w = JSON.parse(JSON.stringify(doc));
+          w.at = e.firebase.firestore.FieldValue.serverTimestamp();
+          tx.set(ref, w);
+          out = doc;
+        });
+      });
+    }, g.k, g.uid).then(function () { return true; }, function () { return false; }).then(function (fine) {
+      var wrote = fine && !!out, counted = charge(name, day, { r: reads + (wrote ? RULE_GETS[g.k] : 0), w: wrote ? 1 : 0 });
+      return lbCommit(name, counted).then(function () {
+        /* the last win was under 30 seconds ago: once more, when the rules will take it */
+        if (fine && wait && !again && mem === was) {
+          return new Promise(function (res) {
+            mem.winT = setTimeout(function () { mem.winT = 0; res(winNote(o, true)); }, wait);
+          });
+        }
+        if (!wrote) return null;
+        var list = mem === was ? mem.wins[g.k] : null;
+        if (list && list.key === g.key && list.code === g.code) {
+          list.docs = list.docs.filter(function (d) { return d && d.uid !== g.uid; }).concat([{ uid: g.uid, doc: out }]);
+        }
+        if (sheet) draw();
+        return { text: T.winNow + B.winsText(out.wk.n) + ' this week.', kind: 'win', n: out.n, week: out.wk.n };
+      });
+    });
+  }
+  /* A race or challenge round has its final table. o = {scope: 'family' | 'class', code (the
+     family's or the class's), rows (the table's rows: kind 'me' | 'kid' | 'crew', place),
+     race (anything that names this round: a table sent again counts once), cfg}. When this
+     child came 1st among the children, one win is added to its own record in that group.
+     → Promise of {text, kind: 'win', n, week} or null; never rejects */
+  function noteWin(o) {
+    return ready().then(function () { return winNote(o || {}); }).then(null, function () { return null; });
+  }
+
   /* ---------- a finished round ---------- */
   /* the one line under a result: the best news from the family board and the class board
      when their lists are in memory (the family's first when both have the same kind of
@@ -669,6 +790,27 @@
     li.setAttribute('aria-label', [place, r.n + (r.me ? ', you' : ''), B.sayValue(key, r.v), gap.replace(/ s /, ' seconds ')].filter(Boolean).join(', '));
     return li;
   }
+  /* chunk FR: one row of the Challenge wins table: place (when it has one), avatar, name, '3 wins'. Text only */
+  function winsRowEl(r) {
+    var li = mk('li', 'slb-row' + (r.me ? ' me' : '')), place = r.place ? B.ordinal(r.place) : '', val = B.winsText(r.v);
+    var av = mk('span', 'slb-av', S.avatarAt(r.ai));
+    av.style.background = S.colorAt(r.ci);
+    av.setAttribute('aria-hidden', 'true');
+    li.appendChild(mk('span', 'slb-pl', place));
+    li.appendChild(av);
+    li.appendChild(mk('span', 'slb-nm', r.n + (r.me ? T.you : '')));
+    li.appendChild(mk('span', 'slb-v', val));
+    li.setAttribute('aria-label', [place, r.n + (r.me ? ', you' : ''), val].filter(Boolean).join(', '));
+    return li;
+  }
+  /* what winsTable is told: the group's roster and ticks as for its board, and the children who
+     took themselves off the boards (their marker card in the list, or this child's own notebook) */
+  function winsOpts(g, list, u) {
+    var o = famOpts(g, list), hide = list.cards.filter(function (c) { return c && c.card && c.card.off === true; }).map(function (c) { return c.uid; });
+    if (u && B.notebook(u).off) hide.push(g.uid);
+    o.hide = hide;
+    return o;
+  }
   function draw() {
     var s = sheet;
     if (!s || !s.game) return;
@@ -684,10 +826,14 @@
     var cards = !net ? localCards(week, mine ? s.name : '') : !list ? [] : u ? withMine(list, g, u, week) : list.cards;
     var opts = net && list ? famOpts(g, list) : { local: true, me: mine ? s.name : '', order: m.order };
     function stand(key) { return B.standings(cards, key, s.period, week, opts); }
+    /* chunk FR: the Challenge wins table instead of a game's boards */
+    var isWins = s.game === WINS.id;
     /* a classic kart board only when somebody is on it in this scope and period */
-    var rows = B.boards(s.game).filter(function (r) { return !r.classic || stand(r.key).count > 0; });
-    if (!rows.some(function (r) { return r.key === s.key; })) s.key = rows.length ? rows[0].key : '';
-    var st = stand(s.key), root = s.root, game = GAMES.filter(function (x) { return x.id === s.game; })[0], keep = null;
+    var rows = isWins ? [] : B.boards(s.game).filter(function (r) { return !r.classic || stand(r.key).count > 0; });
+    if (!isWins && !rows.some(function (r) { return r.key === s.key; })) s.key = rows.length ? rows[0].key : '';
+    var st = isWins ? { rows: [], count: 0 } : stand(s.key), root = s.root, game = GAMES.filter(function (x) { return x.id === s.game; })[0], keep = null;
+    var wl = isWins && net && list ? winsFor(g) : null;
+    var wt = wl ? B.winsTable(wl.docs, s.period, week, winsOpts(g, list, u)) : { rows: [], count: 0 };
     while (root.firstChild) root.removeChild(root.firstChild);
     function button(cls, text, go, dead) {
       var b = mk('button', cls, text);
@@ -713,21 +859,30 @@
     var why = famOk ? s.why : whyText(gf, e);
     line('slb-why', why);
     line('slb-why', clsName && !clsOk ? clsText(gc, e, clsName) : '');
-    chips('Game', GAMES.map(function (x) { return { text: x.icon + ' ' + x.name, on: x.id === s.game, go: pick('game', x.id) }; }));
-    chips('Board', rows.map(function (r) { return { text: r.name, on: r.key === s.key, go: pick('key', r.key) }; }));
-    chips('When', [{ text: T.week, on: s.period === 'week', go: pick('period', 'week') }, { text: T.ever, on: s.period === 'ever', go: pick('period', 'ever') }]);
+    chips('Game', GAMES.concat([WINS]).map(function (x) {
+      return { text: x.icon + ' ' + x.name, on: x.id === s.game, go: x.id === WINS.id ? function () { s.game = WINS.id; if (s.scope !== 'device') pull(s); } : pick('game', x.id) };
+    }));
+    if (!isWins) chips('Board', rows.map(function (r) { return { text: r.name, on: r.key === s.key, go: pick('key', r.key) }; }));
+    chips('When', [{ text: T.week, on: s.period === 'week', go: pick('period', 'week') }, { text: isWins ? T.winsEver : T.ever, on: s.period === 'ever', go: pick('period', 'ever') }]);
     line('slb-why', game && u && !owns(u, game.att) ? T.notOwned : '');
-    if (st.rows.length) {
+    if (isWins) {
+      /* chunk FR: only children with a win are listed; nobody is shown with none */
+      if (wt.rows.length) {
+        var wol = mk('ol', 'slb-list');
+        wt.rows.forEach(function (r) { wol.appendChild(winsRowEl(r)); });
+        root.appendChild(wol);
+      } else line('slb-note', !net ? T.winsDevice : !list || !wl ? T.loading : s.period === 'week' ? T.winsEmptyWeek : T.winsEmptyEver);
+    } else if (st.rows.length) {
       var ol = mk('ol', 'slb-list');
       st.rows.forEach(function (r, i) { ol.appendChild(rowEl(r, s.key, inCls && i >= TOP)); });
       root.appendChild(ol);
     } else line('slb-note', net && !list ? T.loading : s.period === 'week' ? T.emptyWeek : T.emptyEver);
     /* only while the removal is current: this week's board in the week it was learnt, best ever until a new value is set */
-    line('slb-note', net && u && B.removedNote(B.notebook(u), g.k, s.key, s.period, week) && !st.rows.some(function (r) { return r.me; }) ? (inCls ? T.clsRemoved : T.removed) : '');
+    line('slb-note', !isWins && net && u && B.removedNote(B.notebook(u), g.k, s.key, s.period, week) && !st.rows.some(function (r) { return r.me; }) ? (inCls ? T.clsRemoved : T.removed) : '');
     line('slb-note', s.note === why ? '' : s.note);
-    line('slb-foot', T.foot);
+    line('slb-foot', isWins ? T.winsFoot : T.foot);
     var links = mk('div', 'slb-chips');
-    if (net) links.appendChild(button('slb-link', T.refresh, function () { s.askedAt = e.now(); if (mem.lists[g.k]) mem.lists[g.k].at = 0; pull(s); }, e.now() - s.askedAt < AGAIN_MS));
+    if (net) links.appendChild(button('slb-link', T.refresh, function () { s.askedAt = e.now(); if (mem.lists[g.k]) mem.lists[g.k].at = 0; if (mem.wins[g.k]) mem.wins[g.k].at = 0; pull(s); }, e.now() - s.askedAt < AGAIN_MS));
     if (mine) links.appendChild(button('slb-link', off ? T.putBack : T.takeOff, function () { setOff(s, !off); }));
     root.appendChild(links);
     if (keep && !keep.disabled) { try { keep.focus({ preventScroll: true }); } catch (x) {} }
@@ -736,6 +891,9 @@
   function pull(s) {
     s.why = '';
     refresh(s.name, s.day, true).then(function () {
+      /* chunk FR: the group's Challenge wins, read only while their table is the one shown */
+      if (sheet === s && s.game === WINS.id && s.scope !== 'device') return loadWins(s.name, s.day, s.scope === 'class');
+    }).then(function () {
       if (sheet !== s) return;
       var c = s.scope === 'class', g = gates(s.name, false, c);
       if (s.scope !== 'device' && !listFor(g)) { s.scope = 'device'; s.why = !g.ok ? '' : !room(s.name, s.day, 'r') ? T.resting : !c ? T.offline : mem.state === 'on' ? T.clsNet : ''; }
@@ -815,7 +973,7 @@
     return env();
   }
 
-  var API = { available: available, open: open, attach: attach, prefetch: prefetch, onResult: onResult, menuHint: menuHint, reset: wipe, _env: _env };
+  var API = { available: available, open: open, attach: attach, prefetch: prefetch, onResult: onResult, menuHint: menuHint, noteWin: noteWin, reset: wipe, _env: _env };
   if (typeof module === 'object' && module.exports) module.exports = API;
   if (W) {
     W.SLBoards = API;

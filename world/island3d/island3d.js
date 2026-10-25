@@ -46,6 +46,47 @@
      setAnchors([{el, uid | pet | me | region, dy (u), dyPx}])   HTML labels projected every
                            camera change (≤ 15 Hz while things move); wrapped in .slw-tag3d
      focusItem(key | null) · resetView() · frameItem(uid) · placement(state | null)
+     focusMe({instant, wave}) → bool   Find me (kids update KU34 / KU-CH12): the camera eases to the
+                           child's figure at rig.zoomMax() through rig.focusOn (a cut under reduced motion or
+                           instant; any camera input afterwards is the child's), and the figure waves (wave:
+                           false skips it). False with no figure, while a flight / the Sky map / the tour has the
+                           camera, and on a failed or disposed stage. SLIsland3D.focusMe(o) calls the newest live
+                           stage's (false with none); KU-CH17's 'Find me on the island' button feature-detects it.
+                           view.avatar may carry a character (look, wear, vr, sig, lk, wr: SLPeopleCore.avatarInfo):
+                           actorState hands those to actors.js as given; without a look the avatar is the classic one.
+     THE KIDS UPDATE'S CARE (P3.3; pets.json P22, ui U6 / U7 / U11, moodAndEating; on P2.5's actors.js and skylife3d)
+     view.pets[].mood      {hunger 0 fine | 1 peckish | 2 hungry | 3 very hungry, happy 0–4, sitter}: reaches the crew's
+                           brains in range (petMood; a copy, the host's record is never changed)
+     feed(petId, foodId, {fav, reduced, frame}) → Promise<bool>   the feeding moment (decision P22): the camera eases to
+                           the pet at the largest play zoom, first swinging round (≤ 35° yaw, a steeper tilt; feedView)
+                           when an item or another figure hides the bowl, and back to the child's angle when it ends
+                           (frame: false keeps the camera; cuts under reduced motion), the bowl
+                           pops in, the meal drops in, the pet hops over and eats, the sparkle ring (bigger for a
+                           favourite), the bowl pops out; a chime ('star') as it resolves true (the host fills the tummy
+                           pip and says the toast; no second chime). About 3.2 s. Reduced motion (the stage's own, or
+                           o.reduced): the end state at once (the meal eaten, the empty bowl beside the pet) for 1.2 s.
+                           Resolves FALSE at once when the pet is not out on the island being shown (a Home pet while a
+                           land is visited), during a flight / the Sky map / the tour, outside play mode, while
+                           suspended, on a failed stage, without a bowl to draw (no SL3D.vox.makeBowl: the V4.54 scene)
+                           or without a crew that eats: the host then plays its 2D moment.
+                           A tap on the island during the moment skips to its end (and is no pick); so does skipFeed().
+                           A newer feed, edit mode, suspend(), reduced motion or a teardown ends it at its end state
+                           (resolving true). The host commits the meal (SLPetCare.feed) BEFORE calling, and keeps the
+                           island uncovered (setCovered(false)) while it plays.
+     skipFeed() → bool     the host's strip tap or Esc: the moment's end state now (true when one was playing)
+     setPetStars(list) → n the memory stars (farewell, a grown-up's switch): list = SLPetCare.memories(w) (care3.stars
+                           cards; a 'returned' card is skipped; one star per (id, to)) or pet ids, oldest first; the
+                           newest 5 shine in Home's night sky at Showtime (skylife3d: steady 4-point Star Gold stars, a
+                           0.3 Hz ±10 % glow drift, never a flash; steady under reduced motion and on LOW). Kept across a
+                           rebuilt sky. n = the stars it keeps (≤ 5; 0 on the V4.54 scene or without skylife).
+     on.tapStar(petId, {name, to})   optional: a memory star was tapped (its name bubble shows, a soft chime): open
+                           the memory card with that id (and 'to' day, when a species passed away twice)
+     on.tapPet(petId, {hungry: true})   the second argument only when the pet answered as a hungry pet (actors played
+                           the softer tap; the stage shows the 'I'm hungry!' bubble, care.bubble.* in SLWorldCopy when
+                           it has them, with SLWorldArtPets' 'hungry' badge when loaded): the host plays the pet's voice at
+                           0.6 for it (actors.js leaves the voice to the host here) and still counts the pat
+     info().care           {feeding: petId | null, stars: n, view: the last moment's swing {dYaw, dElev, n (rays still
+                           crossing a box), boxes} | null}
      setCovered(on) · suspend() · resume() · setReduced(on) · setUser(user) · info() · dispose()
    Pointer: tap = 8 px, up to 1 s — a slow press released in place still counts as a tap. At
    450 ms (long-press) the item / pet shows its name bubble without moving the camera; held still
@@ -355,15 +396,106 @@
     var seed = typeof u.seed === 'string' || (typeof u.seed === 'number' && isFinite(u.seed)) ? u.seed : null;
     return { name: u.name || '', color: typeof u.color === 'string' ? u.color : null, avatar: u.avatar || u.emoji || '🙂', seed: seed };
   }
+  var CHAR_KEYS = ['look', 'wear', 'vr', 'sig', 'lk', 'wr'];
+  function plainLook(lk) { return !!lk && typeof lk === 'object' && !Array.isArray(lk); }
+  /* Find me (KU34, KU-CH12): frame a point (the player's figure) at the largest play zoom the device
+     allows through the rig's own dolly; o.instant = a cut. Any camera input afterwards is the child's:
+     focusOn only sets the rig's goal, so nothing holds the camera there. → false without a point */
+  function focusMeOn(rig, at, o) {
+    if (!rig || typeof rig.focusOn !== 'function' || !at || !isFinite(at.x) || !isFinite(at.z)) return false;
+    rig.focusOn({ x: at.x, z: at.z }, { zoom: typeof rig.zoomMax === 'function' ? rig.zoomMax() : null, instant: !!(o && o.instant) });
+    return true;
+  }
+  /* SLIsland3D.focusMe({instant}) → bool: the newest live stage's focusMe; false with no stage */
+  var LIVE = [];
+  function focusMeLive(o) {
+    for (var i = LIVE.length - 1; i >= 0; i--) {
+      var s = LIVE[i];
+      if (s && !s.failed && typeof s.focusMe === 'function') return !!s.focusMe(o);
+    }
+    return false;
+  }
+  /* THE KIDS UPDATE'S CARE (P3.3) — pure pieces. A pet's mood from the view (pets.json moodAndEating:
+     {hunger 0 fine … 3 very hungry, happy 0–4, sitter}) → whole numbers in range, or null (no mood) */
+  function petMood(m) {
+    if (!m || typeof m !== 'object') return null;
+    var h = Math.round(+m.hunger), j = Math.round(+m.happy);
+    return { hunger: isFinite(h) ? clamp(h, 0, 3) : 0, happy: isFinite(j) ? clamp(j, 0, 4) : 2, sitter: m.sitter === true };
+  }
+  /* the host's memory stars (pet ids, or SLPetCare.memories(w) / care3.stars cards {id, name, to, returned};
+     oldest first) → at most STAR_MAX {id, name, to, key}, the newest kept. A card a grown-up brought back
+     (returned) is no star; a card counts once by (id, to), so a species that passed away twice keeps both
+     stars (key: the star's own name in the stage, 'id' or 'id~to') */
+  var STAR_MAX = 5;
+  function starsOf(list) {
+    var out = [], seen = {};
+    (Array.isArray(list) ? list : []).forEach(function (s) {
+      var card = s && typeof s === 'object', id = typeof s === 'string' ? s : card && typeof s.id === 'string' ? s.id : '';
+      id = id.replace(/^pet:/, '');
+      if (!id || (card && s.returned)) return;
+      var to = card && typeof s.to === 'string' ? s.to : '', key = id + '|' + to;
+      if (seen[key]) return;
+      seen[key] = 1;
+      out.push({ id: id, name: card && typeof s.name === 'string' ? s.name : '', to: to, key: id });
+    });
+    out = out.slice(Math.max(0, out.length - STAR_MAX));
+    var n = {};
+    out.forEach(function (s) { n[s.id] = (n[s.id] || 0) + 1; });
+    out.forEach(function (s) { if (n[s.id] > 1) s.key = s.id + '~' + s.to; });
+    return out;
+  }
+  /* the 'I'm hungry' bubble's words when SLWorldCopy has no care.bubble.* key (they live here, with the
+     stage that shows them) */
+  var BUBBLE = { hungry: 'I’m hungry!', veryHungry: 'I’m very hungry!' };
+  /* a feeding moment's timing: the moment's seconds (actors.feed) → when the stage settles it on its own
+     clock (end), and the wall-clock backstop (ms) that settles it if frames stop (a hidden tab, a sheet).
+     FEED_STILL: the reduced-motion moment's seconds (the brain's FEED.still: the end state held) */
+  var FEED_GRACE = 2.5, FEED_STILL = 1.2;
+  function feedStill() { var B = root.SLPetBrain, F = B && B.FEED; return F && F.still > 0 ? F.still : FEED_STILL; }
+  /* the feeding moment's view: on a busy island a house or a tree in front can hide the bowl, so the camera
+     may swing round a little as it frames the pet. FEED_VIEWS: [yaw°, elevation°] offsets from the pose,
+     tried in turn; feedView(points, yaw, elev, boxes, elevMax) → {dYaw, dElev, n} — the first offset whose
+     rays from the points (the bowl, the pet's head) toward the camera (camera.js basisInto: yaw 0 looks
+     from +z) cross no box in front of them (an item's, or another figure's), else the one crossing fewest
+     (the pose itself when nothing helps) */
+  var FEED_VIEWS = [[0, 0], [0, 10], [-22, 6], [22, 6], [-35, 10], [35, 10], [0, 18]];
+  function feedView(pts, yaw, elev, boxes, elevMax) {
+    var best = null, d = { x: 0, y: 0, z: 0 }, o = { x: 0, y: 0, z: 0 }, top = isFinite(elevMax) ? elevMax : 67;
+    for (var i = 0; i < FEED_VIEWS.length; i++) {
+      var e = Math.max(elev, Math.min(top, elev + FEED_VIEWS[i][1])), ya = (yaw + FEED_VIEWS[i][0]) * DEG, er = e * DEG, n = 0;
+      d.x = Math.sin(ya) * Math.cos(er); d.y = Math.sin(er); d.z = Math.cos(ya) * Math.cos(er);
+      for (var p = 0; p < pts.length; p++) {
+        o.x = pts[p].x + d.x * 0.05; o.y = pts[p].y + d.y * 0.05; o.z = pts[p].z + d.z * 0.05;
+        for (var b = 0; b < boxes.length; b++) if (rayBox(o, d, boxes[b].min, boxes[b].max) > 0) n++;      /* (a box round the point itself: no view helps) */
+      }
+      if (!best || n < best.n) best = { dYaw: FEED_VIEWS[i][0], dElev: e - elev, n: n };
+      if (!n) break;
+    }
+    return best || { dYaw: 0, dElev: 0, n: 0 };
+  }
+  function feedTiming(sec) { sec = +sec > 0 ? +sec : 0; return { end: sec, backstopMs: Math.round((sec + FEED_GRACE) * 1000) }; }
   /* what actors.sync(v) receives (the island protocol). view = rewards-world's island view;
      o = {user (normUser), placed (the placeable list), unlocked (the risen land), land, mode, reduced} */
   function actorState(view, o) {
     view = view || {}; o = o || {};
     var user = o.user || normUser(null);
-    var pets = Array.isArray(view.pets) ? view.pets.filter(function (p) { return p && p.id; }) : [];
+    /* a pet record keeps its fields; a mood (kids update P3.3) reaches the brains in range (a copy: the
+       host's record is never changed) */
+    var pets = Array.isArray(view.pets) ? view.pets.filter(function (p) { return p && p.id; }).map(function (p) {
+      if (p.mood == null) return p;
+      var c = {};
+      for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) c[k] = p[k];
+      c.mood = petMood(p.mood) || undefined;
+      return c;
+    }) : [];
     var av = view.avatar === false ? null : normUser(view.avatar && typeof view.avatar === 'object' ? {
       name: view.avatar.name || user.name, color: view.avatar.color || user.color, avatar: view.avatar.avatar || view.avatar.emoji || user.avatar
     } : user);
+    /* the kids update (KU-CH12): a character's look, wear, colourways, move and codes reach actors.js as
+       the host gave them; no look (or look null) is the classic avatar, unchanged */
+    if (av && view.avatar && typeof view.avatar === 'object' && plainLook(view.avatar.look)) {
+      CHAR_KEYS.forEach(function (k) { if (view.avatar[k] != null) av[k] = view.avatar[k]; });
+    }
     var placed = Array.isArray(o.placed) ? o.placed : [];
     var s = {
       pets: pets, avatar: av, user: user, placed: placed, unlocked: Array.isArray(o.unlocked) ? o.unlocked : ['home'], land: o.land || null,
@@ -634,8 +766,58 @@
         return undefined;
       },
       info: function () { return call0(A, 'info') || null; },
-      dispose: function () { call0(A, 'dispose'); }
+      dispose: function () { call0(A, 'dispose'); },
+      /* THE KIDS UPDATE'S CARE (P3.3, on P2.5's actors.js) */
+      /* feed(petId, foodId, {fav}) → the moment's seconds | -1 (not out on the island shown, or it cannot eat) */
+      feed: function (id, food, o) { var r = typeof A.feed === 'function' ? A.feed(id, food, o) : -1; return typeof r === 'number' && r >= 0 ? r : -1; },
+      /* the island a pet is out on now ('home' or the visited land) | null; undefined: this actors.js cannot say */
+      onIsle: function (id) {
+        if (!A.brain || typeof A.brain.pet !== 'function') return undefined;
+        var ib = A.isleBrain;
+        if (ib && ib.pet(id) && !(ib.isAway && ib.isAway(id))) return A.isle || null;
+        return A.brain.pet(id) && !(A.brain.isAway && A.brain.isAway(id)) ? 'home' : null;
+      },
+      /* where the bowl stands (world) while the moment plays | null */
+      feedSpot: function (id, out) {
+        var b = feedBrain(A, id), p = b && b.pet(id), f = p && p.feed, fr = (b && b.frame) || {};
+        if (!f || !f.on || !isFinite(f.x)) return null;
+        out = out || {};
+        out.x = f.x + (+fr.ox || 0); out.y = (+f.y || 0) + (+fr.oy || 0); out.z = f.z + (+fr.oz || 0);
+        return out;
+      },
+      /* the other crew and the figure as boxes round their tap spheres (what may stand in front of a meal) */
+      occluders: function (id) {
+        var out = [], hs = A.hits(hitList);
+        for (var i = 0; hs && i < hs.length; i++) {
+          var h = hs[i], r = h && h.r > 0 ? h.r : 0.4;
+          if (!h || (h.kind === 'pet' && String(h.id).replace(/^pet:/, '') === id)) continue;
+          out.push({ min: [h.x - r, h.y - r, h.z - r], max: [h.x + r, h.y + r, h.z + r] });
+        }
+        return out;
+      },
+      /* the moment is still playing (the bowl is out) */
+      feedOn: function (id) { var b = feedBrain(A, id), p = b && b.pet(id), f = p && p.feed; return !!(f && f.on && b.now < f.end); },
+      /* skipFeed(id, hold) — the moment's end state now (decision P22): the meal is eaten (the pet's happy
+         reaction and the sparkle ring come on the brain's next step, as 'fed'), and the empty bowl stands
+         hold s more without a pop (0: it goes now). actors.js's own skipFeed when it has one; else the
+         moment's times (p.feed, documented by pets-brain for actors.js) are brought to the brain's now */
+      skipFeed: function (id, hold) {
+        if (typeof A.skipFeed === 'function') return !!A.skipFeed(id, hold);
+        var b = feedBrain(A, id), p = b && b.pet(id), f = p && p.feed, now = b ? b.now : 0;
+        if (!f || !f.on || !(now < f.end)) return false;
+        f.reduced = true; f.eat0 = Math.min(f.eat0, now); f.eatEnd = Math.min(f.eatEnd, now); f.end = now + (hold > 0 ? hold : 0);
+        if (p.state === 'act' && (p.action === 'eatWait' || p.action === 'eat')) p.actEnd = now;
+        return true;
+      },
+      /* the reaction the last tap played ('hungry': the softer answer, and the stage's hungry bubble) */
+      tapKind: function (id) { var b = feedBrain(A, id), p = b && b.pet(id); return p && typeof p.tapKind === 'string' ? p.tapKind : ''; }
     };
+  }
+  /* the brain a pet is out on (the visited land's, else Home's) | null */
+  function feedBrain(A, id) {
+    var ib = A && A.isleBrain, b = A && A.brain;
+    if (ib && typeof ib.pet === 'function' && ib.pet(id) && !(ib.isAway && ib.isAway(id))) return ib;
+    return b && typeof b.pet === 'function' && b.pet(id) && !(b.isAway && b.isAway(id)) ? b : null;
   }
   /* the placement edit3d.show() draws: {id, uid, x, y, ok, reason, cells?, entrance} */
   function placementCells(pl, core) {
@@ -706,6 +888,7 @@
     IS.mount.__island3d = VERSION;
     IS.sceneVersion = VERSION;
     IS.v3Scene = true;                       /* D84: boot loads core + vox only (never 'v2' / 'v2env') */
+    IS.focusMe = focusMeLive;                /* Find me (KU34): KU-CH17's button feature-detects it */
     if (qaDevice()) { var dbg = IS.debug || (IS.debug = {}); dbg.grid = debugGrid; }   /* a console switch for QA devices only */
   }
   /* QA: SLIsland3D.debug.grid(true) draws the edit grid in play mode on every mounted island;
@@ -832,6 +1015,9 @@
     var _anc = new T.Vector3();
     /* v2 seams: the music state last told to the crew; the 'city wakes up' ripple window (clockT) */
     var musicWas = null, wakeUntil = -1;
+    /* the kids update's care (P3.3): the feeding moment playing now ({id, end (clockT), resolve, timer}),
+       the memory stars the host gave (re-applied whenever the sky is rebuilt) */
+    var care = { feed: null, stars: [], view: null };
     /* v3: per-island displays, the last isles-view items and policy, the job queue, travel */
     var I3 = {}, V3 = {
       items: null, view: null, pol: null, est: null, unl: ['home'], isles: {}, visit: 'home', live: 'home', hold: null, holdAt: 0,
@@ -937,6 +1123,7 @@
     }
     function onCamKey(e) {
       if (!controls || dead) return;
+      if (care.feed && e.key === 'Escape') { skipFeed(); e.preventDefault(); return; }       /* Esc skips a feeding moment (P3.3) */
       if (mode === 'place' && /^(Arrow|Enter|Escape)/.test(e.key || '')) return;   /* rewards-world's placeKeys own these */
       if (controls.key(e)) e.preventDefault();
     }
@@ -979,6 +1166,7 @@
         if (mode !== 'play') envEdit(true);
         layers.owner = 'env';
         V3.isleSig = '';
+        if (care.stars.length) applyStars();                /* a rebuilt sky keeps the memory stars (P3.3) */
         return;
       }
       var Env = root.SLIslandEnv;
@@ -1285,6 +1473,7 @@
       if (sys.actors && xcall('actors', 'update', dt, clockT, ctx)) busy = true;
       if (sys.edit && xcall('edit', 'update', dt, clockT, ctx)) busy = true;
       if (sys.fx && xcall('fx', 'update', dt, clockT, ctx)) busy = true;
+      if (care.feed && stepFeed()) busy = true;     /* the feeding moment (P3.3) keeps the frames coming until it ends */
       if (riseFx) { stepRiseFx(dt); busy = true; }
       /* Showtime dance breaks every 16 bars */
       scheduleDance();
@@ -2034,7 +2223,7 @@
       xcall('actors', 'setMode', m);
       syncCamButtons();
       applyTouchAction();
-      if (m !== 'play') hideBubble();
+      if (m !== 'play') { hideBubble(); endFeed(true, false, true); }      /* editing ends a feeding moment at its end state */
     }
     function setSelected(uid) {
       if (uid === selectedUid) return;
@@ -2631,12 +2820,18 @@
     }
     function onTap(x, y, count) {
       if (dead || failed) return;
+      if (care.feed && mode === 'play') { skipFeed(); return; }      /* a tap skips the feeding moment (P22), nothing else */
       var p = pick(x, y);
       wake();
       if (mode === 'place') {
         if (p.kind === 'ghost' && placing) tellCell('tapCell', placing.x | 0, placing.y | 0);
         else if (p.kind === 'cell') tellCell('tapCell', p.c, p.r);
         return;
+      }
+      /* a memory star in Home's night sky (the island's crew and items in front of it win) */
+      if (p.kind !== 'actor' && p.kind !== 'item') {
+        var sh = starHit();
+        if (sh) { tapStar(sh); return; }
       }
       switch (p.kind) {
         case 'actor': tapActor(p.target); break;
@@ -2671,7 +2866,11 @@
       var key = me ? 'me' : 'pet:' + String(target).replace(/^pet:/, '');
       if (sys.actors && typeof sys.actors.obj.tap === 'function' && xcall('actors', 'tap', key)) markEmote(key);
       else localEmote(key, me ? 'heart' : null);
-      if (me) tell('tapAvatar'); else tell('tapPet', key.slice(4));
+      if (me) { tell('tapAvatar'); return; }
+      /* a hungry pet answered softly (P2.5): its bubble, and the host hears so (its voice at 0.6) */
+      var id = key.slice(4);
+      if (xcall('actors', 'tapKind', id) === 'hungry') { hungryBubble(id); tell('tapPet', id, { hungry: true }); }
+      else tell('tapPet', id);
     }
     /* a still press of 450 ms: the name bubble only — the camera never moves under the finger, and
        the release still counts as a tap (a slow tap) */
@@ -2808,6 +3007,11 @@
       if (!key) return null;
       if (key.indexOf('u:') === 0) { var rec = recs.get(key.slice(2)); if (!rec || rec.hidden) return null; return anchorOf(rec, 'top', out); }
       if (key.indexOf('pet:') === 0 || key === 'me') return actorPoint(key, out);
+      if (key.indexOf('star:') === 0) {                 /* a memory star (its name bubble after a tap) */
+        var life = v3 && env ? env.life : null, list = life && typeof life.petStars === 'function' ? life.petStars() : [];
+        for (var si = 0; si < list.length; si++) if ('star:' + (list[si].key || list[si].id) === key) { out.set(list[si].x, list[si].y + 0.65, list[si].z); return out; }
+        return null;
+      }
       if (key.indexOf('region:') === 0) {
         var rg = key.slice(7);
         if (!signCache[rg]) { try { signCache[rg] = v3 ? env.regionSign(rg) : Gr.signAnchor(rg); } catch (e) { signCache[rg] = null; } }
@@ -2915,12 +3119,19 @@
       }
       placeRing();
     }
-    function showBubble(key, text) {
+    function showBubble(key, text, icon) {
       if (!text) return;
       hideBubble();
       var wrap = el('div', 'slw-tag3d slw-bubble3d', { role: 'status' });
       var nm = el('span', 'nm');
-      nm.textContent = text;
+      if (icon) {                                      /* a care badge before the words, inside the pill (decoration: the words say it) */
+        var ic = el('span', 'ic', { 'aria-hidden': 'true' }), tx = el('span', 'tx');
+        ic.style.cssText = 'display:inline-block;width:20px;height:20px;margin:-3px 5px -3px -4px;vertical-align:middle;line-height:0;';
+        ic.innerHTML = icon;
+        tx.textContent = text;
+        tx.style.verticalAlign = 'middle';
+        nm.appendChild(ic); nm.appendChild(tx);
+      } else nm.textContent = text;
       wrap.appendChild(nm);
       wrap.style.visibility = 'hidden';
       anchorsEl.appendChild(wrap);
@@ -2986,6 +3197,156 @@
       if (!rec || !rig || (v3 && rec.isle !== visitNow())) return;        /* v3: never a flight in disguise */
       rig.focusOn({ x: rec.wx, z: rec.wz }, { zoom: Math.min(rig.zoomMax(), Math.max(1.5, rig.goal.zoom)) });
       afterCamera();
+    }
+    /* Find me (KU34): the camera eases to the child's figure at the largest play zoom (a cut under reduced
+       motion or o.instant) and the figure waves (o.wave false: no wave). False with no figure, and while a
+       flight, the Sky map or the tour has the camera */
+    var _fm = { x: 0, y: 0, z: 0 };
+    function focusMe(o) {
+      o = o || {};
+      if (!rig) return false;
+      if (v3) { var st = travelState(); if (st.trip || st.map || st.skyMap || st.tour) return false; }
+      var at = actorPoint('me', _fm);
+      if (!at || !focusMeOn(rig, at, { instant: !!o.instant || reduced })) return false;
+      if (o.wave !== false && xcall('actors', 'emote', 'me', 'wave') !== false) markEmote('me');
+      afterCamera();
+      return true;
+    }
+
+    /* ================================================================
+       THE KIDS UPDATE'S CARE (P3.3; pets.json P22, ui U6 / U7 / U11, moodAndEating.tap)
+       ================================================================ */
+    /* feed(petId, foodId, {fav, reduced, frame}) → Promise<bool>: the feeding moment on the island (the host has
+       already committed the meal). false at once when the pet is not out on the island being shown, during a
+       flight / the Sky map / the tour, outside play mode, or without a crew that can eat (the host then plays
+       the 2D moment on the portrait); else true when the moment is over (3.2 s, 1.2 s under reduced motion),
+       skipped (a tap on the island, skipFeed()) or cut short (the island leaves the screen, a newer feed). */
+    function feedPet(petId, foodId, o) {
+      o = o || {};
+      var id = typeof petId === 'string' ? petId.replace(/^pet:/, '') : '';
+      if (!id || mode !== 'play' || suspended) return resolved(false);
+      /* no bowl to draw (px-care.js's SL3D.vox.makeBowl is the v3 scene's): the host's 2D moment instead */
+      if (!(SL3D.vox && typeof SL3D.vox.makeBowl === 'function')) return resolved(false);
+      if (v3) {
+        var st = travelState();
+        if (st.trip || st.map || st.skyMap || st.tour) return resolved(false);
+        var on = xcall('actors', 'onIsle', id);
+        if (on !== undefined && on !== visitNow()) return resolved(false);
+      }
+      endFeed(true, false, true);                            /* one bowl: a moment still playing ends now */
+      var sec = xcall('actors', 'feed', id, typeof foodId === 'string' ? foodId : '', { fav: !!o.fav });
+      if (typeof sec !== 'number' || !(sec >= 0)) return resolved(false);
+      var d = deferred(), f = { id: id, end: 0, resolve: d.resolve, timer: 0 };
+      care.feed = f;
+      /* the host's reduced motion on a moving stage: the end state now (the empty bowl, the pet facing it)
+         held as long as the stage's own reduced moment */
+      if (o.reduced === true && !reduced) { sec = feedStill(); xcall('actors', 'skipFeed', id, sec); }
+      feedClock(f, sec);
+      if (o.frame !== false) frameFeed(id);
+      wake();
+      return d.promise || resolved(true);
+    }
+    /* the moment's end on the stage's clock, and its wall-clock backstop */
+    function feedClock(f, sec) {
+      var tm = feedTiming(sec);
+      f.end = clockT + tm.end;
+      if (f.timer) cancelLater(f.timer);
+      f.timer = later(function () { f.timer = 0; if (care.feed === f) endFeed(true, true); }, tm.backstopMs);
+    }
+    /* settle the moment playing now: skip → the actors jump to its end first; chime → the tummy pip's chime */
+    function endFeed(ok, chime, skip) {
+      var f = care.feed;
+      if (!f) return false;
+      care.feed = null;
+      if (f.timer) cancelLater(f.timer);
+      if (skip) xcall('actors', 'skipFeed', f.id, 0);
+      if (chime && ok) sfx('star', 0.5);
+      if (ok && (chime || skip)) unswing(f.swing);              /* (not on a teardown: the rig is going too) */
+      try { f.resolve(!!ok); } catch (e) { /* the host's handler */ }
+      wake();
+      return true;
+    }
+    /* the moment over: a camera the moment swung round goes back to the child's angle (still on the pet),
+       unless the child has moved it since (a cut under reduced motion) */
+    function unswing(sw) {
+      var g = rig && rig.goal;
+      if (!sw || !g || typeof rig.orbitBy !== 'function' || mode !== 'play') return;
+      if (Math.abs((+g.yaw || 0) - sw.y1) > 0.5 || Math.abs((+g.elev || 0) - sw.e1) > 0.5) return;
+      rig.orbitBy(sw.y0 - g.yaw, sw.e0 - g.elev);
+      if (reduced && typeof rig.focusOn === 'function') rig.focusOn({ x: g.tx, z: g.tz }, { instant: true });
+      afterCamera();
+    }
+    /* a tap on the island or the host's strip (or Esc) during the moment: the end state now → bool */
+    function skipFeed() { return endFeed(true, true, true); }
+    /* ease the camera to the pet at the largest play zoom, as Find me does (a cut under reduced motion),
+       swinging round a little first when an item hides the bowl or the pet (feedView) */
+    var _fp = { x: 0, y: 0, z: 0 }, _fs = { x: 0, y: 0, z: 0 };
+    function frameFeed(id) {
+      var at = actorPoint('pet:' + id, _fp);
+      if (!at || !rig) return;
+      var bowl = xcall('actors', 'feedSpot', id, _fs), g = rig.goal;
+      if (bowl && g && typeof rig.orbitBy === 'function' && (typeof rig.canOrbit !== 'function' || rig.canOrbit())) {
+        var visit = v3 ? visitNow() : null, boxes = xcall('actors', 'occluders', id) || [];
+        for (var i = 0; i < recList.length; i++) {
+          var r = recList[i];
+          if (r.hit && !r.hidden && !r.storing && (!v3 || r.isle === visit)) boxes.push(r.hit);
+        }
+        var pts = [{ x: bowl.x, y: bowl.y + 0.12, z: bowl.z }, { x: at.x, y: at.y - 0.2, z: at.z }];
+        var view = feedView(pts, +g.yaw || 0, +g.elev || 0, boxes, rig.lim && rig.lim.elevMax);
+        care.view = { dYaw: view.dYaw, dElev: Math.round(view.dElev * 10) / 10, n: view.n, boxes: boxes.length };
+        if (view.dYaw || view.dElev > 0.01) {
+          var y0 = +g.yaw || 0, e0 = +g.elev || 0;
+          rig.orbitBy(view.dYaw, view.dElev);
+          if (care.feed && care.feed.id === id) care.feed.swing = { y0: y0, e0: e0, y1: +g.yaw || 0, e1: +g.elev || 0 };
+        }
+      }
+      if (focusMeOn(rig, at, { instant: reduced })) afterCamera();
+    }
+    /* each frame: the moment ends on the stage's clock once the actors have put the bowl away */
+    function stepFeed() {
+      var f = care.feed;
+      if (!f) return false;
+      if (clockT >= f.end && !xcall('actors', 'feedOn', f.id)) endFeed(true, true);
+      return true;
+    }
+    /* a tap on a hungry pet (pets.json moodAndEating.tap): actors played the softer answer; the 'I'm hungry'
+       bubble says so (with the care badge from SLWorldArtPets when it is loaded) */
+    function hungryBubble(id) {
+      var m = null, pets = lastView && Array.isArray(lastView.pets) ? lastView.pets : [];
+      for (var i = 0; i < pets.length; i++) if (pets[i] && pets[i].id === id) m = petMood(pets[i].mood);
+      var key = m && m.hunger >= 3 ? 'veryHungry' : 'hungry';
+      var ART = root.SLWorldArtPets, icon = '';
+      try { icon = ART && typeof ART.badge === 'function' ? String(ART.badge('hungry') || '') : ''; } catch (e) { icon = ''; }
+      showBubble('pet:' + id, copyT('care.bubble.' + key) || BUBBLE[key], icon);
+    }
+    function copyT(key) { try { return Copy && typeof Copy.t === 'function' ? String(Copy.t(key, null, '') || '') : ''; } catch (e) { return ''; } }
+    /* setPetStars(list) → the stars drawn: the memory stars in Home's night sky (skylife); kept, so a
+       rebuilt sky gets them again */
+    function setPetStars(list) {
+      care.stars = starsOf(list);
+      return applyStars();
+    }
+    function applyStars() {
+      var life = v3 && env ? env.life : null;
+      if (!life || typeof life.setPetStars !== 'function') return 0;
+      try { return life.setPetStars(care.stars) | 0; } catch (e) { issue('setPetStars: ' + errText(e)); return 0; }
+    }
+    /* the memory star a tap hits ({id, name, t}) | null — night only, play mode, never in the Sky map */
+    function starHit() {
+      var life = v3 && env ? env.life : null;
+      if (!life || typeof life.petStars !== 'function' || mode !== 'play' || travelState().skyMap) return null;
+      var list = life.petStars(), best = null;
+      for (var i = 0; i < list.length; i++) {
+        var s = list[i], t = raySphere(_ro, _rd, s.x, s.y, s.z, s.r > 0 ? s.r : 0.9);
+        if (t >= 0 && (!best || t < best.t)) best = { id: s.id, name: s.name, to: s.to || '', key: s.key || s.id, t: t };
+      }
+      return best;
+    }
+    /* a tap on a memory star: its name, a soft chime, and the host opens its memory card */
+    function tapStar(sh) {
+      sfx('star', 0.4);
+      showBubble('star:' + sh.key, sh.name || '');
+      tell('tapStar', sh.id, { name: sh.name || '', to: sh.to || '' });
     }
 
     /* ---------------- the keyboard list ---------------- */
@@ -3435,6 +3796,7 @@
       suspended = true;
       if (controls) controls.cancel();
       hideBubble();
+      endFeed(true, false, true);                      /* a feeding moment ends at its end state */
       endEncoreQuietly();
       pendingMusic = null;
       if (v3 && V3.travel) V3.travel.skip();
@@ -3462,6 +3824,7 @@
       xcall('actors', 'setReduced', reduced);
       xcall('fx', 'setReduced', reduced);
       xcall('edit', 'setReduced', reduced);
+      if (reduced) endFeed(true, false, true);         /* reduced motion: a feeding moment shows its end state */
       layerCall('city', 'setReduced', reduced);
       layerCall('life', 'setReduced', reduced);
       for (var i = 0; i < recList.length; i++) { recList[i].a.reduced = reduced; recList[i].idlePending = true; }
@@ -3564,7 +3927,8 @@
         systems: { actors: sys.actors ? sys.actors.name : null, fx: sys.fx ? sys.fx.name : null, edit: sys.edit ? sys.edit.name : null },
         layers: { owner: layers.owner, city: !!layers.city, life: !!layers.life, terrain: !!root.SLTerrain3D },
         stageEncore: encoreLive() ? encoreLock.uid : null, debugGrid: DEBUG.grid, seeded: user.seed != null,
-        camera: rig ? rig.info() : null, beat: { bpm: beat.bpm, bar: beat.bar, music: !!beat.music }, issues: issues.slice()
+        camera: rig ? rig.info() : null, beat: { bpm: beat.bpm, bar: beat.bar, music: !!beat.music }, issues: issues.slice(),
+        care: { feeding: care.feed ? care.feed.id : null, stars: care.stars.length, view: care.view }      /* P3.3 */
       };
       try { if (merged) out.merged = merged.info(); } catch (e) {}      /* {groups, calls, entries, vertices, holes, bones} */
       try { if (layers.city && typeof layers.city.info === 'function') out.city = layers.city.info(); } catch (e) {}
@@ -3630,6 +3994,7 @@
       } catch (e) { fail('remount: ' + errText(e)); }
     }
     function teardownContent() {
+      endFeed(true, false);                            /* the moment's crew is going: the host still gets its answer */
       if (v3) {
         /* travel goes before the rig and the sky it drives */
         if (V3.travel) { try { V3.travel.dispose(); } catch (e) { issue('travel dispose: ' + errText(e)); } V3.travel = null; }
@@ -3741,6 +4106,11 @@
     stage.focusItem = guard('focusItem', function (key) { focusItem(key); });
     stage.resetView = guard('resetView', function () { if (rig) { rig.reset(reduced); afterCamera(); } });
     stage.frameItem = guard('frameItem', function (uid) { frameItem(uid); showBubble('u:' + uid, nameOf(uid)); });
+    stage.focusMe = guard('focusMe', focusMe, false);
+    /* the kids update's care (P3.3) */
+    stage.feed = guard('feed', feedPet, noP);
+    stage.skipFeed = guard('skipFeed', skipFeed, false);
+    stage.setPetStars = guard('setPetStars', setPetStars, 0);
     stage.placement = guard('placement', function (s) { placementState(s || null); wake(); });
     stage.setCovered = guard('setCovered', setCovered);
     stage.suspend = guard('suspend', suspend);
@@ -3754,9 +4124,10 @@
     stage.overview = stage.skyMap;                        /* host-ui's name for the Sky map */
     stage.skip = v3 ? guard('skip', function () { return V3.travel ? V3.travel.skip() : false; }, false) : function () { return false; };
     stage.info = function () { try { return info(); } catch (e) { return { failed: failed || errText(e) }; } };
-    stage.dispose = function () { try { dispose(); } catch (e) { dead = true; } };
+    stage.dispose = function () { var i = LIVE.indexOf(stage); if (i >= 0) LIVE.splice(i, 1); try { dispose(); } catch (e) { dead = true; } };
     Object.defineProperty(stage, 'element', { get: function () { return container; } });
     Object.defineProperty(stage, 'failed', { get: function () { return failed; } });
+    LIVE.push(stage);
     return stage;
   }
 
@@ -3766,6 +4137,8 @@
     var noP = function () { return resolved(false); }, self = function () { return stage; }, nop = function () {};
     ['act', 'setLit', 'unlockLand', 'debut', 'storeFx', 'showtime', 'visitIsle', 'unlockIsle', 'skyMap', 'overview'].forEach(function (k) { stage[k] = noP; });
     stage.skip = function () { return false; };
+    stage.focusMe = function () { return false; };
+    stage.feed = noP; stage.skipFeed = function () { return false; }; stage.setPetStars = function () { return 0; };
     ['attach', 'sync'].forEach(function (k) { stage[k] = self; });
     ['emote', 'danceNow', 'setAnchors', 'focusItem', 'resetView', 'frameItem', 'placement', 'setCovered', 'suspend', 'resume', 'setReduced', 'setUser'].forEach(function (k) { stage[k] = nop; });
     stage.info = function () { return { failed: true }; };
@@ -4439,6 +4812,11 @@
     toPoint: toPoint, fxOpts: fxOpts, adaptSystem: adaptSystem, adaptActors: adaptActors, adaptEdit: adaptEdit,
     placementCells: placementCells,
     /* v3 (W4.2a) */
-    ISLES3: ISLES3, SLICE_MS: SLICE_MS, HOLD_SEC: HOLD_SEC, isleLists: isleLists, routeHook: routeHook, nsOf: nsOf
+    ISLES3: ISLES3, SLICE_MS: SLICE_MS, HOLD_SEC: HOLD_SEC, isleLists: isleLists, routeHook: routeHook, nsOf: nsOf,
+    /* the kids update (KU-CH12): Find me, and the character fields actorState passes through */
+    focusMe: focusMeLive, focusMeOn: focusMeOn, CHAR_KEYS: CHAR_KEYS,
+    /* the kids update's care (P3.3): moods, the memory stars, the feeding moment's timing */
+    petMood: petMood, starsOf: starsOf, STAR_MAX: STAR_MAX, feedTiming: feedTiming, FEED_GRACE: FEED_GRACE, FEED_STILL: FEED_STILL, feedStill: feedStill,
+    feedBrain: feedBrain, BUBBLE: BUBBLE, FEED_VIEWS: FEED_VIEWS, feedView: feedView
   };
 }));

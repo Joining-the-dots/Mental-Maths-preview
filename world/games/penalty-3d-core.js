@@ -17,6 +17,8 @@
      crowdLayout(n, seed)     fan blobs in the stands, wand colours and lit order
      presetMix(...)           day → Showtime light/sky/fog mix per stadium
      petStage / avatarStage   which clip the kicker pet / touchline avatar plays
+     kickerMoment / sidekickMoment   the same moments when the child's figure kicks and the
+                              pet cheers (kids update KU-CH19a)
      keeperDance, ledPips, coneAim, menuTell, tweens, easings, colour maths
    World units: goal plane z = 0, +z toward the camera, posts at x ±3,
    bar at y 2.478 (penalty.js MAP). Angles in radians unless named *Deg.
@@ -70,6 +72,12 @@
     NET_DEPTH: 1.2, NET_TOP: 2.2, KEEPER_Z: 0.35,
     SPOT: [0, 0.11, 7.5], KICKER: [-0.55, 0, 8.1], STEPBACK: [-0.55, 0, 8.4], RUNUP: [-0.2, 0, 7.75],
     AVATAR: [-3.9, 0, 4.2], AVATAR_YAW: 30 * DEG, PET_SCALE: 1.5, AVATAR_SCALE: 1.5,
+    /* kids update (KU-CH19a): the child's figure kicks at PERSON_SCALE, the pet cheers from the AVATAR
+       spot at SIDEKICK_SCALE. 1.15, not the design's 1.35: from the kicker cam a figure at KICKER hides
+       the goal mouth above the goal line once it stands taller than 1.32 u, and at 1.35 a typical look
+       (1.05-1.15 u with its hair or hat) hid the low left of the goal and the keeper's feet; at 1.15 it
+       stands just under the line (a tall hat's tip excepted) and still towers over the far keeper */
+    PERSON_SCALE: 1.15, SIDEKICK_SCALE: 1.2, PERSON_CLEAR_H: 1.32,
     TOWERS: [[-7, 5.5, -5], [7, 5.5, -5], [0, 6.5, -8]],
     LED: [0, 3.6, -6.5]
   };
@@ -853,6 +861,56 @@
   }
 
   /* ================================================================
+     THE CHILD'S FIGURE (kids update KU-CH19a; characters.json design.games.encoreShootout, plan-ku KU8)
+     With the games' people helper (SLGamePeople) the child's figure takes every kick (their character,
+     else the classic avatar) and the pet cheers on the touchline (the old avatar's spot); petStage
+     still places and times the kicker, unchanged. The views map the moments below to clips with
+     SLGamePeople.clipFor, so the figure never changes a rule, a timing or a hitbox.
+     kickerMoment(v, ps, out)   v {lp, phaseT, resT, res, rushed, decider}; ps = petStage(v)'s out
+       → out {moment, ct, sy}: the game moment for clipFor('kicker', moment, {res, star, sig}) and its
+       clip time. petStage's names pass through (idle, walk, kick → shoot, its strike on the same
+       0.32 s); a goal's reaction (dance → cheer, or the signature move on a Star Strike or in Encore
+       Mode) and a miss's oops run from their own start to the next kick; a save shrugs, then gives the
+       thumbs-up (oops from 0.8 s, its end pose); a rushed kick (the 'rushed' event) shrugs while the
+       height is picked; a decider kick (the 'decider' event) stands ready once back on its spot.
+       sy: petStage's squash and stretch at 40% (a person is not a bean).
+     sidekickMoment(v, out)     v {lp, res, resT, encore, star, clock} → out {moment, ct} for
+       clipFor('sidekick', moment): hops on a goal (dances on a Star Strike), sits after a save or a
+       miss (never sad), dances in Encore Mode, else idle.
+     ================================================================ */
+  var KICKER = { GOAL: 0.3, SAD: 0.25, SHRUG: 0.9, THUMBS: 0.8, SQUASH: 0.4 };
+  var SIDEKICK = { HOP: 0.6, GOAL: 1.8, SIT0: 0.3, SIT1: 1.6 };
+  function kickerMoment(v, ps, out) {
+    out = out || {};
+    var lp = v.lp, rt = num(v.resT, 0), clip = ps && typeof ps.clip === 'string' ? ps.clip : 'idle';
+    out.moment = clip; out.ct = ps ? num(ps.ct, 0) : 0;
+    out.sy = 1 + ((ps ? num(ps.sy, 1) : 1) - 1) * KICKER.SQUASH;
+    if (lp === 'result') {
+      if (v.res === 'goal') {
+        if (rt < KICKER.GOAL) { out.moment = 'idle'; out.ct = rt; } else { out.moment = 'dance'; out.ct = rt - KICKER.GOAL; }
+      } else if (rt < KICKER.SAD) { out.moment = 'idle'; out.ct = rt; }
+      else {
+        var k = rt - KICKER.SAD;
+        if (v.res === 'save' && k >= KICKER.SHRUG) { out.moment = 'thumbs'; out.ct = KICKER.THUMBS + (k - KICKER.SHRUG); }
+        else { out.moment = 'sad'; out.ct = k; }
+      }
+    } else if (lp === 'aimY' && v.rushed) { out.moment = 'rushed'; out.ct = num(v.phaseT, 0); }
+    else if (lp === 'ready' && v.decider && clip !== 'walk') { out.moment = 'decider'; out.ct = num(v.phaseT, 0); }
+    return out;
+  }
+  function sidekickMoment(v, out) {
+    out = out || {};
+    var rt = num(v.resT, 0), clock = num(v.clock, 0);
+    out.moment = 'idle'; out.ct = clock;
+    if (v.lp === 'result' && v.res === 'goal' && rt < SIDEKICK.GOAL) {
+      if (v.star) { out.moment = 'starGoal'; out.ct = rt; } else { out.moment = 'goal'; out.ct = rt % SIDEKICK.HOP; }
+    } else if (v.lp === 'result' && (v.res === 'save' || v.res === 'miss') && rt > SIDEKICK.SIT0 && rt < SIDEKICK.SIT1) {
+      out.moment = v.res; out.ct = rt - SIDEKICK.SIT0;
+    } else if (v.encore) { out.moment = 'encoreMode'; out.ct = clock; }
+    return out;
+  }
+
+  /* ================================================================
      LED + MENU + COPY helpers
      ================================================================ */
   /* 8 kick pips: 0 to come · 1 this kick · 2 goal · 3 goal with a gold ring (top corner / Star Strike) · 4 no goal */
@@ -929,6 +987,8 @@
     stadiumLook: stadiumLook, presetMix: presetMix, makePreset: makePreset, ballLook: ballLook, coneAim: coneAim,
     /* staging + copy */
     petStage: petStage, avatarClip: avatarClip, ledPips: ledPips, ledText: ledText, menuTell: menuTell,
-    promptFor: promptFor, bannerFor: bannerFor
+    promptFor: promptFor, bannerFor: bannerFor,
+    /* kids update: the child's figure kicks, the pet cheers */
+    KICKER: KICKER, SIDEKICK: SIDEKICK, kickerMoment: kickerMoment, sidekickMoment: sidekickMoment
   };
 }));

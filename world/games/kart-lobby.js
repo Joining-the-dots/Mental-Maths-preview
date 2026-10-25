@@ -27,20 +27,60 @@
    never read.
 
    The one thing this file writes anywhere is the child's own lobby
-   ticket (a random number bound to the group's race key, a room
-   number, the server's time; written again every 5 minutes while the
-   child's own race is open), which it deletes when the lobby closes.
-   A starter's ticket counts only while it is under 15 minutes old.
-   Nothing about another child goes into the profile or the browser's
-   storage. Games never award or spend anything.
+   ticket (a random number bound to the room's key, a room number, the
+   server's time; written again every 5 minutes while the child's own
+   race is open), which it deletes when the lobby closes. A starter's
+   ticket counts only while it is under 15 minutes old, by the
+   server-anchored clock the host hands over (cfg.wall), so a device
+   clock that is wrong does not hide a race (C10). Only one device at a
+   time can race on one login: a race opened on another device with
+   this child's own login is never listed, and the lobby says each
+   child needs their own login (it would overwrite that device's ticket
+   otherwise). Nothing about another child goes into the profile or the
+   browser's storage. Games never award or spend anything.
+
+   A grown-up's change ends a race or a challenge within about a minute
+   (C7): while the lobby is open, the group's race key is read again
+   every 45 s (the starter of a room with others in it reads the roster
+   too), and again before every Race again. A refusal (the child
+   unticked, races switched off, the class closed or the child taken
+   out of it), a key that is gone or new (every Control Centre save
+   makes a new one), or the child's own tag gone from the roster closes
+   the lobby and leaves the room: a starter's ends for everyone. A
+   starter frees the seat of a child whose tag left the roster
+   (session.prune, when the race network has it; without it the room
+   ends). A read that only failed (offline, too slow) changes nothing;
+   the next one is in 45 s.
+
+   Challenges (the kids update, KG7; plan-ku KU14): ⚔️ Challenge and
+   🔑 Join with a code on the kart menu open these same sheets with a
+   room addressed by one of the 50 game words (SLDuelCore.WORDS): the
+   room key is 'slk-word|' + the group's race key + '|' + the word, so
+   only a ticked child of that family or class can reach it, and its
+   tickets never match a word-less race's. Seat tags, names and the
+   roster still come from the real race key. Family and class rooms
+   only: there are no rooms with a code for friends from other
+   families. A starter's family room is announced on the challenge
+   channel with the word only (window.cloudAnnounceChallenge('kart',
+   word)) and taken back at GO, Cancel, a full room or after 3
+   minutes; a class room is never announced. The 4-character code is
+   the one thing a child types here: it is checked against the game
+   words before anything is dialled, used only to find the room, and
+   never sent or shown to another device. Everything after the word is
+   Race together's: GO, ghosts, finishing, the table, a starter who
+   leaves, Race again.
 
      reason(cfg, env)     null, or {code, text}: 'offline', 'notfamily', 'notswitched', 'notime'
-     open(ctl, cfg, env)  the Race together sheet (ctl: the shell's control object)
+     open(ctl, cfg, env, opts)  the Race together sheet (ctl: the shell's control object). opts.mode:
+                          'race' (Race together), 'host' (⚔️ open a challenge), 'join' (🔑, with
+                          opts.code from a family pop-up); without opts, the mode this cfg last used
      close()              leave the race (a starter whose race is still going passes messages on,
                           unseen, until it ends), delete the ticket, forget the key, roster and tags
      prewarm(trackId)     build that course a step at a time, then say this device is ready
+     cfg.wall             (optional, the host's) the server-anchored wall clock in ms since 1970
      env (test seam)      Peer, peerOpts, firebase, cloudState, familyCfg, applyFamilyCfg, core, SC,
-                          Net, KL, now, wall, timers, wakeLock, profile, online
+                          Net, KL, now, wall, timers, wakeLock, profile, online, Duel (SLDuelCore),
+                          announce(game, word), retract(), random
      _mem()               the open lobby's memory, or null (tests only)
    ================================================================ */
 (function () {
@@ -54,6 +94,7 @@
 
   var CALL_MS = 8000, WATCH_MS = 1000, ROSTER_MS = 30000, STEP_MS = 30, SEATS = 5;
   var TICKET_EVERY_MS = 5 * 60000, TICKET_MAX_MS = 15 * 60000, NONE_MS = 10 * 60000;
+  var GUARD_MS = 45000;          /* C7: the race key read again this often while the lobby is open (≈1 read a minute) */
   var CODE_RE = /^[A-Za-z0-9_-]{1,40}$/, KEY_RE = /^[0-9a-f]{32}$/;
   var CREW = [['gentle', 'Gentle crew'], ['quick', 'Quick crew'], ['headline', 'Headline crew'], ['none', 'Children only']];
   var T = {
@@ -68,8 +109,16 @@
     server: 'Can’t reach the game server.', retry: '↻ Try again', closed: 'The race was closed.',
     update: 'A device needs the update. Reload the game on every device.', sat: 'This device wasn’t ready in time. You’re in the next race.',
     noPause: 'No pausing in a shared race.', screenOn: 'Keep the screen on.',
-    yours: '🏁 Your race', go: '🏁 Start race', closeRace: 'Close race', leave: 'Leave', alone: 'Waiting for someone to join…', back2: 'Waiting for the others to come back…', starting: 'Starting…', empty: 'waiting…'
+    yours: '🏁 Your race', go: '🏁 Start race', closeRace: 'Close race', leave: 'Leave', alone: 'Waiting for someone to join…', back2: 'Waiting for the others to come back…', starting: 'Starting…', empty: 'waiting…',
+    ended: 'Your grown-up changed the Race together settings, so this race has ended.',
+    endedCh: 'Your grown-up changed the challenge settings, so this challenge has ended.',
+    ownLogin: 'Your login is already in a race on another device. Each child needs their own login.', checking: 'Checking who can race…',
+    /* challenges: every other line is SLDuelCore.T's */
+    game: 'Neon Grand Prix', theirs: '’s challenge'
   };
+  /* challenges: a starter's room stays open 3 minutes for a first friend (the pop-up's life); a joiner
+     looks 3 times, 4 s apart; a starter whose word another room holds right now draws another, 5 at most */
+  var CH_OPEN_MS = 3 * 60000, CH_LOOKS = 3, CH_GAP_MS = 4000, CH_WORDS = 5, GAME = 'kart';
 
   var M = null;                 /* the open lobby. Everything about other children lives here, and only here */
   var authOn = null, infos = {};
@@ -81,7 +130,18 @@
   function isObj(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
 
   /* ---------- the page around us (the third argument of open and reason replaces any part) ---------- */
-  function envOf(given) {
+  /* C10: the wall clock for the age of a ticket the server stamped. The host's own clock when it
+     hands one over (cfg.wall: the island's, anchored to the server's time and carried on by the
+     steady clock), so a device whose clock is wrong still sees a fresh ticket as fresh; this
+     device's clock only without one. */
+  function wallOf(cfg) {
+    return function () {
+      var w = NaN;
+      try { w = cfg && typeof cfg.wall === 'function' ? Number(cfg.wall()) : NaN; } catch (x) { w = NaN; }
+      return isFinite(w) && w > 0 ? w : Date.now();
+    };
+  }
+  function envOf(given, cfg) {
     var g = isObj(given) ? given : {}, nav = typeof navigator !== 'undefined' ? navigator : null;
     function pick(k, d) { return has(g, k) ? g[k] : d; }
     var on = pick('online', nav ? nav.onLine !== false : true);
@@ -91,15 +151,22 @@
       familyCfg: pick('familyCfg', W ? W.slFamilyCfg : null), applyFamilyCfg: pick('applyFamilyCfg', W ? W.slFamilyCfgApply : null),
       core: pick('core', W ? W.SLWorldCore : null), SC: pick('SC', W ? W.SLSocialCore : null),
       Net: pick('Net', W ? W.SLKartNet : null), KL: pick('KL', W ? W.SLKartLogic : null),
+      /* the 🏆 Challenge wins (boards.js), looked up when a race's table is final: it may load after the lobby */
+      boards: pick('boards', function () { return W ? W.SLBoards : null; }),
       /* the race clock is performance.now(): the shell counts down to GO (beginRound's goAt) on it */
       now: pick('now', function () { return performance.now(); }),
       /* the wall clock, for the age of a ticket the server stamped */
-      wall: pick('wall', function () { return Date.now(); }),
+      wall: pick('wall', wallOf(cfg)),
       timers: pick('timers', { setTimeout: function (f, ms) { return setTimeout(f, ms); }, clearTimeout: function (id) { clearTimeout(id); },
         setInterval: function (f, ms) { return setInterval(f, ms); }, clearInterval: function (id) { clearInterval(id); } }),
       wakeLock: pick('wakeLock', nav && nav.wakeLock ? nav.wakeLock : null),
       profile: pick('profile', activeProfile),
-      online: typeof on === 'function' ? !!on() : !!on
+      online: typeof on === 'function' ? !!on() : !!on,
+      /* challenges: the words and their copy, and the family pop-up (the app's own, looked up when used) */
+      Duel: pick('Duel', W ? W.SLDuelCore : null),
+      announce: pick('announce', function (game, word) { if (W && typeof W.cloudAnnounceChallenge === 'function') W.cloudAnnounceChallenge(game, word); }),
+      retract: pick('retract', function () { if (W && typeof W.cloudRetractChallenge === 'function') W.cloudRetractChallenge(); }),
+      random: pick('random', Math.random)
     };
   }
   /* the profile now playing, from the app's own state: {name, avatar, color} */
@@ -140,7 +207,7 @@
   function reason(cfg, given) {
     var code = 'offline', e, l, g;
     try {
-      e = envOf(given); l = local(cfg, e); code = l.code || '';
+      e = envOf(given, cfg); l = local(cfg, e); code = l.code || '';
       if (!code && isObj(e.familyCfg) && (!ticked(e.SC, e.familyCfg, l.b.uid) || noGroup(cfg, e))) code = 'notswitched';
       if (!code && cfg && cfg.arcade) { g = cfg.arcade.gate(); if (g && g.allowed === false) code = 'notime'; }
     } catch (x) { code = code || 'offline'; }
@@ -178,11 +245,21 @@
       '.slk-st{font-size:13px;opacity:.85;}',
       '.slk-race{display:block;width:100%;max-width:440px;text-align:left;}',
       '.slg-scr p.slk-note{color:#ffe27a;}',
+      /* a challenge's word: big ink letters on a lemon pill (contrast over 10:1), and the box a joiner types it in */
+      '.slk-word{display:inline-flex;align-items:center;gap:12px;padding:2px 22px 4px;border-radius:20px;background:#ffe27a;color:#3b2f4a;font:800 64px/1.15 "Baloo 2",system-ui,sans-serif;letter-spacing:.14em;}',
+      '.slk-word .slk-emo{font-size:40px;letter-spacing:0;}',
+      '.slk-boxrow{align-items:center;}',
+      /* the shell draws a disabled button like a live one: Start race before anyone is ready, Join while looking, look greyed */
+      '.slg-scr .slk-boxrow .slg-b:disabled,.slg-scr .row.slk-act .slg-b:disabled{opacity:.5;cursor:default;}',
+      '.slk-box{width:5.2em;box-sizing:border-box;padding:2px 10px;border:3px solid #ffe27a;border-radius:16px;background:#fff;color:#3b2f4a;font:800 40px/1.2 "Baloo 2",system-ui,sans-serif;letter-spacing:.14em;text-align:center;text-transform:uppercase;}',
+      '.slk-box:focus{outline:3px solid #3df2ff;outline-offset:2px;}',
+      '.slk-box:disabled{opacity:.7;}',
       /* a phone held sideways: the seats two to a line, and the lobby's own buttons (Start race,
          Close race, Leave) held at the foot of the sheet, in reach however far it scrolls */
       '@media (max-height: 520px){',
       '.slk-seats{display:grid;grid-template-columns:1fr 1fr;}',
       '.slg-scr .row.slk-act{position:sticky;bottom:-10px;z-index:2;width:100%;padding:6px 0 10px;margin-bottom:-10px;background:#170f38;box-shadow:0 -6px 10px rgba(19,12,46,.85);}',
+      '.slk-word{font-size:40px;padding:0 16px 2px;}.slk-word .slk-emo{font-size:26px;}.slk-box{font-size:30px;}',
       '}'
     ].join('\n');
     document.head.appendChild(c);
@@ -202,10 +279,10 @@
     b.addEventListener('click', function () { try { go(); } catch (x) {} });
     return b;
   }
-  function chips(root, label, items) {
+  function chips(root, label, items, unlabelled) {
     var d = root.appendChild(mk('div', 'slg-opt'));
     d.setAttribute('role', 'group'); d.setAttribute('aria-label', label);
-    d.appendChild(mk('span', 'lb', label));
+    if (!unlabelled) d.appendChild(mk('span', 'lb', label));
     items.forEach(function (it) { d.appendChild(btn('slg-var' + (it.on ? ' on' : ''), it.text, it.k, it.go, it.dead)).setAttribute('aria-pressed', it.on ? 'true' : 'false'); });
   }
   /* One sheet of the shell's, filled again on every change. The focus moves only on a new
@@ -227,32 +304,47 @@
   /* one line and its buttons; the way back to the game's own menu is always there */
   function message(m, text, more) {
     m.view = 'msg';
-    paint(m, T.title, function (root) {
-      var row;
+    paint(m, titleOf(m), function (root) {
+      var row, own = !!more && !m.ch;
       line(root, text);
       row = root.appendChild(mk('div', 'row'));
       (more || []).forEach(function (b) { row.appendChild(b); });
-      row.appendChild(btn('slg-b' + (more ? '' : ' go'), more ? T.own : T.back, more ? 'own' : 'main', function () { leave(m); }));
+      row.appendChild(btn('slg-b' + (more ? '' : ' go'), own ? T.own : T.back, own ? 'own' : more ? 'back' : 'main', function () { leave(m); }));
     });
   }
   function say(m, text) { try { m.ctl.say(text); } catch (x) {} }
   function leave(m) { if (M === m) close(); try { m.ctl.menu(); } catch (x) {} }
-  function stop(m, code) { close(); message(m, T[code]); }
+  function stop(m, code) { close(); message(m, words(m, code)); }
+  /* a sheet's title: Race together's, or the challenge's (⚔️ Challenge — Neon Grand Prix, 🔑 Join with a code) */
+  function titleOf(m) {
+    var D = m.ch ? m.D : null;
+    if (!D) return T.title;
+    return m.ch.mode === 'join' ? D.T.join.title : D.fill(D.T.host.title, { game: T.game });
+  }
+  /* why it can't go on, in Race together's words or a challenge's */
+  function words(m, code) {
+    var D = m.ch ? m.D : null;
+    return D && D.T.reason[code] ? D.T.reason[code] : D && code === 'check' ? D.T.net.check : D && code === 'server' ? D.T.net.server : T[code];
+  }
 
   /* ---------- open: steps 1 to 5 ---------- */
-  function open(ctl, cfg, given) {
+  function open(ctl, cfg, given, opts) {
     try {
       if (!ctl || !cfg) return;
-      var e = envOf(given), l, m;
-      if (M && M.cfg === cfg && rejoin(M, ctl)) return;
+      var e = envOf(given, cfg), l, m, ch = modeOf(cfg, opts), D = isObj(e.Duel) && isObj(e.Duel.T) ? e.Duel : null;
+      /* 'Race again' (no mode given) goes back to the open race; a menu button for another kind of room does not */
+      if (M && M.cfg === cfg && (!isObj(opts) || (M.ch ? M.ch.mode : 'race') === (ch ? ch.mode : 'race')) && rejoin(M, ctl)) return;
       close();
       l = local(cfg, e);
-      if (l.code || !e.Net || !e.KL || !e.Peer) return message({ ctl: ctl, root: null }, T[l.code || 'offline']);
+      if (ch && !D) l = { code: l.code || 'server' };              /* a challenge with no word list: nothing is dialled */
+      if (l.code || !e.Net || !e.KL || !e.Peer) return message({ ctl: ctl, root: null, ch: D ? ch : null, D: D }, words({ ch: D ? ch : null, D: D }, l.code || 'offline'));
       hook(cfg, e);
-      m = M = { E: e, ctl: ctl, cfg: cfg, b: l.b, who: e.SC.cacheKey(boundEnv(cfg, e)), fam: null, groups: [], group: null, key: null, roster: null, tags: null, tag: '',
+      m = M = { E: e, ctl: ctl, cfg: cfg, given: given, b: l.b, who: e.SC.cacheKey(boundEnv(cfg, e)), fam: null, groups: [], group: null, key: null, roster: null, tags: null, tag: '',
         net: null, tr: null, ses: null, tk: null, root: null, view: '', rows: [], note: '', busy: '', finding: null, ready: null, other: null, seen: null, stale: null,
-        warm: '', warmed: '', warmRun: 0, rereadAt: -Infinity, bad: false, stuck: false, wake: null, watch: 0, onVis: null, famSig: '' };
+        warm: '', warmed: '', warmRun: 0, rereadAt: -Infinity, bad: false, stuck: false, wake: null, watch: 0, onVis: null, famSig: '', ch: ch, D: D,
+        guard: 0, checking: null, again: false, self: false };
       m.watch = e.timers.setInterval(function () { alive(m); }, WATCH_MS);
+      m.guard = e.timers.setInterval(function () { guard(m, false); }, GUARD_MS);
       /* back at the front: the screen lock again, and the clock difference measured afresh */
       m.onVis = function () { if (M !== m || document.hidden) return; wake(m); if (m.ses) { try { m.ses.resync(); } catch (x) {} } };
       document.addEventListener('visibilitychange', m.onVis);
@@ -271,8 +363,9 @@
       try { f.auth().onAuthStateChanged(function (user) { if (M && (user && user.uid ? user.uid : '') !== M.b.uid) shut(); }); } catch (x) {}
     }
   }
-  /* 'Race again' or 'Back to the lobby' with the race's session still going: its lobby again,
-     with no new read. The game-time gate is asked again. → false when a fresh open is needed */
+  /* 'Race again' or 'Back to the lobby' with the race's session still going: its lobby again at
+     once. The game-time gate is asked again, and the race key (and, for a starter, the roster)
+     is read again before the next race can start (C7). → false when a fresh open is needed */
   function rejoin(m, ctl) {
     var ses = m.ses, st = ses ? ses.state : '', g = null;
     if (st !== 'lobby' && st !== 'results') return false;
@@ -282,7 +375,73 @@
     if (g && g.allowed === false) { close(); try { ctl.beginRound(); } catch (x) {} return true; }
     if (st === 'results' && !ses.backToLobby()) return false;
     lobby(m);
+    guard(m, true);
     return true;
+  }
+
+  /* ---------- C7: a grown-up's change ends a race within about a minute ---------- */
+  function hosting(m) { var v = m.ses && m.ses.room; return !!v && v.host === true; }
+  function company(m) { return hosting(m) && Array.isArray(m.ses.room.players) && m.ses.room.players.some(function (p) { return p && !p.me; }); }
+  /* the players in this child's own race whose tag the roster just read no longer has */
+  function strays(m) {
+    var v = hosting(m) ? m.ses.room : null;
+    return v && Array.isArray(v.players) ? v.players.filter(function (p) { return p && !p.me && !has(m.tags || {}, p.tag); }) : [];
+  }
+  /* The group's race key (and the roster, when asked) read again. → 'ok', 'off' (refused, gone,
+     or this child is not in the roster any more), 'key' (a new race key), 'net' (the read only
+     failed: nothing is known) or 'stale' (the lobby moved on meanwhile) */
+  function recheck(m, withRoster) {
+    var g = m.group, key = m.key, priv = g.ref.collection('private');
+    return call(m, function () { return Promise.all(withRoster ? [priv.doc('games').get(), priv.doc('roster').get()] : [priv.doc('games').get()]); }).then(function (got) {
+      var k = got[0] && got[0].exists ? got[0].data() : null, now = isObj(k) && typeof k.raceKey === 'string' && KEY_RE.test(k.raceKey) ? k.raceKey : '';
+      if (M !== m || m.group !== g || m.key !== key) return 'stale';
+      if (!now) return 'off';
+      if (now !== key) return 'key';
+      if (got.length > 1) {
+        m.roster = got[1] && got[1].exists ? got[1].data() : null;
+        m.tags = m.E.SC.tagMap(key, m.roster);
+        if (m.net) m.net.tags = m.tags;
+        m.rereadAt = m.E.now();
+        if (m.tags[m.tag] !== m.b.uid) return 'off';
+      }
+      return 'ok';
+    }, function (x) { return x && x.code === 'permission-denied' ? 'off' : 'net'; });
+  }
+  /* every 45 s, with the roster too for a starter with others in the race (force: Race again,
+     which also holds the Start button until it is answered) */
+  function guard(m, force) {
+    var run;
+    if (M !== m || !m.group || !m.key || (m.checking && !force)) return;
+    if (force) { m.again = true; draw(m); }
+    run = m.checking = recheck(m, company(m)).then(function (v) {
+      if (m.checking === run) m.checking = null;
+      if (force) m.again = false;
+      if (M !== m) return;
+      if (v === 'off' || v === 'key') return revoke(m);
+      if (v === 'ok') prune(m);
+      draw(m);
+    });
+  }
+  /* A starter frees the seat of each child whose tag left the roster. Without session.prune
+     (an older race network) the race ends instead: nobody stays in it without the grown-up's
+     tick. */
+  function prune(m) {
+    var ses = m.ses;
+    if (!ses || !strays(m).length) return;
+    if (typeof ses.prune === 'function') { try { ses.prune(); return; } catch (x) {} }
+    revoke(m);
+  }
+  /* the lobby closes and the race is left (a starter's ends for everyone); a sheet of this
+     file's says why, a round being driven is left to run on alone (its table says the rest) */
+  function revoke(m) {
+    var ses = m.ses, ctl = m.ctl, cfg = m.cfg, given = m.given, up = !!m.view && !!m.root && m.root.isConnected !== false;
+    var text = m.ch ? T.endedCh : T.ended;
+    m.ses = null;
+    if (ses) { try { ses.leave('revoked'); } catch (x) {} }
+    close();
+    say(m, text);
+    /* Look again opens afresh, in the mode this game last used (a challenge's word is not kept) */
+    if (up) message({ ctl: ctl, root: null, ch: m.ch, D: m.D }, text, [btn('slg-b go', T.again, 'main', function () { open(ctl, cfg, given); })]);
   }
   /* steps 1 to 3: the family record afresh, game time used elsewhere, the time gate */
   function begin(m) {
@@ -350,24 +509,33 @@
       if (!alive(m)) return;
       if (!m.groups.length) { if (known) none = { who: m.who, sig: m.famSig, at: e.now() }; return stop(m, 'notswitched'); }
       if (none && none.who === m.who) none = null;
-      cards(m, function () { wake(m); pick(m, m.groups[0]); });
+      cards(m, function () { wake(m); if (m.ch) chStart(m); else pick(m, m.groups[0]); });
     });
   }
-  /* the chosen group's race key and roster, read afresh into memory only; then its open races */
-  function pick(m, g) {
-    var S = m.E.SC, old = m.ses, priv = g.ref.collection('private');
+  /* The group's race key and roster, read afresh into memory only. Rejects {code: 'check'} when
+     either can't be read or this child is not in the roster the grown-up approved, {code: 'gone'}
+     when the lobby or the group changed meanwhile. */
+  function keyFor(m, g) {
+    var S = m.E.SC, priv = g.ref.collection('private');
+    return call(m, function () { return Promise.all([priv.doc('games').get(), priv.doc('roster').get()]); }).then(function (got) {
+      var k = got[0].exists ? got[0].data() : null, key = k && typeof k.raceKey === 'string' && KEY_RE.test(k.raceKey) ? k.raceKey : '';
+      if (!alive(m) || m.group !== g) throw { code: 'gone' };
+      if (!key) throw { code: 'check' };
+      m.key = key; m.roster = got[1].exists ? got[1].data() : null;
+      m.tags = S.tagMap(key, m.roster); m.tag = S.seatTag(key, m.b.uid);
+      if (m.tags[m.tag] !== m.b.uid) throw { code: 'check' };
+    }, function () { throw { code: 'check' }; });
+  }
+  /* the chosen group, its key and roster; then its open races (next: a challenge's own step instead) */
+  function pick(m, g, next) {
+    var old = m.ses;
     m.ses = null; m.group = g; m.key = m.roster = m.tags = null; m.busy = '';
     if (old) { try { old.leave(); } catch (x) {} }
     message(m, T.wait);
-    function trouble() { message(m, T.check, [btn('slg-b go', T.retry, 'main', function () { pick(m, g); })]); }
-    call(m, function () { return Promise.all([priv.doc('games').get(), priv.doc('roster').get()]); }).then(function (got) {
-      var k = got[0].exists ? got[0].data() : null, key = k && typeof k.raceKey === 'string' && KEY_RE.test(k.raceKey) ? k.raceKey : '';
+    function trouble() { message(m, words(m, 'check'), [btn('slg-b go', T.retry, 'main', function () { pick(m, g, next); })]); }
+    keyFor(m, g).then(function () {
       if (!alive(m) || m.group !== g) return;
-      if (!key) return trouble();
-      m.key = key; m.roster = got[1].exists ? got[1].data() : null;
-      m.tags = S.tagMap(key, m.roster); m.tag = S.seatTag(key, m.b.uid);
-      if (m.tags[m.tag] !== m.b.uid) return trouble();        /* this child is not in the roster the grown-up approved */
-      finder(m, '');
+      if (next) next(); else finder(m, '');
     }, function () { if (alive(m) && m.group === g) trouble(); });
   }
   function wake(m) {
@@ -408,11 +576,12 @@
      shows one line. c is the number bound to the group's race key (SLKartNet.ticketC), so a
      ticket left behind under an older key never matches; a starter writes its ticket again
      every 5 minutes while its race is open, and a starter's ticket is taken only while it is
-     under 15 minutes old by this device's clock (one left behind when a tab was killed stops
-     counting). A joiner's ticket needs no age: the number in it is fresh for each look. */
+     under 15 minutes old by the host's server-anchored clock (cfg.wall: one left behind when a
+     tab was killed stops counting, and a device clock that is wrong changes nothing). A joiner's
+     ticket needs no age: the number in it is fresh for each look. */
   function tickets(m, g) {
     var col = g.ref.collection('lobby'), mine = col.doc(m.b.uid), stamp = m.E.firebase.firestore.FieldValue, used = false, tk;
-    var key = m.key, Net = m.E.Net, e = m.E, again = null;
+    var key = roomKey(m), Net = m.E.Net, e = m.E, again = null;
     function mark(n) { return Net.ticketC(key, n); }
     function bad(x) { m.bad = true; if (M === m && m.view === 'lobby') { m.note = T.check; draw(m); } throw x; }
     function write(c, s) { return call(m, function () { return mine.set({ c: c, s: s, at: stamp.serverTimestamp() }); }); }
@@ -422,8 +591,12 @@
       var t = at && typeof at.toMillis === 'function' ? at.toMillis() : NaN;
       return isFinite(t) && e.wall() - t <= TICKET_MAX_MS;
     }
-    function read(tag, test) {
+    /* never this child's own ticket: a race that answers with this child's own tag was opened on
+       another device with the same login (a sibling on one login). It is not listed, nothing is
+       joined (a join would overwrite that device's ticket and hide its race), and the list says why. */
+    function read(tag, test, looking) {
       var uid = m.tk === tk && m.tags && has(m.tags, tag) ? m.tags[tag] : '';
+      if (uid && uid === m.b.uid) { if (looking && M === m) m.self = true; return Promise.resolve(false); }
       if (!uid) return Promise.resolve(false);
       return call(m, function () { return col.doc(uid).get(); }).then(function (s) { return s.exists && test(s.data() || {}); }, bad);
     }
@@ -436,7 +609,7 @@
         });
       },
       prove: function (h) { quiet(); return put(mark(h), 0); },
-      checkHost: function (tag, slot, r) { return read(tag, function (d) { return d.c === mark(r) && d.s === slot && fresh(d.at); }); },
+      checkHost: function (tag, slot, r) { return read(tag, function (d) { return d.c === mark(r) && d.s === slot && fresh(d.at); }, true); },
       checkJoiner: function (tag, h) { return read(tag, function (d) { return d.c === mark(h); }); },
       close: function () {
         var del = used && m.tk === tk;
@@ -448,6 +621,9 @@
     };
     return (m.tk = tk);
   }
+  /* What the room's address and its tickets are bound to: the group's race key, and for a challenge
+     the word too. The seat tags and the roster stay on the race key itself. */
+  function roomKey(m) { return m.ch && m.ch.word ? 'slk-word|' + m.key + '|' + m.ch.word : m.key; }
   /* a new session for the chosen group: its own link, relay-only for a class and for a family whose devices are in other homes */
   function session(m) {
     var e = m.E, S = e.SC, KL = e.KL, g = m.group, who = S.who(profileOf(e) || m.cfg.user), tr, dial, ses;
@@ -459,7 +635,7 @@
       tr.dial = function (id, ms) { return dial.call(tr, id, ms).then(null, function (x) { if (x && x.code === 'timeout' && m.tr === tr) m.stuck = true; throw x; }); };
     }
     m.ready = null; m.seen = null; m.stale = null; m.warm = '';
-    m.net = { transport: tr, clock: { now: e.now }, timers: e.timers, me: { tag: m.tag, ai: who.ai, ci: who.ci }, groupKey: m.key, tags: m.tags,
+    m.net = { transport: tr, clock: { now: e.now }, timers: e.timers, me: { tag: m.tag, ai: who.ai, ci: who.ci }, groupKey: roomKey(m), tags: m.tags,
       nameOf: function (tag, seat) { return nameOf(m, tag, seat); }, rules: KL.RULES, courseInfo: function (id) { return courseInfo(KL, id); },
       crewTimes: function (id, pace, n) { return KL.fillTimes(id, pace, n); }, tickets: tickets(m, g), SC: S };
     ses = m.ses = e.Net.create(m.net);
@@ -473,8 +649,8 @@
     ses.on('other', function (row) { if (m.ses === ses) { m.other = row; draw(m); } });
     ses.on('sitout', function (o) { if (m.ses === ses) { m.note = o && o.why === 'update' ? T.update : T.sat; draw(m); } });
     ses.on('go', function (go) { if (m.ses === ses && alive(m)) started(m, ses, go); });
-    /* the starter closed the race while this child waited in it: back to the list */
-    ses.on('closed', function () { if (m.ses === ses && M === m && m.view) { m.ses = null; finder(m, T.closed); } });
+    /* the starter closed the race while this child waited in it: back to the list (a challenge: the one line) */
+    ses.on('closed', function () { if (m.ses === ses && M === m && m.view) { m.ses = null; if (m.ch) message(m, m.D.T.results.closed); else finder(m, T.closed); } });
     return ses;
   }
   function renew(m) {
@@ -494,6 +670,10 @@
     });
     Object.keys(old || {}).forEach(function (t) { if (!has(now, t)) say(m, nameOf(m, t, old[t]) + ' left'); });
     m.seen = now;
+    if (m.ch && m.ch.hosted) {
+      if (v.players.length > 1) m.ch.met = true;                  /* somebody came: the room stays open */
+      if (v.players.length >= SEATS) unannounce(m);              /* a full room: the pop-up is taken back */
+    }
     if (unknown) reroster(m);
     if (v.trackOk && v.track !== m.warm) prewarm(v.track);
     draw(m);
@@ -506,6 +686,8 @@
       if (!alive(m) || m.group !== g || !m.key) return;
       m.roster = s.exists ? s.data() : null;
       m.tags = m.net.tags = e.SC.tagMap(m.key, m.roster);
+      if (m.tags[m.tag] !== m.b.uid) return revoke(m);         /* this child is not in the roster any more */
+      prune(m);
       draw(m);
     }, noop);
   }
@@ -514,8 +696,21 @@
   function started(m, ses, go) {
     var ok = false;
     m.view = ''; m.root = null; m.note = '';
+    unannounce(m);
     say(m, 'The race is starting');
     m.cfg.kartLive = { session: ses };
+    /* chunk FR: this round's final table, once, goes to the group's 🏆 Challenge wins (boards.js counts a 1st among the children) */
+    var g = m.group, cfg = m.cfg, e = m.E, noted = false;
+    try {
+      ses.on('table', function (t) {
+        var B = null;
+        if (noted || !t || !t.final || ses.go !== go || !g || !g.ref) return;
+        try { B = typeof e.boards === 'function' ? e.boards() : e.boards; } catch (x) { B = null; }
+        if (!B || typeof B.noteWin !== 'function') return;
+        noted = true;
+        B.noteWin({ scope: g.id === 'class' ? 'class' : 'family', code: g.ref.id, rows: t.rows, race: 'kart:' + go.track + ':' + go.goAt, cfg: cfg });
+      });
+    } catch (x) {}
     try { ok = m.ctl.beginRound({ variant: go.track, goAt: go.goAt }) === true; } catch (x) { ok = false; }
     m.cfg.kartLive = null;
     if (!ok) { try { ses.sendFinish(null, 0); } catch (x) {} }
@@ -549,14 +744,14 @@
   /* the search is this one until a tap on a race takes over (join() clears m.finding) */
   function finder(m, note) {
     var ses = m.ses && m.ses.state === 'idle' ? m.ses : renew(m), over = false, run;
-    m.view = 'find'; m.rows = []; m.note = note || ''; m.busy = ''; m.other = null; m.bad = m.stuck = false;
+    m.view = 'find'; m.rows = []; m.note = note || ''; m.busy = ''; m.other = null; m.bad = m.stuck = m.self = false;
     run = m.finding = ses.find(function (row) { if (m.ses === ses && m.finding === run && !over) { m.rows.push(row); draw(m); } })
       .then(function () { return true; }, function (x) { return !(x && x.code === 'unreachable'); }).then(function (ok) {
         over = true;
         if (m.ses !== ses || !alive(m) || m.finding !== run) return;
         m.finding = null;
         if (!ok) return unreachable(m);
-        if (!m.note) m.note = m.bad ? T.check : m.stuck && !m.rows.length ? T.server : '';
+        if (!m.note) m.note = m.self ? T.ownLogin : m.bad ? T.check : m.stuck && !m.rows.length ? T.server : '';
         draw(m);
       });
     draw(m);
@@ -576,6 +771,7 @@
   function host(m) {
     var list = courses(m), ses, track;
     if (m.busy) return;
+    if (m.self) { m.note = T.ownLogin; return draw(m); }        /* opening one would hide the other device's race */
     if (!list.length) { m.note = T.update; return draw(m); }
     ses = m.ses && m.ses.state === 'idle' ? m.ses : renew(m);          /* still looking: a new session opens the race at once */
     track = list.some(function (c) { return c.id === m.cfg.variant; }) ? m.cfg.variant : list[0].id;
@@ -589,6 +785,7 @@
   function join(m, row) {
     var ses = m.ses, search = m.finding;
     if (m.busy || !ses || !row) return;
+    if (m.self) { m.note = T.ownLogin; return draw(m); }        /* joining would overwrite the other device's ticket */
     m.view = 'find'; m.busy = T.joining + nameOf(m, row.tag, 0) + '’s race…'; m.note = ''; m.rows = []; m.stale = ses.room; m.finding = null; draw(m);
     function sit() { return Promise.resolve().then(function () { return ses.join(row); }); }
     sit().then(null, function (x) { if (x && x.code === 'busy' && search) return search.then(sit); throw x; })
@@ -600,8 +797,9 @@
       if (m.groups.length > 1) {
         chips(root, 'Race with', m.groups.map(function (x) { return { text: x.label, k: 'g-' + x.id, on: x === g, dead: !!m.busy, go: function () { if (x !== m.group) pick(m, x); } }; }));
       }
-      root.appendChild(row).appendChild(btn('slg-b go', T.start, 'main', function () { host(m); }, !!m.busy));
-      line(root, m.busy || (m.finding ? T.looking + g.where + '…' : m.rows.length ? '' : T.none));
+      /* a race on this child's own login elsewhere: no new one over it (its line says why) */
+      root.appendChild(row).appendChild(btn('slg-b go', T.start, 'main', function () { host(m); }, !!m.busy || (m.self && !m.finding)));
+      line(root, m.busy || (m.finding ? T.looking + g.where + '…' : m.rows.length || m.self ? '' : T.none));
       m.rows.forEach(function (r) {
         /* 'full' with a seat still free: the starter's device is answering as many lookers as it
            takes just now (a class opening the list together), so: busy, look again */
@@ -635,12 +833,16 @@
   function crewName(pace) { var c = CREW.filter(function (x) { return x[0] === pace; })[0]; return c ? c[1] : CREW[0][1]; }
   function drawLobby(m) {
     var ses = m.ses, v = ses && ses.room !== m.stale ? ses.room : null, S = m.E.SC, KL = m.E.KL;
-    if (!v) return paint(m, T.title, function (root) { line(root, T.wait); root.appendChild(mk('div', 'row slk-act')).appendChild(btn('slg-b', T.leave, 'away', function () { away(m); })); });
+    var c = m.ch, D = c ? m.D : null;
+    /* a challenge: Cancel and Leave go back to the game's menu (there is no list of challenges) */
+    function out() { if (c) leave(m); else away(m); }
+    if (!v) return paint(m, titleOf(m), function (root) { line(root, T.wait); root.appendChild(mk('div', 'row slk-act')).appendChild(btn('slg-b', T.leave, 'away', out)); });
     function nm(p) { return nameOf(m, p.tag, p.seat); }
     var hp = v.players.filter(function (p) { return p.seat === 0; })[0], hn = hp ? nm(hp) : 'Racer 1', open = v.state === 'lobby';
     var here = v.players.filter(function (p) { return p.st === 'lobby' || p.st === 'weak'; }), rdy = here.filter(function (p) { return p.rdy; });
     var others = here.filter(function (p) { return !p.me; }).length;
-    paint(m, v.host ? T.yours : '🏁 ' + hn + '’s race', function (root) {
+    paint(m, c ? (v.host ? D.T.host.yours : '⚔️ ' + hn + T.theirs) : v.host ? T.yours : '🏁 ' + hn + '’s race', function (root) {
+      if (c) wordBox(m, root, v.host);
       var ol = root.appendChild(mk('ol', 'slk-seats')), row = mk('div', 'row slk-act'), i, p, li, av;
       for (i = 0; i < SEATS; i++) {
         p = v.players[i];
@@ -657,15 +859,16 @@
         chips(root, 'Glow Crew', CREW.filter(function (c) { return c[0] !== 'none' || (!!m.ready && m.ready.allBest === true); }).map(function (c) {
           return { text: c[1], k: 'p-' + c[0], on: c[0] === v.crew, dead: !open, go: function () { ses.setCrew(c[0]); } };
         }));
-        line(root, !open ? T.starting : others ? '' : v.players.length > 1 ? T.back2 : T.alone);     /* after a race the others are still at their results */
-        row.appendChild(btn('slg-b go', T.go + (others ? ' · ' + rdy.length + ' of ' + here.length + ' ready' : ''), 'main', function () { if (ses.start()) { m.note = ''; say(m, T.starting); } }, !open || !others));
-        row.appendChild(btn('slg-b', T.closeRace, 'away', function () { away(m); }));
-        if (!others) row.appendChild(btn('slg-b', T.own, 'own', function () { leave(m); }));
-        if (m.other && open && !others) row.appendChild(btn('slg-b', 'Join ' + nameOf(m, m.other.tag, 0) + '’s race instead', 'other', function () { join(m, m.other); }));
+        line(root, !open ? T.starting : m.again ? T.checking : others ? '' : v.players.length > 1 ? T.back2 : T.alone);     /* after a race the others are still at their results */
+        /* Race again: not before the race key (and the roster) have been read again */
+        row.appendChild(btn('slg-b go', T.go + (others ? ' · ' + rdy.length + ' of ' + here.length + ' ready' : ''), 'main', function () { if (!m.again && ses.start()) { m.note = ''; say(m, T.starting); } }, !open || !others || m.again));
+        row.appendChild(btn('slg-b', c ? D.T.host.cancel : T.closeRace, 'away', out));
+        if (!others && !c) row.appendChild(btn('slg-b', T.own, 'own', function () { leave(m); }));
+        if (m.other && open && !others && !c) row.appendChild(btn('slg-b', 'Join ' + nameOf(m, m.other.tag, 0) + '’s race instead', 'other', function () { join(m, m.other); }));
       } else {
         line(root, 'Course: ' + (KL.courseName(v.track) || '') + ' · ' + crewName(v.crew));
-        line(root, !v.trackOk ? T.update : !open && hp && hp.st === 'lobby' ? T.starting : !open && hp && hp.st === 'racing' ? hn + '’s race is on. You’re in the next one.' : 'Waiting for ' + hn + ' to start…');
-        row.appendChild(btn('slg-b', T.leave, 'away', function () { away(m); }));
+        line(root, !v.trackOk ? T.update : !open && hp && hp.st === 'lobby' ? T.starting : !open && hp && hp.st === 'racing' ? hn + '’s race is on. You’re in the next one.' : c ? D.T.join.joined : 'Waiting for ' + hn + ' to start…');
+        row.appendChild(btn('slg-b', c ? D.T.join.leave : T.leave, 'away', out));
       }
       root.appendChild(row);
       if (others) line(root, 'Ready: ' + (rdy.map(nm).join(', ') || 'nobody yet') + (rdy.length < here.length ? ' · Getting ready: ' + here.filter(function (p) { return !p.rdy; }).map(nm).join(', ') : ''), 'slg-lock');
@@ -676,6 +879,199 @@
   function draw(m) {
     if (M !== m) return;
     if (m.view === 'find') drawFind(m); else if (m.view === 'lobby') drawLobby(m);
+  }
+
+  /* ---------- challenges: a room with a word (KG7) ---------- */
+  /* What this open is: null for Race together, else {mode: 'host' | 'join', code}. A menu button says
+     ('race', 'host' or 'join'); 'Race again' and 'Start a new race' say nothing and keep the mode this
+     game last used (cfg._kartChallenge, the mode only: never a word, a key or a name). */
+  function modeOf(cfg, opts) {
+    var mode = isObj(opts) && typeof opts.mode === 'string' ? opts.mode : cfg._kartChallenge || 'race';
+    if (mode !== 'host' && mode !== 'join') { if (cfg._kartChallenge) cfg._kartChallenge = null; return null; }
+    cfg._kartChallenge = mode;
+    return { mode: mode, code: mode === 'join' && isObj(opts) && typeof opts.code === 'string' ? opts.code.slice(0, 12) : '', word: '', kind: '',
+      pickG: null, hosted: false, met: false, told: false, lone: null, looking: null, failed: false };
+  }
+  /* after the groups and the cards: a joiner's code box; a starter picks the group (when there are two) */
+  function chStart(m) {
+    if (m.ch.mode === 'join') {
+      var w = m.D.word(m.ch.code);
+      if (!w) return chSheet(m, '');
+      m.ch.word = w; chLook(m);                              /* a family pop-up's word: looking at once */
+      return;
+    }
+    if (m.groups.length > 1) return chWho(m);
+    chPick(m, m.groups[0]);
+  }
+  function chPick(m, g) { pick(m, g, function () { chHost(m, []); }); }
+  function whoLabel(m, g) { return g.id === 'family' ? m.D.T.host.family : m.D.fill(m.D.T.host.klass, { cls: g.label }); }
+  function chWho(m) {
+    var D = m.D, g = m.ch.pickG || m.groups[0];
+    m.view = 'who';
+    paint(m, titleOf(m), function (root) {
+      var row;
+      line(root, D.T.host.who);                              /* the question in full, the chips under it */
+      chips(root, D.T.host.who, m.groups.map(function (x) { return { text: whoLabel(m, x), k: 'g-' + x.id, on: x === g, go: function () { m.ch.pickG = x; chWho(m); } }; }), true);
+      row = root.appendChild(mk('div', 'row'));
+      row.appendChild(btn('slg-b go', D.T.host.open, 'main', function () { chPick(m, g); }));
+      row.appendChild(btn('slg-b', T.back, 'back', function () { leave(m); }));
+    });
+  }
+  /* Open the room under a fresh word. Rooms with a word use slot 1 only: a room there already (the
+     same word, open in this group right now) or all three taken means another word, 5 at most. */
+  function chHost(m, tried) {
+    var c = m.ch, list = courses(m), ses, track;
+    if (!list.length) return message(m, T.update);
+    c.word = m.D.newWord(m.E.random, tried); c.kind = m.group.id; tried.push(c.word);
+    ses = renew(m);
+    track = list.some(function (x) { return x.id === m.cfg.variant; }) ? m.cfg.variant : list[0].id;
+    message(m, m.D.T.host.opening);
+    function again() { return tried.length < CH_WORDS ? (chHost(m, tried), true) : false; }
+    ses.host({ track: track, crew: 'gentle' }).then(function (r) {
+      if (m.ses !== ses || !alive(m)) return;
+      if (r && r.slot === 1) return chOpen(m, ses);
+      if (!again()) chTrouble(m, 'server');
+    }, function (x) {
+      if (m.ses !== ses || !alive(m)) return;
+      if (x && x.code === 'full' && again()) return;
+      chTrouble(m, x && x.code === 'ticket' ? 'check' : x && x.code === 'track' ? 'update' : 'server');
+    });
+  }
+  /* a room that could not be opened: the one line, and a fresh try (the key and roster read again) */
+  function chTrouble(m, code) {
+    var old = m.ses, g = m.group;
+    m.ses = null; m.ch.word = '';
+    if (old) { try { old.leave(); } catch (x) {} }
+    message(m, words(m, code), [btn('slg-b go', T.retry, 'main', function () { chPick(m, g); })]);
+  }
+  /* the room is open: the family hears of it (the word only), the word is said aloud, and the room
+     closes after 3 minutes if nobody has come */
+  function chOpen(m, ses) {
+    var c = m.ch, D = m.D;
+    c.hosted = true; c.met = false;
+    if (c.kind === 'family') { c.told = true; try { m.E.announce(GAME, c.word); } catch (x) {} }
+    c.lone = m.E.timers.setTimeout(function () { lonely(m, ses); }, CH_OPEN_MS);
+    say(m, D.fill(D.T.host.say, { letters: D.spell(c.word) }));
+    lobby(m);
+  }
+  function lonely(m, ses) {
+    var c = m.ch;
+    if (M !== m || m.ses !== ses || !c || c.met || ses.state !== 'lobby') return;
+    unannounce(m);
+    m.ses = null; c.word = '';
+    try { ses.leave(); } catch (x) {}
+    message(m, m.D.T.host.nobody);
+  }
+  function unannounce(m) {
+    if (!m.ch || !m.ch.told) return;
+    m.ch.told = false;
+    try { m.E.retract(); } catch (x) {}
+  }
+  /* the word, big, with what the starter tells the others (family: the pop-up; class: say it) */
+  function wordBox(m, root, host) {
+    var c = m.ch, D = m.D, box = root.appendChild(mk('div', 'slk-word'));
+    box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', D.fill(D.T.host.say, { letters: D.spell(c.word) }));
+    box.appendChild(mk('span', 'slk-emo', '🏎️')).setAttribute('aria-hidden', 'true');
+    box.appendChild(mk('span', '', c.word)).setAttribute('aria-hidden', 'true');
+    if (host) line(root, c.kind === 'family' ? D.T.host.tellFamily : D.T.host.tellClass);
+  }
+  /* The joiner's sheet: the 4-character box (letters and digits; the list has OWL2), ▶ Join, Back.
+     What is typed is checked against the game words before anything is dialled; it is never shown
+     to anyone else, never sent and never kept (the box is made afresh with each sheet). */
+  function chSheet(m, note) {
+    var c = m.ch, D = m.D, box = null, act = null;
+    try { act = document.activeElement; } catch (x) { act = null; }
+    m.view = 'join';
+    function go() {
+      var w = D.word(String((box && box.value) || ''));
+      c.code = String((box && box.value) || '').slice(0, 12);
+      if (!w) return chSheet(m, D.T.join.notWord);
+      c.word = w; chLook(m);
+    }
+    paint(m, D.T.join.title, function (root) {
+      var row = mk('div', 'row slk-boxrow');
+      line(root, D.T.join.prompt);
+      box = mk('input', 'slk-box');
+      box.type = 'text'; box.value = c.code;
+      [['data-k', 'main'], ['aria-label', D.T.join.aria], ['maxlength', '6'], ['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'characters'], ['spellcheck', 'false'], ['enterkeyhint', 'go']]
+        .forEach(function (a) { box.setAttribute(a[0], a[1]); });
+      if (c.looking) box.disabled = true;
+      box.addEventListener('keydown', function (ev) { if (ev && ev.key === 'Enter' && !c.looking) { try { ev.preventDefault(); } catch (x) {} go(); } });
+      row.appendChild(box);
+      row.appendChild(btn('slg-b go', c.failed ? T.retry : D.T.join.go, 'go', go, !!c.looking));
+      root.appendChild(row);
+      line(root, c.looking ? D.fill(D.T.join.looking, { code: c.word }) : note, 'slk-note');
+      root.appendChild(mk('div', 'row')).appendChild(btn('slg-b', T.back, 'back', function () { leave(m); }));
+    });
+    /* a word to check again (not a game word, or not found): back in the box, when the focus was on this sheet */
+    if (note && box && !box.disabled && act && m.root && act !== box && (act.isConnected === false || m.root.contains(act))) { try { box.focus({ preventScroll: true }); } catch (x) {} }
+  }
+  /* Look for the word's room in every group this child may play in (the family's, the class's), a
+     group at a time, 3 times 4 s apart; join the first room that answers. Nothing else is dialled. */
+  function chLook(m) {
+    var c = m.ch, D = m.D, run = {}, n = 0, seen = { tried: 0, check: 0, server: 0, full: false, update: false, keys: {} };
+    c.looking = run; c.failed = false; m.self = false;
+    chSheet(m, '');
+    say(m, D.fill(D.T.join.looking, { code: D.spell(c.word) }));
+    function on() { return M === m && m.ch === c && c.looking === run && alive(m); }
+    function attempt() {
+      var i = 0;
+      (function next() {
+        if (!on()) return;
+        if (i >= m.groups.length) return ++n < CH_LOOKS ? m.E.timers.setTimeout(function () { if (on()) attempt(); }, CH_GAP_MS) : none();
+        chFind(m, m.groups[i++], seen).then(function (row) { if (on()) { if (row) { seen.keys = {}; chJoin(m, row); } else next(); } });
+      })();
+    }
+    /* nothing found: the plainest true line */
+    function none() {
+      var old = m.ses;
+      m.ses = null; c.looking = null; c.failed = true; seen.keys = {};
+      if (old) { try { old.leave(); } catch (x) {} }
+      /* the room is this child's own login's, on another device: joining it would overwrite that device's ticket */
+      chSheet(m, m.self ? T.ownLogin : seen.full ? D.T.join.full : seen.update ? T.update : seen.server === seen.tried ? D.T.net.server : seen.check === seen.tried ? D.T.net.check : D.fill(D.T.join.notFound, { code: c.word }));
+    }
+    attempt();
+  }
+  /* one group: its key and roster (read afresh on this search's first look, in its memory after), a
+     session for its word room, and the first room in it that takes a seat now → the row, or null
+     (seen counts why not) */
+  function chFind(m, g, seen) {
+    var old = m.ses, had = seen.keys[g.id];
+    m.ses = null; m.group = g; m.key = m.roster = m.tags = null;
+    if (old) { try { old.leave(); } catch (x) {} }
+    seen.tried++;
+    return (had ? Promise.resolve().then(function () {
+      if (!alive(m) || m.group !== g) throw { code: 'gone' };
+      m.key = had.key; m.roster = had.roster; m.tags = had.tags; m.tag = had.tag;
+    }) : keyFor(m, g).then(function () { seen.keys[g.id] = { key: m.key, roster: m.roster, tags: m.tags, tag: m.tag }; })).then(function () {
+      var ses = renew(m), got = null;
+      return new Promise(function (res) {
+        m.finding = ses.find(function (row) {
+          if (got || m.ses !== ses || !row) return;
+          if (row.state === 'version' || !row.trackOk) { seen.update = true; return; }
+          if (row.state === 'full') { if (row.used >= SEATS) seen.full = true; return; }
+          got = row; res(row);
+        }).then(function () { res(got); }, function (x) { if (x && x.code === 'unreachable') seen.server++; res(got); });
+      });
+    }, function (x) { if (!x || x.code !== 'gone') seen.check++; return null; });
+  }
+  /* take the seat at once (the search ends there); a room whose link closed meanwhile is asked again once the search is over */
+  function chJoin(m, row) {
+    var ses = m.ses, c = m.ch, D = m.D, search = m.finding;
+    c.looking = null; m.finding = null;
+    function sit() { return Promise.resolve().then(function () { return ses.join(row); }); }
+    sit().then(null, function (x) { if (x && x.code === 'busy' && search) return search.then(sit); throw x; }).then(function () {
+      if (m.ses !== ses || !alive(m)) return;
+      say(m, D.T.join.joined);
+      lobby(m);
+    }, function (x) {
+      var k = x && x.code;
+      if (m.ses !== ses || !alive(m)) return;
+      m.ses = null; c.failed = true;
+      try { ses.leave(); } catch (y) {}
+      chSheet(m, k === 'full' ? D.T.join.full : k === 'version' ? T.update : k === 'ticket' ? D.T.net.check : k === 'unreachable' ? D.T.net.server : D.fill(D.T.join.notFound, { code: c.word }));
+    });
   }
 
   /* ---------- closing ---------- */
@@ -689,9 +1085,11 @@
     M = null;
     ses = m.ses;
     m.ses = null; m.view = ''; m.root = null; m.warm = ''; m.warmRun++; m.finding = null;
+    if (m.ch) { unannounce(m); m.E.timers.clearTimeout(m.ch.lone); m.ch.looking = null; m.ch.word = m.ch.code = ''; }
     if (ses) { try { ses.detach(); } catch (x) {} }
     if (m.tk) m.tk.close();
     m.E.timers.clearInterval(m.watch);
+    m.E.timers.clearInterval(m.guard); m.checking = null; m.again = false;
     try { document.removeEventListener('visibilitychange', m.onVis); } catch (x) {}
     try { if (m.wake && m.wake.release) Promise.resolve(m.wake.release()).then(null, noop); } catch (x) {}
     m.wake = null; m.key = m.roster = m.tags = null; m.rows = []; m.groups = []; m.group = null; m.other = null; m.seen = null; m.tr = null;

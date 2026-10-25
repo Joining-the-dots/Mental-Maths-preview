@@ -2,6 +2,10 @@
    Debut Run — the Three.js view (ES module, CONTRACTS §2/§6).
    The child's own pet (SL3D.makeRig, locked PETCOL, every owned
    accessory) runs a glowing toy-stage runway in the course colours.
+   Kids update (KU-CH18): with the games' people helper (SLGamePeople)
+   the child's character runs instead (or the classic avatar) and the
+   pet follows its recorded path as the sidekick; info().runner says
+   which figure runs.
    The view only READS round.state / round.course and drains
    round.events; it never changes the logic, plays no sounds (the logic
    owns every sound) and keeps all its visual state to itself.
@@ -21,6 +25,7 @@
 import * as THREE from 'three';
 
 const STEP = 1 / 120;
+const LOAD_MS = 7000;                                   /* the stage, then the player figure, within this */
 const QUERY = (function () { try { return new URL(import.meta.url).search || ''; } catch (e) { return ''; } })();
 const TAU = Math.PI * 2, DEG = Math.PI / 180;
 const ONE = new THREE.Vector3(1, 1, 1);
@@ -83,7 +88,8 @@ async function build(mid, opts) {
   function fail(reason) { if (failed) return; failed = true; try { if (opts.onFail) opts.onFail(reason); } catch (e) { /* the shell falls back */ } }
   let M, S;
   try { const r = await loadLibs(); M = r[0]; S = r[1]; } catch (e) { fail('libs'); return null; }
-  const SL3D = await getSL3D(7000);
+  const t0 = performance.now();
+  const SL3D = await getSL3D(LOAD_MS);
   let K = null, hub = null, tier = 'MID', budget = null;
   try {
     if (SL3D && typeof SL3D.kit === 'function' && SL3D.ready) {
@@ -96,27 +102,94 @@ async function build(mid, opts) {
     }
   } catch (e) { K = null; }
   if (!K) { fail('kit'); return null; }
+  /* KU-CH18 — who plays (plan-ku KU8): with the games' people helper (world/games/game-people.js) the
+     child's character runs (cfg.char; no character → the classic hoodie avatar) and the pet follows as
+     the sidekick. The person rig is built here, inside the rest of the loading deadline (a game opened
+     from the 2D island loads the vox group first; a miss is the classic avatar, never a failed launch).
+     Without the helper — an older page, or the shop's pet preview (cfg.demo) — the pet runs, as today. */
+  const people = await whoPlays(opts.cfg || {}, SL3D, tier, M, Math.max(0, LOAD_MS - (performance.now() - t0)));
   /* makeView may take the island's renderer lease before something in it throws: then its own
      dispose() (published first thing) tears the half-built view down and hands the lease back.
      A leaked game lease would stay current, and the 3D island would never render again. */
   const built = { dispose: null };
-  try { return makeView(mid, opts, M, S, SL3D, K, hub, tier, budget || DEFAULT_BUDGET[tier], fail, built); }
+  try { return makeView(mid, opts, M, S, SL3D, K, hub, tier, budget || DEFAULT_BUDGET[tier], fail, built, people); }
   catch (e) {
-    if (built.dispose) bestEffort(built.dispose);         /* releases the lease and the hub too */
-    else if (hub) bestEffort(function () { hub.dispose(); });
+    if (built.dispose) bestEffort(built.dispose);         /* releases the lease, the hub and the player figure too */
+    else {
+      if (hub) bestEffort(function () { hub.dispose(); });
+      if (people && people.rig) bestEffort(function () { people.rig.dispose(); });
+    }
     fail('build'); return null;
   }
+}
+/* → null (the pet runs) | {GP, rig: the person or classic avatar rig, or null (the scene's own fallback)} */
+async function whoPlays(cfg, SL3D, tier, M, deadlineMs) {
+  const GP = window.SLGamePeople;
+  if (!GP || cfg.demo || !GP.SCALE || ['playerRig', 'playClip', 'petTrail', 'clipFor', 'petOf', 'sigOf', 'flies'].some(function (f) { return typeof GP[f] !== 'function'; })) return null;
+  let rig = null;
+  try {
+    const who = cfg.member || cfg.user || {};
+    rig = await GP.playerRig(SL3D, cfg, tier, GP.SCALE.run, { deadlineMs: deadlineMs, slide: true, color: M.safeMember(who.color), emoji: who.avatar || '🙂' });
+  } catch (e) { rig = null; }
+  return { GP: GP, rig: rig && rig.root ? rig : null };
 }
 /* one teardown step; a step for something a failed build never reached throws (a ReferenceError
    for a name not declared yet) and is skipped, so every other step still runs */
 function bestEffort(fn) { try { fn(); } catch (e) { /* not built, or already gone */ } }
 
+/* ---------------- the vox exposure fit (crisp CR5; contracts.vox) ----------------
+   A voxel rig (a mascot, a pet in land gear, later the child's character) is drawn by the shared
+   'pixel-vox' program, whose uVoxGain scales its lit colour. Fitted to this scene's two lights
+   (K.vox.fitGain), a lit top face never comes out brighter than its palette token: the course's
+   day lights would clip pale fur and pastel gear to white (fit 0.94). The gain is refitted only
+   when a light changes (the day → sunset → Showtime blend: 1 once the lights dim) and written
+   before every render, because the stage puts it back to 1 at each lease grant. Feature-detected:
+   an older vox-gl, the lite kit or a stub stage has no fit and keeps today's look. */
+function voxFitter(K, hemi, sun) {
+  let V = null;
+  try { V = K ? K.vox : null; } catch (e) { V = null; }
+  const on = !!V && typeof V.fitGain === 'function' && typeof V.setGain === 'function';
+  const was = new Float64Array(9).fill(NaN), now = new Float64Array(9);
+  let gain = 1;
+  /* the lights' fingerprint: intensities, linear colours and the sun's height (its direction's y) */
+  function changed() {
+    const hc = hemi.color, sc = sun.color, p = sun.position, t = sun.target ? sun.target.position : null;
+    const dx = p.x - (t ? t.x : 0), dy = p.y - (t ? t.y : 0), dz = p.z - (t ? t.z : 0);
+    now[0] = hemi.intensity; now[1] = hc.r; now[2] = hc.g; now[3] = hc.b;
+    now[4] = sun.intensity; now[5] = sc.r; now[6] = sc.g; now[7] = sc.b;
+    now[8] = dy / (Math.sqrt(dx * dx + dy * dy + dz * dz) || 1);
+    let diff = false;
+    /* a tolerance, not ===: rounding noise in lights recomputed every frame never forces a refit */
+    for (let i = 0; i < 9; i++) if (!(Math.abs(now[i] - was[i]) <= 1e-9)) { was[i] = now[i]; diff = true; }
+    return diff;
+  }
+  return {
+    on: on,
+    gain: function () { return gain; },
+    /* refit if a light changed, then write the gain (→ the gain written) */
+    apply: function () {
+      if (!on) return 1;
+      try {
+        if (changed()) { const g = Number(V.fitGain(hemi, sun)); gain = g > 0 && g < Infinity ? g : 1; }
+      } catch (e) { gain = 1; }
+      try { V.setGain(gain); } catch (e) { /* the hub is gone */ }
+      return gain;
+    },
+    /* today's look for whoever renders next */
+    reset: function () {
+      gain = 1; was.fill(NaN);
+      if (on) { try { V.setGain(1); } catch (e) { /* the hub is gone */ } }
+    }
+  };
+}
+
 /* ================================================================
    THE VIEW
    ================================================================ */
-function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
+function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, people) {
   /* first, before anything that can throw: what dispose() needs to undo a half-built view */
   if (built) built.dispose = dispose;
+  let runner = people ? people.rig : null;                /* the player figure (KU-CH18): dispose() owns it from here */
   let lease = null, renderer = null, ownRenderer = false, lost = false, paused = false, disposed = false;
   const cfg = opts.cfg || {};
   const reduced = !!(opts.reduced || cfg.reduced);
@@ -128,13 +201,17 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   const speedNow = typeof SC.speedNow === 'function' ? SC.speedNow : function (s) { return 330; };
   const user = cfg.user || { name: '', color: '#6C5CE7', avatar: '🙂' };
   const member = M.safeMember(user.color), memberInt = M.hexInt(member);
-  const pet = cfg.pet || { id: 'pet_puppy', name: 'Buddy', acc: {} };
+  /* the pet: the runner as today, or (people) the sidekick — careRunner's pet, or none at all */
+  const GP = people ? people.GP : null, P = M.PEOPLE;
+  const pet = people ? GP.petOf(cfg) : cfg.pet || { id: 'pet_puppy', name: 'Buddy', acc: {} };
+  const BODY_C = people ? P.bodyC : 0.32;                 /* the player's middle above its feet */
   /* the characters module (SLCharacters, also SL3D.petPose): which species a game can show, and the rig seam (D98) */
   const CH = window.SLCharacters && typeof window.SLCharacters.canRig === 'function' ? window.SLCharacters
     : SL3D && SL3D.petPose && typeof SL3D.petPose.canRig === 'function' ? SL3D.petPose : null;
-  const petId = (CH ? CH.canRig(pet.id) : ['pet_puppy', 'pet_kitten', 'pet_bunny', 'pet_dragon'].indexOf(pet.id) >= 0) ? pet.id : 'pet_puppy';
+  const petIn = pet || { id: 'pet_puppy', acc: {} };     /* (people with no pet: nothing below is built from it) */
+  const petId = (CH ? CH.canRig(petIn.id) : ['pet_puppy', 'pet_kitten', 'pet_bunny', 'pet_dragon'].indexOf(petIn.id) >= 0) ? petIn.id : 'pet_puppy';
   const baseId = CH && typeof CH.standInOf === 'function' ? CH.standInOf(petId) : petId;   /* the V4.54 species behind a mascot */
-  const acc = pet.acc || {};
+  const acc = petIn.acc || {};
   const PP = SL3D && SL3D.petPose ? SL3D.petPose : (window.SLCharacters && window.SLCharacters.sample ? window.SLCharacters : null);
   const demo = !!cfg.demo;
 
@@ -181,7 +258,10 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   const hemi = new THREE.HemisphereLight(0xDDF1FF, 0xFFE0EC, 1.9);
   const sun = new THREE.DirectionalLight(0xFFF3E0, 2.4);
   sun.castShadow = false;
+  sun.position.set(-7, 14, 9);                          /* frame() keeps this offset from the camera */
   scene.add(hemi, sun, sun.target);
+  const voxFit = voxFitter(K, hemi, sun);               /* crisp CR5: 0.94 by day */
+  voxFit.apply();
   const rimSave = { color: K.uniforms.uRimColor.value.clone(), strength: K.uniforms.uRimStrength.value };
 
   /* ---------------- shared build context ---------------- */
@@ -248,26 +328,66 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   const rigSrc = CH && typeof CH.rigSource === 'function' ? CH.rigSource(petId, outfit, SL3D) : 'toon';
   if (rigSrc === 'vox' && acc.hat) outfit = accAll;
   let rig = null, fellBack = false;
-  try { if (SL3D && typeof SL3D.makeRig === 'function') rig = SL3D.makeRig(petId, outfit, tier); } catch (e) { rig = null; }
-  if (!rig || !rig.root) { rig = S.makeFallbackPet(ctx, baseId); fellBack = true; }
-  petRoot.add(rig.root);
-  const hasCape = acc.back === 'acc_cape', hasCrown = acc.hat === 'acc_crown', hasParty = acc.hat === 'acc_partyhat';
-  const hat = (hasCrown || hasParty) && (!outfit.hat || fellBack) ? S.makeHat(ctx, acc.hat) : null;   /* toon rigs only (D114) */
-  const hatSocket = rig.sockets && rig.sockets.hat ? rig.sockets.hat : (rig.hatAnchor || null);
+  if (pet) {
+    try { if (SL3D && typeof SL3D.makeRig === 'function') rig = SL3D.makeRig(petId, outfit, tier); } catch (e) { rig = null; }
+    if (!rig || !rig.root) { rig = S.makeFallbackPet(ctx, baseId); fellBack = true; }
+    petRoot.add(rig.root);
+  } else petRoot.visible = false;                         /* a child with no pet: the character runs alone */
+  if (people) petRoot.scale.setScalar(P.petScale);
+  /* the V4.54 hats pop off on a bump — the runner's bump; a sidekick never bumps, so its hat stays on */
+  const hasCape = !people && acc.back === 'acc_cape', hasCrown = !people && acc.hat === 'acc_crown', hasParty = !people && acc.hat === 'acc_partyhat';
+  const hat = rig && (acc.hat === 'acc_crown' || acc.hat === 'acc_partyhat') && (!outfit.hat || fellBack) ? S.makeHat(ctx, acc.hat) : null;   /* toon rigs only (D114) */
+  const hatSocket = !rig ? null : rig.sockets && rig.sockets.hat ? rig.sockets.hat : (rig.hatAnchor || null);
   if (hat && hatSocket) hatSocket.add(hat.group);
   const hatFx = hat ? hat.group : outfit.hat && !fellBack ? hatSocket : null;   /* where the crown glints and the party hat pops */
   let hatState = 'on';
   const hatFrom = new THREE.Vector3(), hatQ = new THREE.Quaternion(), hatOut = {};
   const pose = PP && PP.restPose ? PP.restPose({}) : {};
   /* clips are sampled for the rig's own species: a stand-in rig's petId is its V4.54 species (rig.forId is the mascot) */
-  const clipOpts = { species: typeof rig.petId === 'string' && rig.petId ? rig.petId : baseId, speed: 0, intensity: 1, reduced: reduced, seed: 4242, rate: 1, bpm: M.BPM, height: 0, dur: 0.6, ground: false };
+  const clipOpts = { species: rig && typeof rig.petId === 'string' && rig.petId ? rig.petId : baseId, speed: 0, intensity: 1, reduced: reduced, seed: 4242, rate: 1, bpm: M.BPM, height: 0, dur: 0.6, ground: false };
   const V = M.newVisual();
 
-  /* the child's avatar: shown at the finish only, but built hidden up front (see the end of
-     makeView) so warm() compiles its shaders with the rest of the scene */
+  /* ---------------- the player figure (KU-CH18): the person at 0.9 (or the classic avatar), feet on the hitbox bottom ----------------
+     runnerRoot (feet, facing the run) → runnerPivot (the body's middle: flips and twirls turn here) → runnerBody → the rig */
+  const runnerRoot = new THREE.Group(); runnerRoot.name = 'runnerRoot'; runnerRoot.rotation.y = Math.PI / 2;
+  const runnerPivot = new THREE.Group(), runnerBody = new THREE.Group();
+  runnerPivot.rotation.order = 'YXZ'; runnerRoot.add(runnerPivot); runnerPivot.add(runnerBody);
+  let runnerScale = 1;
+  function mountRunner(r) {
+    runner = r; runnerBody.add(r.root);
+    runnerScale = r.gameScale > 0 ? r.gameScale : GP.SCALE.run;
+    try { if (r.setWand) r.setWand(false); } catch (e) { /* cosmetic */ }
+  }
+  /* no makeAvatar either, or a figure that threw: the scene's own bean in the member colour */
+  function fallbackRunner() {
+    const r = S.makeFallbackAvatar(ctx, cfg.member || user);
+    r.figure = 'fallback'; r.gameScale = GP.SCALE.run; r.root.scale.setScalar(GP.SCALE.run);
+    return r;
+  }
+  if (people) {
+    runnerPivot.position.y = P.bodyC; runnerBody.position.y = -P.bodyC;
+    mountRunner(runner || fallbackRunner());
+    scene.add(runnerRoot);
+  }
+  /* the character's signature move (the Encore): a person's own; the classic avatar does the duo with the pet */
+  const sig = people && runner.figure === 'person' ? GP.sigOf(cfg) : null;
+  const sigDur = (function () { try { const i = sig && runner && runner.info ? runner.info(sig) : null; return i && i.dur > 0 ? i.dur : 2; } catch (e) { return 2; } })();
+  const RV = M.newRunnerVisual(), runCtx = { sig: sig, pet: !!pet };
+  const runOpts = { speed: 0, reduced: reduced, clock: 0, menu: false, sinceEnd: 0, sinceCurtain: 0, sigDur: sig ? sigDur : 0 };
+  const playOpts = { speed: 0, reduced: reduced };
+  /* the trail reaches 1.3 s back (every frame a sample) so the pet can wait while the runner tumbles */
+  const trail = people ? GP.petTrail({ size: P.trailSize, delay: P.trailReach }) : null, TR = {}, BASE_DELAY = people && GP.TRAIL ? GP.TRAIL.delay : 0.35;
+  const flier = !!(people && pet && GP.flies(pet.id));
+  const guard = M.newGuard();
+  let sidekickOn = !!(people && pet), petAirT = -9, petWasAir = false, lastSampleAt = 0, sideX = 0, sideZ = P.petZ, sideMoving = false, sideDelay = BASE_DELAY;
+  const sparkOut = {}, SPARK_INT = M.hexInt(M.COL.STAR_GOLD);
+  const QA = { runner: [0, 0], runClip: '', sidekick: [0, 0, 0], sideClip: '' };   /* info(): where the two are (lab, tests) */
+
+  /* the child's avatar (the pet runs): shown at the finish only, but built hidden up front (see the
+     end of makeView) so warm() compiles its shaders with the rest of the scene */
   let avatar = null;
   function ensureAvatar() {
-    if (avatar) return avatar;
+    if (avatar || people) return avatar;
     try { if (SL3D && typeof SL3D.makeAvatar === 'function') avatar = SL3D.makeAvatar({ color: member, emoji: user.avatar || '🙂' }, tier); } catch (e) { avatar = null; }
     if (!avatar || !avatar.root) avatar = S.makeFallbackAvatar(ctx, user);
     try { if (avatar.setWand) avatar.setWand(true); if (avatar.setShow) avatar.setShow(1); } catch (e) { /* cosmetic */ }
@@ -301,6 +421,9 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     zips.forEach(function (z) { z.on = false; });
     feverLeft = 0;
     if (avatar) avatar.root.visible = false;
+    /* the sidekick starts on a straight run-in 0.35 s behind, on the runner's line (logic px: x = dist, y up) */
+    if (trail) trail.reset(s.t, s.dist, 0, speedNow(s));
+    petWasAir = false; petAirT = -9; sideMoving = false; sideDelay = BASE_DELAY;
   }
 
   /* ---------------- quality steps (adaptive ladder, never back up) ---------------- */
@@ -344,7 +467,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   /* sparkle-atlas cells by name (the kit's atlas; the standard order if it has none) */
   const ATLAS0 = { sparkle: 0, heart: 1, note: 2, star: 3, rect: 6, curl: 12, diamond: 13 };
   const cellOf = (name) => (K.ATLAS && K.ATLAS[name] != null ? K.ATLAS[name] : ATLAS0[name]);
-  const HEART_CELL = cellOf('heart');
+  const HEART_CELL = cellOf('heart'), STAR_CELL = cellOf('star');
   const CONF_CELL = {};
   M.CONFETTI_CELLS.forEach((c) => { CONF_CELL[c] = cellOf(c); });
   const confPiece = {};
@@ -395,8 +518,8 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   }
 
   function onEvent(e, px, h) {
-    M.juiceEvent(J, e, { reduced: reduced, fever: prevFever, hasHat: !!hat && hatState === 'on' });
-    const fy = h, cy = h + 0.32;
+    M.juiceEvent(J, e, { reduced: reduced, fever: prevFever, hasHat: !people && !!hat && hatState === 'on' });
+    const fy = h, cy = h + BODY_C;
     switch (e.type) {
       case 'takeoff':
         dust(px - 0.2, 4, soilInt, true);
@@ -555,16 +678,133 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     /* blob shadow, shield bubble, grace outline */
     fx.blob(petDispX, 0.06, 0.75 * Math.max(0.35, 1 - petDispH / 4), 0.55 * Math.max(0.35, 1 - petDispH / 4));
     const cy = petDispH + 0.32;
-    shieldMesh.visible = !!(s && !menu && s.shield);
+    shieldMesh.visible = !!(s && !menu && s.shield && !finishing());   /* F-KU1: the bubble goes once the show is over (the cheer and the results show the pair) */
     if (shieldMesh.visible) { S.setInst(shieldMesh, 0, petDispX, cy, 0, 0, 0, 0, 1); shieldMesh.instanceMatrix.needsUpdate = true; }
     graceMesh.visible = !!(s && !menu && s.inv > 0 && !s.shield && (s.phase === 'run' || s.phase === 'encore'));
     if (graceMesh.visible) { S.setInst(graceMesh, 0, petDispX, cy, 0.05, 0, 0, 0, 1, 0.86, 1); graceMesh.instanceMatrix.needsUpdate = true; }
   }
 
+  /* ---------------- the player figure and its sidekick (KU-CH18, characters.json design.games.debutRun) ---------------- */
+  let holdRunT = 0, runFace = 0;
+  function updateRunner(dt, menu, px, h, speed, ready) {
+    const off = menu || ready;                           /* the menu and the count-in: standing on the start line */
+    runOpts.clock = vt; runOpts.speed = speed; runOpts.menu = off;
+    runOpts.sinceEnd = sinceShowEnd(); runOpts.sinceCurtain = J.sinceCurtain;
+    const lastT = RV.t;
+    M.runnerVisual(off ? null : s, J, runOpts, RV);
+    /* the visual hit-stop, as the pet's: the figure and the camera hold still (the logic keeps running) */
+    if (!menu && J.hold > 0) {
+      if (!holding) { holding = true; holdX = petDispX; holdH = petDispH; holdClock = vt; holdRunT = lastT; }
+    } else if (holding) { holding = false; offX = holdX - px; offH = holdH - h; }
+    offX = M.approach(offX, 0, dt, 22); offH = M.approach(offH, 0, dt, 22);
+    petDispX = holding ? holdX : px + offX;
+    petDispH = holding ? holdH : Math.max(0, h + offH);
+    playOpts.speed = RV.speed; playOpts.height = RV.height;  /* the tumble's own lift (the logic pops it up too) */
+    const clip = GP.clipFor('runner', RV.moment, runCtx);
+    QA.runner[0] = petDispX; QA.runner[1] = petDispH; QA.runClip = clip;
+    try { GP.playClip(runner, clip, RV.frozen || holding ? holdRunT : RV.t, playOpts); }
+    catch (e) {                                          /* a look that throws: the bean runs for the rest of the visit */
+      const was = runner;
+      bestEffort(function () { was.dispose(); });
+      bestEffort(function () { was.root.removeFromParent(); });
+      mountRunner(fallbackRunner());
+      runCtx.sig = null; runOpts.sigDur = 0;
+    }
+    try { if (runner.setWand) runner.setWand(RV.end); } catch (e) { /* cosmetic */ }
+    runner.root.scale.set(runnerScale * RV.sx, runnerScale * RV.sy, runnerScale * RV.sz);
+    runnerRoot.position.set(petDispX, petDispH, 0);
+    runFace = reduced || firstFrame ? RV.faceCam : M.approach(runFace, RV.faceCam, dt, 9);   /* turns, never snaps (GO included) */
+    runnerRoot.rotation.y = Math.PI / 2 * (1 - 0.85 * runFace);
+    runnerPivot.rotation.set(RV.pitch * DEG, RV.yaw * DEG, 0);
+    /* the dizzy ✦ circling the head (the pet rig draws its own; a person has none): three stars, one frame each */
+    if (RV.spark > 0 && s) {
+      for (let k = 0; k < 3; k++) {
+        M.dizzySpark(k, vt, reduced, sparkOut);
+        const p = spec(fx.simS, petDispX + sparkOut.x, petDispH + sparkOut.y, sparkOut.z, SPARK_INT, 1);
+        p.cell = STAR_CELL; p.life = Math.max(0.01, dt * 1.4); p.s0 = p.s1 = 0.13; p.rot = reduced ? 0 : vt * 2;
+        fx.simS.emit();
+      }
+    }
+    aura(menu, petDispX, petDispH, BODY_C, 1.05, 0.6, 0.45);
+  }
+  /* the shield bubble, the steady grace outline (never blinks) and the blob shadow round the hitbox's owner */
+  function aura(menu, x, h, mid, size, sx, sz) {
+    const k = Math.max(0.35, 1 - h / 4);
+    fx.blob(x, 0.06, sx * k, sz * k);
+    const cy = h + mid;
+    shieldMesh.visible = !!(s && !menu && s.shield && !finishing());   /* F-KU1: the bubble goes once the show is over (the cheer and the results show the pair) */
+    if (shieldMesh.visible) { S.setInst(shieldMesh, 0, x, cy, 0, 0, 0, 0, size); shieldMesh.instanceMatrix.needsUpdate = true; }
+    graceMesh.visible = !!(s && !menu && s.inv > 0 && !s.shield && (s.phase === 'run' || s.phase === 'encore'));
+    if (graceMesh.visible) { S.setInst(graceMesh, 0, x, cy, 0.05, 0, 0, 0, 0.95 * size, size, size); graceMesh.instanceMatrix.needsUpdate = true; }
+  }
+  /* the pet follows the runner's own recorded path 0.35 s behind (game-people petTrail, fed with the logic's
+     own numbers once a frame): it clears what the runner cleared, never collides, never touches a heart.
+     When it would close in on the runner (a tumble's knock-back, a slip) it waits on its own point of the
+     path, hopping, then hurries back along the same path (M.sidekickDelay); it runs a little upstage
+     (M.sidekickZ), so the two never merge on screen. Once the show is over it stands beside the runner. */
+  const sideOpts = { reduced: reduced, clock: 0, speed: 0, menu: true };
+  function updateSidekick(dt, menu, ready) {
+    if (!rig) return;
+    petRoot.visible = sidekickOn;
+    if (!sidekickOn) return;
+    let x, y = 0, clip, t = vt, spd = 0, face = 0, slide = false;
+    if (menu || ready || !s) {                           /* the start line: beside the runner, bouncing to the band */
+      sideOpts.clock = vt; M.petVisual(null, J, sideOpts, V);
+      x = petDispX - P.endGap; clip = V.clip; t = V.t; sideMoving = false;
+    } else {
+      trail.push(s.t, s.dist, -s.y, s.sliding, !s.onGround);
+      trail.read(TR, sideDelay);
+      const was = sideDelay;
+      /* close: measured against the logic's runner (not its display, which a hit-stop holds still) */
+      sideDelay = M.sidekickDelay(sideDelay, dt, !RV.end && TR.x > s.dist - P.sepGap * M.PX, !TR.airborne, BASE_DELAY);
+      if (sideDelay !== was) trail.read(TR, sideDelay);
+      const waiting = sideDelay > was, hurrying = sideDelay < was;
+      x = M.sidekickX(M.petX(TR.x), petDispX, RV.end, s.curtain ? P.curtainGap : P.endGap);
+      y = TR.y / M.PX + (flier ? GP.FLY_LIFT * TR.lift : 0);
+      const v = dt > 0 ? Math.abs(x - sideX) / dt : 0;
+      sideMoving = RV.end ? v > 0.25 : true;
+      let moment = M.sidekickMoment(RV, TR, s, sideMoving);
+      if (waiting && moment === 'run') moment = 'idle';     /* waits on its spot, then hurries on */
+      clip = GP.clipFor('sidekick', moment, {});
+      slide = moment === 'slide';
+      spd = RV.end ? v : waiting ? 0 : Math.max(0, TR.vx / M.PX) * (hurrying ? 1 + P.catchUp : 1);
+      if (TR.airborne && !petWasAir) petAirT = vt;
+      petWasAir = TR.airborne;
+      if (clip === 'jump') t = 0.2 + (vt - petAirT);    /* skip the clip's own crouch, as the runner's pet did */
+      else if (clip === 'hop') t = (vt * 1.8) % 1 * 0.45;   /* a worried hop, under twice a second */
+      else if (RV.end && !sideMoving) { t = RV.t; face = RV.faceCam; }
+    }
+    sideX = x;
+    sideZ = menu || ready || !s || firstFrame || reduced ? M.sidekickZ(x, petDispX) : M.approach(sideZ, M.sidekickZ(x, petDispX), dt, 8);
+    clipOpts.speed = spd; clipOpts.intensity = 1; clipOpts.rate = 1; clipOpts.height = 0;
+    if (PP && PP.sample) PP.sample(clip, t, pose, clipOpts);
+    else if (rig.play) { const p = rig.play(clip, t, clipOpts); if (p) for (const k in p) pose[k] = p[k]; }
+    if (slide) pose.cape = Math.max(pose.cape || 0, 0.7);
+    rig.setPose(pose);
+    if (rig.setShow) rig.setShow(s && s.fever && !menu ? 1 : 0);
+    if (rig.bones && rig.bones.scarfTail) rig.bones.scarfTail.scale.setScalar(1 + 0.22 * ((s && !menu ? s.mult : 1) - 1));
+    petRoot.position.set(x, y, sideZ);
+    QA.sidekick[0] = x; QA.sidekick[1] = y; QA.sidekick[2] = sideZ; QA.sideClip = clip;
+    petRoot.rotation.y = Math.PI / 2 * (1 - 0.78 * face);
+    const k = Math.max(0.35, 1 - y / 4);
+    fx.blob(x, sideZ + 0.06, 0.5 * k, 0.38 * k);
+  }
+  /* 'sidekick off' (design budget): once the stage ladder's CPU steps are all taken and this view's frames
+     stay slow, the pet steps off the stage (hidden, never rebuilt) — the game's last step before 2D */
+  function sidekickGuard(work, playing) {
+    const now = performance.now(), iv = playing && lastSampleAt ? now - lastSampleAt : 0;
+    lastSampleAt = playing ? now : 0;
+    if (!playing || !sidekickOn) return;
+    if (M.guardStep(guard, work, iv, now, M.cpuStepsDone(SL3D && SL3D.quality))) {
+      sidekickOn = false; petRoot.visible = false;
+      try { if (SL3D && typeof SL3D.log === 'function') SL3D.log('debut run: sidekick off (frames still slow after the CPU steps)'); } catch (e) { /* QA log only */ }
+    }
+  }
+
   function updateTrails(dt, px, h) {
     if (!s || reduced) return;
-    const cy = h + 0.3;
-    if (V.trail) {                                       /* belly-slide sparkle trail */
+    const cy = h + (people ? BODY_C : 0.3);
+    if (people ? RV.trail : V.trail) {                                       /* belly-slide sparkle trail */
       trailAcc += dt;
       while (trailAcc > 0.04) { trailAcc -= 0.04; const p = spec(fx.simG, px - 0.3, 0.12, 0.15 + (fx.simG.rand() - 0.5) * 0.3, CYAN, 0.9); p.cell = 0; p.life = 0.4; p.s0 = 0.12; p.s1 = 0.02; p.vx = -0.6; p.vy = 0.3; fx.simG.emit(); }
     } else trailAcc = 0;
@@ -580,9 +820,59 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     if (s.fever) fx.halo(px, cy, -0.1, 1.5, memberInt, 0.32);
   }
 
+  /* ---------------- the results framing (F-KU1) ----------------
+     The shell's results glass covers the bottom of the stage (at least 58 %, more when its lines need
+     it), so while it is up the pair (the runner and its sidekick, or the pet) keeps to the band above
+     it: the camera backs off along its own line, aiming at the pair's middle, until the pair's height
+     fits that band (M.resultsFrame) and the picture shifts up (setViewOffset) — eased in over
+     RESULTS.dur (at once under reduced motion), gone the moment the results are */
+  const RF = {}, rfDir = new THREE.Vector3(), rfAim = new THREE.Vector3();
+  let resultsAt = -1, viewOff = 0, freeAt = -9, freeShare = M.RESULTS.free, freeSm = M.RESULTS.free;
+  /* the share of the stage above the glass (the shell puts its screens in mid, next to our canvas),
+     read 4 times a second while the results are up: the glass grows when its board line arrives */
+  function stageFree() {
+    if (vt - freeAt < 0.25) return freeShare;
+    freeAt = vt; freeShare = M.RESULTS.free;
+    try {
+      const g = mid && typeof mid.querySelector === 'function' ? mid.querySelector('.slg-scr.glass') : null, H = mid ? mid.clientHeight : 0;
+      if (g && H > 0 && g.offsetTop >= 0) freeShare = g.offsetTop / H;
+    } catch (e) { /* the default band */ }
+    return freeShare;
+  }
+  /* how tall the pair stands: the person at its game scale (the pet beside it is smaller), else ~1 u */
+  function pairTop() { return people && runner && runner.h > 0 ? runner.h * runnerScale : 1; }
+  /* → the picture's upward shift (share of its height) this frame; a glass that grows later (its board
+     line) moves the band smoothly (at once under reduced motion) */
+  function frameResults(on, fov, dt) {
+    if (!on) { resultsAt = -1; return 0; }
+    const first = resultsAt < 0;
+    if (first) { resultsAt = vt; freeAt = -9; }
+    const free = stageFree();
+    freeSm = first || reduced ? free : M.approach(freeSm, free, dt, 6);
+    const k = M.moveK(vt - resultsAt, M.RESULTS.dur, reduced);
+    rfDir.subVectors(camPos, camTgt);
+    const d0 = rfDir.length();
+    if (!(d0 > 1e-6)) return 0;
+    rfDir.multiplyScalar(1 / d0);
+    M.resultsFrame(fov, pairTop(), freeSm, d0, RF);
+    rfAim.set(camTgt.x, RF.aimY, camTgt.z);
+    tmp.copy(rfAim).addScaledVector(rfDir, RF.dist);
+    camPos.lerp(tmp, k); camTgt.lerp(rfAim, k);
+    return RF.off * k;
+  }
+  function applyViewOffset(off) {
+    if (off > 1e-4) {
+      if (Math.abs(off - viewOff) > 1e-4) { camera.setViewOffset(camera.aspect, 1, 0, off, camera.aspect, 1); viewOff = off; }
+    } else if (viewOff) { camera.clearViewOffset(); viewOff = 0; }
+    /* the camera-held curtains stay where they are: after a curtain call they still close in from the
+       sides of the band, and their valance (the top sixth of the picture) rises out of it rather than
+       hiding the pair's heads in the thin band above the glass */
+  }
+
   function updateCamera(dt, phase, menu, px, h) {
     const aspect = camera.aspect || 16 / 9;
-    let fov = M.fovFor(aspect);
+    let fov = M.fovFor(aspect), off = 0;
+    if (phase !== 'results') resultsAt = -1;           /* the next results ease in again */
     if (menu) {
       const yaw = M.menuOrbit(vt, reduced), C = M.CAM.menu;
       camTgt.set(px + C.dx, C.lookY, 0);
@@ -593,25 +883,29 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
       camPos.set(px + Math.sin(a) * 5.2, 1.6 + 0.3 * h, Math.cos(a) * 5.2);
     } else {
       hSm = reduced || firstFrame ? h : M.approach(hSm, h, dt, M.CAM.smooth);
-      M.followCam(px, hSm, camOff);
+      M.followCam(px, hSm, camOff, people ? P.camLift : 0);
       camPos.set(camOff.x, camOff.y, camOff.z); camTgt.set(camOff.tx, camOff.ty, camOff.tz);
       feverK = reduced ? (s && s.fever ? 1 : 0) : M.approach(feverK, s && s.fever ? 1 : 0, dt, 1 / M.CAM.feverT * 3);
       fov += M.CAM.feverFov * feverK;
       if (s && (s.phase === 'encore')) fov = Math.max(fov, M.CAM.encoreFov);       /* the Encore chase */
+      /* people: the runner and its sidekick (endGap stage-left) share the frame, the head in it */
+      const duoX = people ? px - (sidekickOn && rig ? (s && s.curtain ? P.curtainGap : P.endGap) / 2 : 0) : px, lift = people ? P.camLift : 0;
       if (finishing()) {                                   /* the finish crane, facing the pet's dance */
         const k = M.moveK(sinceShowEnd() - 0.4, M.CAM.finish.dur, reduced), F = M.CAM.finish;
-        tmp.set(px + F.dx, F.y, F.z); tmp2.set(px, F.lookY, 0);
+        tmp.set(duoX + (people ? P.finishDx : F.dx), F.y, F.z); tmp2.set(duoX, F.lookY + lift, 0);
         camPos.lerp(tmp, k); camTgt.lerp(tmp2, k);
         if (phase === 'results' && !reduced) {           /* results: a slow stage-cam orbit */
           const yaw = 8 * DEG * Math.sin(TAU * vt / 14);
           tmp.subVectors(camPos, camTgt).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw); camPos.copy(camTgt).add(tmp);
         }
-      } else if (s && s.curtain) {                         /* the curtain call: dolly in, the pet centred between the curtains */
+      } else if (s && s.curtain) {                         /* the curtain call: dolly in, the pet (the pair) centred between the curtains */
         const k = M.moveK(J.sinceCurtain, M.CAM.curtain.dur, reduced);
-        camPos.z = M.lerp(M.CAM.z, M.CAM.curtain.z, k);
-        camPos.x = M.lerp(camPos.x, px + 0.15, k); camTgt.x = M.lerp(camTgt.x, px + 0.15, k);
-        camTgt.y = M.lerp(camTgt.y, 0.55, k);
+        camPos.z = M.lerp(M.CAM.z, people ? P.curtainZ : M.CAM.curtain.z, k);
+        const cx = people ? px - (sidekickOn && rig ? P.curtainGap * 0.4 : 0) : duoX + 0.15;
+        camPos.x = M.lerp(camPos.x, cx, k); camTgt.x = M.lerp(camTgt.x, cx, k);
+        camTgt.y = M.lerp(camTgt.y, 0.55 + lift, k);
       }
+      off = frameResults(phase === 'results' && (finishing() || !!(s && s.curtain)), fov, dt);   /* F-KU1: above the results glass */
       if (holding) { camPos.copy(lastCamPos); camTgt.copy(lastCamTgt); }
       lastCamPos.copy(camPos); lastCamTgt.copy(camTgt);
       M.juiceCam(J, reduced, camOff);
@@ -622,6 +916,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     camera.lookAt(camTgt);
     fovSm = menu || reduced || firstFrame ? fov : M.approach(fovSm, fov, dt, 8);   /* FEVER punch / Encore widen ease in */
     if (Math.abs(camera.fov - fovSm) > 1e-3) { camera.fov = fovSm; camera.updateProjectionMatrix(); }
+    applyViewOffset(off);
   }
   let fovSm = M.CAM.fov;
 
@@ -690,6 +985,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   const avOpts = { reduced: reduced, bpm: M.BPM, speed: 0 };
   /* stage-left of the pet: cheers, then joins the 8-count (one group pose under reduced motion) */
   function updateAvatar(menu, stageX) {
+    if (people) return;                                  /* the child's figure is the runner already */
     const show = !menu && finishing() && sinceShowEnd() > 0.3;
     if (!show) { if (avatar) avatar.root.visible = false; return; }
     const av = ensureAvatar();
@@ -746,11 +1042,12 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     K.uniforms.uRimColor.value.setHex(fever ? M.mixInt(L.rim, memberInt, 0.6) : L.rim);
     K.uniforms.uRimStrength.value = fever ? 0.7 : L.rimI;
 
-    /* ---- pet + camera ---- */
-    updatePet(dt, menu, px, h, speed, phase === 'countdown');
+    /* ---- the runner (the pet, or the child's figure with the pet as its sidekick) + camera ---- */
+    if (people) { updateRunner(dt, menu, px, h, speed, phase === 'countdown'); updateSidekick(dt, menu, phase === 'countdown'); }
+    else updatePet(dt, menu, px, h, speed, phase === 'countdown');
     updateCamera(dt, phase, menu, petDispX, petDispH);
     if (!menu && s) {                                     /* grace ends: the steady outline pops in a soft ring */
-      if (prevInv > 0 && !(s.inv > 0) && !s.shield && s.phase === 'run') ring(petDispX, petDispH + 0.32, 0.1, PEARL, 1.3, 0.3);
+      if (prevInv > 0 && !(s.inv > 0) && !s.shield && s.phase === 'run') ring(petDispX, petDispH + BODY_C, 0.1, PEARL, 1.3, 0.3);
       prevInv = s.inv || 0;
     }
     const camX = camera.position.x;
@@ -806,7 +1103,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     coneOpts.alpha = conesOn ? Math.max(L.cones, curtainK * 0.9, demo ? 1 : 0) : 0;
     coneOpts.t = vt; coneOpts.dt = dt;
     coneOpts.lock = !menu && s && (s.fever || J.sinceDoor < M.VIEW.DOOR_CONES || s.curtain || s.finished || s.phase === 'finish') ? 1 : 0;
-    petTarget.set(petDispX, petDispH + 0.3, 0);
+    petTarget.set(petDispX, petDispH + (people ? BODY_C : 0.3), 0);
     for (let i = 0; i < 3; i++) {
       const e = J.sinceFeverEnd;
       coneOpts.on[i] = J.feverByBump && e < 1.2 ? (e < i * M.VIEW.CONE_OFF_STEP ? 1 : e < 0.8 ? 0 : (e - 0.8) / 0.4) : 1;
@@ -828,8 +1125,11 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     firstFrame = false;
     renderer.setClearColor(L.fog, 1);
     renderer.toneMappingExposure = L.exposure;
+    voxFit.apply();                                       /* the lights above may have moved on */
     renderer.render(scene, camera);
-    if (lease && (phase === 'playing' || phase === 'countdown')) lease.sample(performance.now() - t0);
+    const work = performance.now() - t0;
+    if (lease && (phase === 'playing' || phase === 'countdown')) lease.sample(work);
+    if (people) sidekickGuard(work, phase === 'playing' && !!s && (s.phase === 'run' || s.phase === 'encore'));
   }
 
   /* ---------------- warm-up: compile every program behind the menu ---------------- */
@@ -873,11 +1173,13 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
     bestEffort(function () { if (hat) hat.dispose(); });
     bestEffort(function () { rig.dispose(); });
     bestEffort(function () { if (avatar) avatar.dispose(); });
+    bestEffort(function () { if (runner) runner.dispose(); });
     bestEffort(function () { shieldMesh.removeFromParent(); shieldMesh.dispose(); });
     bestEffort(function () { graceMesh.removeFromParent(); graceMesh.dispose(); });
     bestEffort(function () { own.forEach(function (o) { bestEffort(function () { o.dispose(); }); }); });
     bestEffort(function () { scene.clear(); });
     bestEffort(function () { K.uniforms.uRimColor.value.copy(rimSave.color); K.uniforms.uRimStrength.value = rimSave.strength; });
+    bestEffort(function () { voxFit.reset(); });          /* the next holder starts from today's look */
     bestEffort(function () { if (canvas.parentNode === mid) mid.removeChild(canvas); });
     bestEffort(function () { canvas.className = savedClass; canvas.style.cssText = savedCss; canvas.removeAttribute('aria-hidden'); });
     bestEffort(function () { api.canvas = null; });       /* the shared canvas goes back to the island, not to the shell */
@@ -895,7 +1197,15 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built) {
   const api = {
     canvas: canvas, frame: frame, resize: resize, setRound: setRound, dispose: dispose,
     /* QA: what is on screen (renderer.info) */
-    info: function () { const ri = renderer.info; return { tier: tier, calls: ri.render.calls, tris: ri.render.triangles, programs: ri.programs ? ri.programs.length : 0, lease: !!lease, fallbackPet: !!rig.fallback }; }
+    info: function () {
+      const ri = renderer.info;
+      return { tier: tier, calls: ri.render.calls, tris: ri.render.triangles, programs: ri.programs ? ri.programs.length : 0, lease: !!lease, fallbackPet: !!(rig && rig.fallback), voxGain: voxFit.gain(),
+        /* KU-CH18: who runs ('person' | 'classic' | 'fallback' | 'pet': no people helper) and the sidekick (its id, or null) */
+        runner: people ? runner.figure || 'classic' : 'pet', sidekick: people && pet ? pet.id : null, sidekickOn: sidekickOn,
+        at: people ? { runner: QA.runner.slice(), runClip: QA.runClip, sidekick: sidekickOn && rig ? QA.sidekick.slice() : null, sideClip: QA.sideClip, delay: sideDelay } : null,
+        /* F-KU1: the results framing — the picture's upward shift and the stage share above the glass */
+        results: { off: viewOff, free: freeShare } };
+    }
   };
   return api;
 }

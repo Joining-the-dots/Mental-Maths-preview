@@ -6,6 +6,20 @@
                             socket, all accessories; else miniPet), the additive
                             under-glow, the drift ground ring, the boost glitter jet
                             and the Map-cam ▼ marker.
+                            Kids update (KU-CH19b, characters.json design.games.neonGrandPrix):
+                            with ctx.figure (SLGamePeople.playerRig: the child's character,
+                            or the classic hoodie avatar) the FIGURE drives — on the seat at
+                            GP.SCALE.kart playing the driver clips with its legs at 60° —
+                            and the pet (ctx.pet; none → the character drives alone) rides
+                            at the back, perched on the spoiler wing at 0.5 playing 'ride',
+                            facing forward, a flying species with its wings out at speed
+                            (≤ 2 Hz). A trick pops the figure up for its spin. The same figure
+                            rig is re-parented by phase: the seat, standing in the cockpit
+                            (the coast, the podium) or the riser (the menu, MID / HIGH:
+                            player.riser, placed with setRiser(spot); LOW has none).
+                            setPassenger(false) is the adaptive 'passenger off' step. With
+                            no ctx.figure (no game-people on the page, or no rig) the
+                            player is exactly V4.55's: the pet drives.
      makeRivals(ctx, crew)  the Glow Crew: white karts with a colour stripe and number
                             discs, each driven by an original bean mascot with its
                             topper — one merged vertex-coloured mesh per rival, all 20
@@ -18,7 +32,8 @@
      rivalSpecs(list, crew) / rivalKey(specs)  what the rival models are built from, and
                             the key that says when they must be built again.
      makePacers(ctx, list)  Solo pacers: opaque PEARL shells + medal-coloured sleeves.
-     makeAvatar(ctx, user)  the child's chibi bean on the riser, waving an Island Wand (MID/HIGH).
+     makeAvatar(ctx, user)  the child's chibi bean on the riser, waving an Island Wand (MID/HIGH;
+                            the V4.55 riser, used only when no figure drives).
    Nothing here casts into the static shadow map (karts use blob shadows).
    ================================================================ */
 
@@ -28,10 +43,26 @@ const KART = { axleF: [0, 0.1, 0.26], axleB: [0, 0.1, -0.26], seat: [0, 0.22, -0
 const PET_SCALE = 0.85;
 /* the pet rig's seat socket in item space (models-characters socketsOf().seat) */
 const RIG_SEAT = [0, 0.09, -0.08];
+/* KU-CH19b: the figure in the kart. Root offsets from the seat pivot (item units): seated, the hips
+   (0.275 u × 0.7) sit on the cushion with the legs at 60° under the dash; standing, the feet are on
+   the cockpit floor. The riser keeps V4.55's riser avatar size (1.5). The passenger at 0.5 rides at
+   the back of the kart (item space), perched on the spoiler wing: the vox kart's wing top is voxel
+   row 6 (y 0.4375) over z −0.625…−0.4375, the lite kart's is the flattened tube at (0, 0.37, −0.39).
+   The design's deck mount (0, 0.22, −0.32) sits under the wing, which cut the pet in half from the
+   chase and stage cameras; on the wing it is whole from every camera and still clears the driver's
+   head (it overlaps only the shoulders from the chase camera's 41°). */
+export const FIGURE = { seat: [0, -0.17, -0.03], stand: [0, -0.1, -0.05], legs: 60, riserScale: 1.5,
+  deck: [0, 0.4375, -0.53], liteDeck: [0, 0.39, -0.39], petScale: 0.5 };
+/* the wings of a flying passenger at speed: out to WING_OUT° at full speed (v ≥ WING_V u/s), a ±WING_AMP° beat at WING_HZ (≤ 2 Hz) */
+const WING_FOLD = 10, WING_OUT = 62, WING_AMP = 7, WING_HZ = 1.2, WING_V = 6;
+/* a trick spin: the seated figure pops up out of the seat by up to TRICK_LIFT u so its legs clear the dash as it turns */
+const TRICK_LIFT = 0.2;
 
 function noShadow(o) { o.traverse((m) => { if (m.isMesh || m.isInstancedMesh || m.isSkinnedMesh) m.castShadow = false; }); }
 /* the characters module: canRig(id) = the species a game can show, the four V4.54 pets and the ten mascots (D98) */
 function CHARS() { const C = typeof window !== 'undefined' ? window.SLCharacters : null; return C && typeof C.canRig === 'function' ? C : null; }
+/* a rig game-people handed over (the AvatarRig shape: a person or the classic avatar) */
+function isFigure(r) { return !!(r && r.root && typeof r.play === 'function'); }
 
 /* ================================================================
    THE PLAYER
@@ -57,25 +88,50 @@ export function makePlayer(ctx) {
   body.add(model);
   noShadow(model);
 
-  /* ---- the driver: the island pet rig in its 'drive' clip, or the mini pet ---- */
+  /* ---- the driver: the child's figure (KU-CH19b), else the island pet rig in its 'drive' clip, or the mini pet ---- */
+  const figure = isFigure(ctx.figure) ? ctx.figure : null, GP = ctx.GP || null;
   const pet = ctx.pet || {};
+  /* with a figure the pet is a passenger, and only a real pet rides (careRunner's: none → the character drives alone) */
+  const rider = !figure || (pet && typeof pet.id === 'string' && pet.id);
   const petId = (CHARS() ? CHARS().canRig(pet.id) : /^pet_(puppy|kitten|bunny|dragon)$/.test(pet.id)) ? pet.id : 'pet_puppy';
   let rig = null, mini = null;
   const driverHolder = new THREE.Group();
   driverHolder.name = 'driver';
   (pivots.seat || model).add(driverHolder);
-  if (SL3D && typeof SL3D.makeRig === 'function') {
+  /* the pet: the driver on the seat (V4.55), or the passenger on the spoiler at 0.5 */
+  const petHolder = figure ? new THREE.Group() : driverHolder, petK = figure ? FIGURE.petScale : PET_SCALE;
+  if (figure) {
+    const d = model.name === 'lite-kart' ? FIGURE.liteDeck : FIGURE.deck;
+    petHolder.name = 'passenger'; petHolder.position.set(d[0], d[1], d[2]); model.add(petHolder);
+  }
+  if (rider && SL3D && typeof SL3D.makeRig === 'function') {
     try { rig = SL3D.makeRig(petId, pet.acc || {}, ctx.tier); } catch (e) { rig = null; }
   }
   if (rig && rig.root) {
-    rig.root.scale.setScalar(PET_SCALE);
-    rig.root.position.set(-RIG_SEAT[0] * PET_SCALE, -RIG_SEAT[1] * PET_SCALE, -RIG_SEAT[2] * PET_SCALE);
-    driverHolder.add(rig.root);
+    rig.root.scale.setScalar(petK);
+    rig.root.position.set(-RIG_SEAT[0] * petK, -RIG_SEAT[1] * petK, -RIG_SEAT[2] * petK);
+    petHolder.add(rig.root);
     noShadow(rig.root);
-  } else {
+  } else if (rider) {
     rig = null;
     mini = miniPet(ctx, petId);
-    driverHolder.add(mini.root);
+    if (figure) mini.root.scale.setScalar(petK / PET_SCALE);
+    petHolder.add(mini.root);
+  }
+  /* the figure on the seat; the riser it stands on at the menu (MID / HIGH) */
+  const riser = figure && ctx.tier !== 'LOW' ? new THREE.Group() : null;
+  if (riser) riser.name = 'avatar-riser';
+  let figAt = '', riserOn = false, passengerOn = !!(figure && (rig || mini)), wandOn = null;
+  const flier = !!(figure && rig && GP && typeof GP.flies === 'function' && GP.flies(petId));
+  if (figure) { noShadow(figure.root); placeFigure('seat'); }
+  /* seat | stand (in the cockpit) | riser: the same rig, re-parented only when the place changes */
+  function placeFigure(at) {
+    if (at === figAt) return;
+    figAt = at;
+    const r = figure.root, k = figure.gameScale || 0.7, o = at === 'stand' ? FIGURE.stand : FIGURE.seat;
+    if (at === 'riser') { riser.add(r); r.position.set(0, 0, 0); r.scale.setScalar(FIGURE.riserScale); }
+    else { driverHolder.add(r); r.position.set(o[0], o[1], o[2]); r.scale.setScalar(k); }
+    r.rotation.set(0, 0, 0);
   }
 
   /* ---- under-glow (additive, in the body colour; brightens with the Hype Wand) ---- */
@@ -146,20 +202,84 @@ export function makePlayer(ctx) {
     const clip = st.clip || 'drive';
     if (clip !== lastClip) { lastClip = clip; }
     clipName = clip; clipT = st.clipT != null ? st.clipT : clipT + dt;
-    driverHolder.position.y = st.petStand ? 0.12 : 0;
     driverHolder.rotation.y = st.trickSpin || 0;
+    if (figure) { figureFrame(st); return; }
+    driverHolder.position.y = st.petStand ? 0.12 : 0;
     if (rig) {
       const o = { speed: st.v || 0, steer: -(st.steer || 0), reduced: !!st.reduced, intensity: 1, bpm: 118 };
       try { rig.play(clipName, clipT, o); if (rig.setShow) rig.setShow(st.encore || 0); } catch (e) { /* keep the last pose */ }
     } else if (mini) mini.play(clipName, clipT, st);
   }
 
+  /* KU-CH19b: the figure and its passenger. st.moment: 'drive' | 'dizzy' | 'trick' (on the seat),
+     'coast' | 'podium' (standing in the cockpit), 'menu' (the riser on MID / HIGH, else the seat) */
+  const fo = { speed: 0, steer: 0, reduced: false, intensity: 1, bpm: 118 }, po = { speed: 0, steer: 0, reduced: false, intensity: 1, height: 0 };
+  function figureFrame(st) {
+    const m = st.moment || 'drive', red = !!st.reduced;
+    const at = m === 'menu' && riserOn ? 'riser' : m === 'coast' || m === 'podium' ? 'stand' : 'seat';
+    placeFigure(at);
+    driverHolder.position.y = at === 'seat' && st.trickSpin ? TRICK_LIFT * Math.sin(Math.PI * Math.min(1, Math.abs(st.trickSpin) / core.TAU)) : 0;
+    const wand = at === 'riser';
+    if (wand !== wandOn) { wandOn = wand; try { if (figure.setWand) figure.setWand(wand); } catch (e) { /* no stick */ } }
+    fo.speed = st.v || 0; fo.steer = -(st.steer || 0); fo.reduced = red;
+    try {
+      const pose = figure.play(figureClip(m), clipT, fo);
+      /* seated, whatever the clip: the legs stay forward under the dash and the figure stays on the cushion */
+      if (at === 'seat' && pose && typeof figure.setPose === 'function') { pose.legL = pose.legR = FIGURE.legs; if (pose.y > 0.02) pose.y = 0.02; figure.setPose(pose); }
+      if (figure.setShow) figure.setShow(st.encore || 0);
+    } catch (e) { /* keep the last pose */ }
+    if (!passengerOn) return;
+    if (rig) {
+      po.speed = st.v || 0; po.steer = -(st.steer || 0); po.reduced = red;
+      try {
+        const pose = rig.play(passengerClip(m), clipT, po);
+        if (flier && pose && (m === 'drive' || m === 'trick')) {
+          /* a flying passenger perches with its wings out at speed (one slow beat, ≤ 2 Hz; still under reduced motion) */
+          const k = Math.max(0, Math.min(1, (st.v || 0) / WING_V)), beat = red ? 0 : WING_AMP * Math.sin(core.TAU * WING_HZ * (st.t || 0));
+          pose.wingL = pose.wingR = WING_FOLD + k * (WING_OUT - WING_FOLD + beat);
+          if (rig.setPose) rig.setPose(pose);
+        }
+        if (rig.setShow) rig.setShow(st.encore || 0);
+      } catch (e) { /* keep the last pose */ }
+    } else if (mini) mini.play(m === 'coast' || m === 'podium' ? 'cheer' : 'ride', clipT, st);
+  }
+  /* the game moment → the clip (SLGamePeople.clipFor's maps; the names it gives when it is missing) */
+  function figureClip(m) {
+    if (m === 'dizzy') return 'dizzy';
+    const g = m === 'trick' ? 'win' : m === 'coast' ? 'finish' : m;
+    return GP && typeof GP.clipFor === 'function' ? GP.clipFor('driver', g) : g === 'drive' ? 'drive' : g === 'win' || g === 'finish' ? 'cheer' : 'wave';
+  }
+  function passengerClip(m) {
+    const g = m === 'coast' ? 'finish' : m === 'menu' || m === 'trick' ? 'drive' : m;
+    return GP && typeof GP.clipFor === 'function' ? GP.clipFor('sidekick', g) : g === 'finish' || g === 'podium' ? 'cheer' : g === 'dizzy' ? 'hop' : 'ride';
+  }
+
   return {
     root, body, model, rig, mini, glow, ring, jet, marker, kartHex, kartId, petId,
+    /* KU-CH19b: the driving figure (null: the pet drives, V4.55), its riser (MID / HIGH) and the passenger */
+    figure, riser, passenger: figure ? rig || mini : null,
+    get figureAt() { return figAt; },
+    get passengerOn() { return passengerOn; },
+    /* the riser's place on this track (null: none; the menu then keeps the figure on the seat) */
+    setRiser(spot) {
+      riserOn = !!(riser && spot);
+      if (riserOn) { riser.position.set(spot.x, spot.y, spot.z); riser.rotation.set(0, spot.yaw || 0, 0); }
+      else if (figAt === 'riser') placeFigure('seat');
+      return riserOn;
+    },
+    /* the adaptive 'passenger off' step: the pet stops drawing and animating (it stays in memory) */
+    setPassenger(on) {
+      if (!figure) return false;                          /* V4.55: the pet is the driver, never taken off */
+      passengerOn = !!on && !!(rig || mini);
+      petHolder.visible = passengerOn;
+      return passengerOn;
+    },
     seatWorld(out) { return driverHolder.getWorldPosition(out); },
     update,
     dispose() {
       if (root.parent) root.parent.remove(root);
+      if (figure && figure.dispose) { try { figure.dispose(); } catch (e) { /* gone */ } }
+      if (riser && riser.parent) riser.parent.remove(riser);
       if (rig && rig.dispose) { try { rig.dispose(); } catch (e) { /* gone */ } }
       if (mini) mini.dispose();
       if (model && model.userData && typeof model.userData.dispose === 'function') { try { model.userData.dispose(); } catch (e) { /* gone */ } }

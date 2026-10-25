@@ -4,10 +4,11 @@
    fallback. It only READS round.state / round.course and the round's
    events (drained by the shell after each draw); it never changes the
    logic. pointer-events: none, so taps still reach the game.
-     top-left    hearts as Spark Sticks (✦ heads) in the child's colour: always 3,
-                 and a lost one stays grey to the end of the show
+     top-left    hearts drawn as ❤ in the child's colour: always 3, and a lost one
+                 stays an empty outline to the end of the show (B8, 25 Oct 2026: they
+                 were ✦-headed Spark Sticks, and ✦ is the glow sparks' sign)
      top-centre  HYPE bar (notches x2 / x3 / FEVER) + E N C O R E slots
-     top-right   treats · ✦ glow stars · score
+     top-right   snacks · ✦ glow sparks · score
      bottom      mini runway: 5 Stage Door dots, pet marker, finish flag
      centre      one pop at a time (section names, FEVER!, BOUNCE!…)
    ENCORE CITY skin (v2): night-glass panels (rgba(22,18,40,.72), a 1px
@@ -67,17 +68,22 @@
     return;
   }
 
-  /* the pet's head on the mini runway: the four V4.54 pets and the ten mascots (catalogAdditions.species.hudEmoji);
-     the capybara and the seal pup, and anything unknown, show the paw (their own emoji is missing on old iPads, D114) */
+  /* the pet's head on the mini runway: the four V4.54 pets, the ten mascots (catalogAdditions.species.hudEmoji)
+     and the kids update's fourteen (SLIslandLook.SPECIES3 hudEmoji, kids-update pets.json); the capybara, the
+     seal pup, the guinea pig and the red panda, and anything unknown, show the paw (no emoji of their own on
+     old iPads, D114) */
   var PET_HEAD = { pet_puppy: '🐶', pet_kitten: '🐱', pet_bunny: '🐰', pet_dragon: '🐲',
     pet_crab: '🦀', pet_gull: '🐦', pet_capybara: '🐾', pet_monkey: '🐒', pet_squirrel: '🐿️',
-    pet_owl: '🦉', pet_duckling: '🐥', pet_pony: '🐴', pet_penguin: '🐧', pet_seal: '🐾' };
+    pet_owl: '🦉', pet_duckling: '🐥', pet_pony: '🐴', pet_penguin: '🐧', pet_seal: '🐾',
+    pet_hamster: '🐹', pet_guineapig: '🐾', pet_tortoise: '🐢', pet_budgie: '🦜', pet_otter: '🦦',
+    pet_flamingo: '🦩', pet_sloth: '🦥', pet_toucan: '🐦', pet_redpanda: '🐾', pet_hedgehog: '🦔',
+    pet_goatkid: '🐐', pet_peacock: '🦚', pet_reindeer: '🦌', pet_snowleopard: '🐆' };
   var POP_BIG = { door: 1, fever: 1, tier: 1, cleanStage: 1, lettersComplete: 1, encoreStart: 1, finish: 1, curtain: 1 };
   /* the island's type tokens (world/island-encore.css), with the same fallbacks when that sheet is absent */
   var UI_FONT = 'var(--sle-ui,"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif)';
   var DISPLAY_FONT = 'var(--sle-display,"Unbounded","Outfit",system-ui,sans-serif)';
-  /* the four-point ✦ spark on a 24 grid (the Spark Stick head; never the five-point reward star) */
-  var SPARK = 'M12 1.5C12.9 7.6 16.4 11.1 22.5 12C16.4 12.9 12.9 16.4 12 22.5C11.1 16.4 7.6 12.9 1.5 12C7.6 11.1 11.1 7.6 12 1.5Z';
+  /* a heart on the 26 × 34 heart cell (the cell keeps its V4.55 size, so the compact column is unchanged) */
+  var HEART = 'M13 28.5C6.4 23.1 1.5 18.9 1.5 13.2C1.5 9.3 4.4 6.3 8 6.3C10.2 6.3 12 7.5 13 9.3C14 7.5 15.8 6.3 18 6.3C21.6 6.3 24.5 9.3 24.5 13.2C24.5 18.9 19.6 23.1 13 28.5Z';
 
   function injectCss() {
     if (document.getElementById('slcHudCss')) return;
@@ -148,17 +154,13 @@
   function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function safeCol(c) { return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#8A5CFF'; }
-  /* a heart as a Spark Stick: a Midnight Ink handle with a member-colour grip and a Gunmetal collar,
-     topped by a ✦ in the child's colour with a white inner ✦ (a lost heart: an empty outline ✦) */
-  function wandSvg(col, lost) {
-    var head = 'translate(13 9) scale(.78) translate(-12 -12)', core = 'translate(13 9) scale(.47) translate(-12 -12)';
+  /* a heart: filled in the child's colour with a white edge and a small shine; a lost heart is an
+     empty outline (never a colour alone: the shape changes too) */
+  function heartSvg(col, lost) {
     return '<svg class="slc-w' + (lost ? ' lost' : '') + '" viewBox="0 0 26 34" aria-hidden="true">' +
-      (lost ? '' : '<circle cx="13" cy="9" r="10.5" fill="' + col + '" opacity=".3"/>') +
-      '<rect x="11.2" y="16.5" width="3.6" height="16.5" rx="1.8" fill="' + (lost ? '#221C3A' : '#14101F') + '" stroke="rgba(255,255,255,.55)" stroke-width="1"/>' +
-      '<rect x="11.2" y="23.5" width="3.6" height="4" fill="' + (lost ? '#4A4560' : col) + '"/>' +
-      '<rect x="10.3" y="15.4" width="5.4" height="2.6" rx="1" fill="#5A5F72"/>' +
-      '<path transform="' + head + '" d="' + SPARK + '" fill="' + (lost ? 'none' : col) + '" stroke="' + (lost ? 'rgba(230,225,247,.7)' : '#FFFFFF') + '" stroke-width="2.2" stroke-linejoin="round"/>' +
-      (lost ? '' : '<path transform="' + core + '" d="' + SPARK + '" fill="#FFFFFF" opacity=".85"/>') +
+      (lost ? '' : '<circle cx="13" cy="17" r="12.5" fill="' + col + '" opacity=".22"/>') +
+      '<path d="' + HEART + '" fill="' + (lost ? 'none' : col) + '" stroke="' + (lost ? 'rgba(230,225,247,.7)' : '#FFFFFF') + '" stroke-width="' + (lost ? '1.8' : '2') + '" stroke-linejoin="round"/>' +
+      (lost ? '' : '<ellipse cx="8.4" cy="11.6" rx="2.6" ry="1.7" transform="rotate(-30 8.4 11.6)" fill="#FFFFFF" opacity=".7"/>') +
       '</svg>';
   }
 
@@ -220,11 +222,11 @@
       }
       var crackIdx = -1;
       if (last.hearts >= 0 && s.hearts < last.hearts) {
-        crackIdx = s.hearts;                      /* the wand that was just lost cracks once, then stays grey for good */
+        crackIdx = s.hearts;                      /* the heart that was just lost cracks once, then stays an outline */
         if (s.hearts > 0) say('Ouch! ' + s.hearts + (s.hearts === 1 ? ' heart' : ' hearts') + ' left.');
       }                                           /* (hearts never come back, so there is no 'heart back' line) */
       var html = '';
-      for (var k = 0; k < s.maxHearts; k++) html += wandSvg(col, k >= s.hearts);
+      for (var k = 0; k < s.maxHearts; k++) html += heartSvg(col, k >= s.hearts);
       heartsEl.innerHTML = html;
       var ws = heartsEl.children;
       if (crackIdx >= 0 && ws[crackIdx]) ws[crackIdx].classList.add('crack');

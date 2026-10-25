@@ -584,6 +584,7 @@
      waits for the display model's hash (pixelKey); pixel icons have no rim, so no member */
   function pixelSpec(spec, route, C, L) {
     if (!spec || typeof route !== 'function') return null;
+    if (spec.kind === 'food') return null;          /* a pet food is a 2D icon only, never a vox photocard (KU37) */
     var r = null;
     try { r = route(spec.id, spec.st, C, L); } catch (e) { r = null; }
     if (!r || !(r.handler || r.api)) return null;
@@ -597,6 +598,46 @@
     if (!spec || !spec.pre || typeof hash !== 'string' || !hash) return null;
     return spec.pre + '#h' + hash + (tier ? '#' + String(tier).toUpperCase() : '');
   }
+  /* a kids-update person or garment (char_* / wear_*, KU-CH9): a plug-in id with no LOOK row, so
+     renderSpec has nothing for it; on the vox registry it goes straight to the island's vox route
+     (px_people). Never on the V4.54 registry, which has no model for it (lead fix after K3).
+     F-KU1: the child's look and outfit travel with it — st keeps the fields px-people reads
+     (PEOPLE_ST, a sorted plain copy, so a later change to the caller's objects never leaks in) and
+     the state key is 'base' (nothing picked: the cast default) or 'p' + a short hash of them, so
+     two looks are two pictures (two pre / icon keys) and the turntable's set() sees the change */
+  var PEOPLE_ST = ['look', 'lk', 'wear', 'wr', 'vr', 'member'];
+  function plainOf(v, depth) {
+    if (v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v))) return v;
+    if (!v || typeof v !== 'object' || depth > 3) return undefined;
+    if (Array.isArray(v)) return v.map(function (x) { var c = plainOf(x, depth + 1); return c === undefined ? null : c; });
+    var out = {};
+    Object.keys(v).sort().forEach(function (k) { var c = plainOf(v[k], depth + 1); if (c !== undefined) out[k] = c; });
+    return out;
+  }
+  function peopleSt(st) {
+    var out = {}, n = 0;
+    if (!st || typeof st !== 'object' || Array.isArray(st)) return out;
+    PEOPLE_ST.forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(st, k)) return;
+      var v = plainOf(st[k], 0);
+      if (v === undefined || v === null) return;
+      out[k] = v; n++;
+    });
+    return out;
+  }
+  function peopleKey(s) {
+    var ks = Object.keys(s || {});
+    return ks.length ? 'p' + hash(JSON.stringify(s)).toString(36) : 'base';
+  }
+  function peopleSpec(id, st) {
+    if (typeof id !== 'string' || !ID_RE.test(id) || !/^(char|wear)_/.test(id)) return null;
+    var s = peopleSt(st), sk = peopleKey(s);
+    return { id: id, src: id, st: s, stateKey: sk, key: id + '#' + sk, kind: id.slice(0, 4) === 'char' ? 'char' : 'wear', screen: null };
+  }
+  /* what a turntable is showing, for set(): a pixel spec's key waits for the display hash (and a
+     remembered one may arrive between two calls), so pixel specs compare by pre (<id>#<stateKey>);
+     the V4.54 specs by their key (render key + rim) */
+  function showKey(s) { return s ? (s.px ? s.pre : s.key) || s.key || s.pre || null : null; }
   /* an item's uniform scale on the riser (half-diagonal rXZ in plan, height h) */
   function pxFitScale(rXZ, h) {
     return clamp(Math.min(PX.itemR / Math.max(rXZ || 0, 0.05), PX.itemH / Math.max(h || 0, 0.05)), PX.minScale, PX.maxScale);
@@ -684,10 +725,11 @@
     sparkleAt: sparkleAt, glintAt: glintAt, debutPose: debutPose, alphaRamp: alphaRamp, lru: lru,
     hash: hash, rnd: rnd, needsFont: needsFont, fontsFor: fontsFor,
     PX: PX, PX_STUDIO: PX_STUDIO, pixelStudio: pixelStudio, registryFor: registryFor, pixelSpec: pixelSpec, pixelKey: pixelKey,
+    PEOPLE_ST: PEOPLE_ST, peopleSpec: peopleSpec, showKey: showKey,
     pxFitScale: pxFitScale, riserVoxels: riserVoxels, ringVoxels: ringVoxels, cellSwaps: cellSwaps, swapCells: swapCells
   };
   [STUDIO, STUDIO.keyPos, CLEAR, RISER, RISER.cones, LED_LAYOUT, LED_PROGRAMS, SIGN_LAYOUT,
-   PX, PX.sparkleTokens, PX.dynamic, PX_STUDIO, PX_STUDIO.hemi, PX_STUDIO.key, PX_STUDIO.key.pos].forEach(Object.freeze);
+   PX, PX.sparkleTokens, PX.dynamic, PEOPLE_ST, PX_STUDIO, PX_STUDIO.hemi, PX_STUDIO.key, PX_STUDIO.key.pos].forEach(Object.freeze);
   var api = { __pc: VERSION };
   Object.keys(PURE).forEach(function (k) { api[k] = PURE[k]; });
 
@@ -1054,9 +1096,10 @@
     var Lk = Look();
     if (!st && pck && Lk && Lk.LOOK) st = stFromKey(id, pck, Lk);
     var spec = renderSpec(id, st || {}, Lk);
+    if (!spec && pixelOn()) spec = peopleSpec(id, st);
     if (spec && pixelOn()) {
       /* v3: the island's own vox route; the key waits for the display model's hash (remembered) */
-      var IS = root.SLIsland3D, px = pixelSpec(spec, IS && IS.voxRoute, root.SLWorldCore, Lk), pk = px && pxKeys.get(px.pre);
+      var IS = root.SLIsland3D, px = pixelSpec(spec, IS && IS.voxRoute, root.SLWorldCore, Lk), pk = px && pxKeys.get(memoKey(px));
       if (pk) px.key = pk;
       return px;
     }
@@ -1102,14 +1145,25 @@
   }
 
   /* ---------------- pixel keys (v3): the display model's hash, made in slices of the frame loop ----------------
-     pxKeys: pre (<id>#<stateKey>) → the icon key, or '' when there is no vox display (the SVG stays) */
+     pxKeys: memoKey (pre = <id>#<stateKey>; a person's also names the people files in) → the icon key, or ''
+     when there is no vox display (the SVG stays) */
   var pxKeys = new Map(), hashQ = [], hashJobs = new Map(), pxSwept = false;
+  /* F-KU1: a person's or a garment's picture depends on which people shapes files are in (window.slLoadPeople
+     brings body, hair, wear and the accessories in turn; px-people draws from the body and hair alone), so
+     its remembered hash is per that set: a shop drawn before they arrive gets the full picture on its next fill */
+  var PEOPLE_FILES = ['SLPeopleShapesBody', 'SLPeopleShapesHair', 'SLPeopleShapesWear', 'SLPeopleShapesAcc'];
+  function memoKey(spec) {
+    if (spec.kind !== 'char' && spec.kind !== 'wear') return spec.pre;
+    var t = '|';
+    for (var i = 0; i < PEOPLE_FILES.length; i++) t += root[PEOPLE_FILES[i]] ? '1' : '0';
+    return spec.pre + t;
+  }
   function keyed(spec, key) { var o = {}; for (var k in spec) if (Object.prototype.hasOwnProperty.call(spec, k)) o[k] = spec[k]; o.key = key; return o; }
   function hashWait(spec, el, prio) {
-    var hj = hashJobs.get(spec.pre);
+    var mk = memoKey(spec), hj = hashJobs.get(mk);
     if (!hj) {
-      hj = { spec: spec, prio: prio, waiters: [] };
-      hashJobs.set(spec.pre, hj);
+      hj = { spec: spec, mk: mk, prio: prio, waiters: [] };
+      hashJobs.set(mk, hj);
       var i = 0;
       while (i < hashQ.length && hashQ[i].prio <= prio) i++;
       hashQ.splice(i, 0, hj);
@@ -1125,11 +1179,11 @@
   function hashStep(t0) {
     do {
       var hj = hashQ.shift(), key = '';
-      hashJobs.delete(hj.spec.pre);
+      hashJobs.delete(hj.mk);
       if (pxReady()) {
         try { key = pixelKey(hj.spec, pxHash(hj.spec), S.tier) || ''; } catch (e) { log('no vox display for ' + hj.spec.pre + ': ' + errText(e)); }
       }
-      pxKeys.set(hj.spec.pre, key);
+      pxKeys.set(memoKey(hj.spec), key);
       if (key) stats.hashed++; else stats.noVox++;
       settleHash(hj, key ? keyed(hj.spec, key) : null);
     } while (hashQ.length && perf() - t0 < PX.hashMs);
@@ -1152,7 +1206,7 @@
   /* ---------------- jobs: memory → Cache Storage → render ---------------- */
   function request(spec, el, prio) {
     if (spec.px && !spec.key) {
-      var pk = pxKeys.get(spec.pre);
+      var pk = pxKeys.get(memoKey(spec));
       if (pk === '') return Promise.resolve(null);
       if (!pk) return hashWait(spec, el, prio);
       spec.key = pk;
@@ -1570,7 +1624,7 @@
     this.canvas = null; this.ctx = null; this.saved = []; this.hostPos = null;
     this.ro = null; this.io = null; this.scale = 1; this.top = 1; this.reach = TT.riserR;
     this.view = {}; this.cp = { x: 0, y: 0, z: 0 }; this.pose = {}; this.squish = {}; this.rigOpts = { reduced: this.reduced, intensity: 1 };
-    this.parts = []; this.seed = hash(this.uid + ':' + spec.key) ^ (Date.now() & 0xffff);
+    this.parts = []; this.seed = hash(this.uid + ':' + showKey(spec)) ^ (Date.now() & 0xffff);
     this._ready = null; this.stopFn = null; this.burst = false;
   }
   function turntable(host, id, st, opts) {
@@ -1591,7 +1645,9 @@
       try { s2 = specOf(id2, st2 || null, null); } catch (e) { s2 = null; }
       if (!s2) return;
       if (!tt.sc) { tt.spec = s2; return; }               /* not built yet: just build the new one */
-      if (s2.key === (tt.next || tt.spec).key) return;
+      var k2 = showKey(s2);
+      if (k2 === showKey(tt.next || tt.spec)) return;            /* the same picture: no rebuild */
+      if (tt.next && k2 === showKey(tt.spec)) { tt.next = null; return; }   /* back to the one on show before it swapped */
       tt.next = s2; tt.dirty = true; wake();
     };
     stop.debut = function () { if (!tt.dead) { tt.debutT = 0; tt.burst = true; tt.dirty = true; wake(); } };
