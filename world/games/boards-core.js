@@ -23,11 +23,13 @@
    never a place out of a count and never a move down.
 
      V, BOARDS, KEYS, MAX_CARDS  the 15 boards {key, game, variant, name, better, min, max,
-                                 step, classic, watchBelow}; the query limit (40 others and the child)
+                                 step, classic, watchBelow, finishedOnly}; the query limit (40 others and the child)
      CARD_KEYS, RANGES           what the security rules accept in a card (a test pins both to firestore.rules)
      boards(game), rule(key)     rows for one game in display order; one row or null
      validValue(key, v)          a whole number inside the board's own limits, on its step
      better(key, a, b)           true when a beats b on that board
+     boardValue(key, x)          a result or a personal best ({ms} / {score, extra}) as the board's number;
+                                 undefined for a Debut Run show that did not finish (finishedOnly boards)
      weekKey('YYYY-MM-DD')       → the Monday of that week, or null
      notebook(u)                 → a copy of u.lb with defaults (extra fields are kept)
      noteResult(lb, key, v, week) → {lb, weekImproved, everImproved}
@@ -92,6 +94,15 @@
     if (step) r.step = step;
     return r;
   }
+  /* [C-DEBUT-BEST] a Debut Run course (James, 26 Oct 2026: "Finished shows rank first"). A card holds one number per
+     board, so it cannot say whether a show finished: a course board takes finished shows only (finishedOnly), as a
+     kart board takes finished races only. A show that ran out of hearts still counts for the child's own 'Your best'
+     (world-core), never for a board, so a finished show always ranks above it. */
+  function show(variant, name) {
+    var r = score('course', variant, name, 5000);
+    r.finishedOnly = true;
+    return r;
+  }
   /* min is the course's floor: centreline length × laps ÷ top speed (kart-logic floorMs; a
      test compares). watchBelow = round(0.95 × the Holo time): the Control Centre adds a note
      beside a faster time. The new courses get theirs when the courses are frozen. */
@@ -105,10 +116,10 @@
      courses are not in it, and the Control Centre does not load the kart logic. A row
      marked unshipped: true keeps its key (the rules list it) but is never written or shown. */
   var BOARDS = [
-    score('course', 'course_meadow', 'Meadow Dash', 5000),
-    score('course', 'course_beach', 'Beach Run', 5000),
-    score('course', 'course_snow', 'Snowy Trail', 5000),
-    score('course', 'course_candy', 'Candy Land', 5000),
+    show('course_meadow', 'Meadow Dash'),
+    show('course_beach', 'Beach Run'),
+    show('course_snow', 'Snowy Trail'),
+    show('course_candy', 'Candy Land'),
     score('penalty', 'std', 'Mochi', 1200, 10),
     score('penalty', 'rival_bop', 'Bop', 1200, 10),
     score('penalty', 'rival_glowy', 'Glowy', 1200, 10),
@@ -312,10 +323,25 @@
     var ka = Object.keys(a);
     return ka.length === Object.keys(b).length && ka.every(function (k) { return has(b, k) && b[k] === a[k]; });
   }
+  /* [C-DEBUT-BEST] a show finished: its medal (bits 0-2 of the extra pet-course saves) is 1-4; 0 is the 🎀 Trainee
+     ribbon of a show that ran out of hearts or time. No extra: finished (world-core's showTier reads it the same) */
+  function finishedShow(x) {
+    if (!isInt(x.extra)) return true;
+    var m = x.extra & 7;
+    return m >= 1 && m <= 4;
+  }
+  /* A round's result or a stored personal best as a board's plain number: {ms} on a kart board, {score} on a score
+     board; undefined for anything else, and for a show that did not finish on a course board (finishedOnly). The
+     value is not range-checked here (validValue is). */
+  function boardValue(key, x) {
+    var r = rule(key);
+    if (!r || !isObj(x)) return undefined;
+    if (r.finishedOnly && !finishedShow(x)) return undefined;
+    return r.better === 'lower' ? x.ms : x.score;
+  }
   /* the island's personal best for a board, as a plain number */
   function pbValue(pb, r) {
-    var rec = has(pb, r.key) ? pb[r.key] : null;
-    return isObj(rec) ? (r.better === 'lower' ? rec.ms : rec.score) : undefined;
+    return boardValue(r.key, has(pb, r.key) ? pb[r.key] : null);
   }
   /* The card this child should have in one group. u = the profile (u.lb and u.world.pb are
      read, nothing is changed), who = SLSocialCore.who(profile), cloudCard = the child's own
@@ -638,7 +664,7 @@
 
   var API = {
     V: V, BOARDS: BOARDS, KEYS: KEYS, MAX_CARDS: MAX_CARDS, CARD_KEYS: CARD_KEYS, RANGES: RANGES, LINE_KINDS: LINE_KINDS,
-    boards: boards, rule: rule, validValue: validValue, better: better, weekKey: weekKey,
+    boards: boards, rule: rule, validValue: validValue, better: better, boardValue: boardValue, weekKey: weekKey,
     notebook: notebook, noteResult: noteResult, applyCuts: applyCuts, removedNote: removedNote, tally: tally, spend: spend,
     desiredCard: desiredCard, markerCard: markerCard, cardShapeOk: cardShapeOk, patchRow: patchRow,
     standings: standings, moveLine: moveLine, fmtValue: fmtValue, showValue: showValue, sayValue: sayValue, ordinal: ordinal,

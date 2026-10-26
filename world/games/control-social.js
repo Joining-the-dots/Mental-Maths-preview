@@ -1096,7 +1096,7 @@
         var rows = [];
         st.accounts.forEach(function (a) {
           var pb = isObj(a.state) && isObj(a.state.world) && isObj(a.state.world.pb) && has(a.state.world.pb, r.key) ? a.state.world.pb[r.key] : null;
-          var v = isObj(pb) ? (r.better === 'lower' ? pb.ms : pb.score) : null;
+          var v = B.boardValue(r.key, pb);            /* [C-DEBUT-BEST] a Debut Run best counts once a show finished, as on the board */
           if (!hidden(a._uid) && B.validValue(r.key, v)) rows.push({ n: a.username, v: v });
         });
         if (!rows.length) return;

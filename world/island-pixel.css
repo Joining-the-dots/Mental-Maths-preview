@@ -230,7 +230,13 @@ html body .slw-toast { flex-wrap: wrap; justify-content: flex-end; box-sizing: b
 html body .slw-toast > span { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
 
 /* ---------------- island root: the banded sky; Showtime fades a banded night in ---------------- */
+/* c-island: the island has its own layer, above the app theme's two soft background blobs (index.html slTheme
+   body::before / body::after: position fixed, z-index 0, blurred at 50% opacity). Without it the peach blob, the last
+   thing on the page, is drawn over the island's bottom-left corner and washes it out (the Kart Garage, the windmill,
+   the Meadow; the 3D stage too). #slCareBanner, #slLearnStrip and the four places (.sl-nav) are lifted the same way.
+   Under the sticky header (z-index 40) and every card (.slw-ov 9000 and up, on the page body) */
 html body .slw {
+  position: relative; z-index: 1;
   padding: 12px 12px 18px;
   background: linear-gradient(180deg,
     var(--px-sky-1) 0%, var(--px-sky-1) 14.29%, var(--px-sky-2) 14.29%, var(--px-sky-2) 28.57%,
@@ -463,6 +469,15 @@ html body .slw-togs .slw-togic .slw-ico { width: 22px; height: 22px; }
 html body .slw-togs > .slw-btn[data-act="music"][aria-pressed="false"]::after {
   content: ""; position: absolute; left: 50%; top: 50%; width: 28px; height: 3px; border-radius: 2px;
   background: currentColor; transform: translate(-50%, -50%) rotate(-45deg); pointer-events: none;
+}
+/* c-island: the ⋯ square (Sound and help) shows only on a phone up to 400px wide, in place of sound and ❓: there
+   📚 Learn, 🪙 (even 9,999), music and ⋯ share row 1, so the squares never wrap onto a row of their own and the
+   whole 3D stage fits a 360 × 740 phone. Its card holds the same Sound toggle and the ❓ card */
+html body .slw-togs > .slw-btn[data-act="more"] { display: none; font-size: 24px; font-weight: 800; }
+@media (max-width: 400px) {
+  html body .slw-togs > .slw-btn[data-act="sound"],
+  html body .slw-togs > .slw-btn[data-act="info"] { display: none; }
+  html body .slw-togs > .slw-btn[data-act="more"] { display: inline-flex; }
 }
 /* R2 (QA2D-3): while the 3D island boots (a second or two) the HUD is calm and not ready: dimmed, no motion, no words */
 html body .slw-hud[aria-busy="true"] > * { opacity: 0.55; }

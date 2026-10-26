@@ -127,6 +127,13 @@
       'html body .slg .slg-top .slg-b{padding:6px 9px;}',
       'html body .slg .slg-top .hud{padding:4px 10px;}',
       'html body .slg .slg-scr .row > .slg-var[data-mvar],html body .slg .slg-scr .row > .slg-var[data-var]{flex:1 1 calc(50% - 6px);max-width:calc(50% - 6px);padding:4px 8px;font-size:14px;line-height:1.15;}',
+      '}',
+      /* the smallest phones (320 px, skeptic C-INDEX-GAMES #2): with ⏸ in the bar the pill had 114 px and the kart's
+         compact clock ('3/3 · ⏱ 0:50.2') needs 119, so the seconds were cut. Tighter gaps and pill padding give it
+         about 11 px to spare; the buttons keep their 44 px */
+      '@media (max-width: 340px){',
+      'html body .slg .slg-top{gap:4px;}',
+      'html body .slg .slg-top .hud{padding:4px 6px;}',
       '}'
     ].join('\n');
     document.head.appendChild(c);

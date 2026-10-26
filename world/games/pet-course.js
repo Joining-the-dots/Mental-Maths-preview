@@ -1735,6 +1735,12 @@
     try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms)); }
     catch (e) { var d = new Date(ms); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
   }
+  /* [C-DEBUT-BEST] a finished show ranks above one that ran out of hearts (world-core's showTier): medal 1-4, or a
+     best saved before the medal was kept */
+  function finishedRec(r) { var m = isWhole(r.extra) ? decodeExtra(r.extra).medal : 1; return m >= 1 && m <= 4; }
+  /* SHOWN_FIRST: on the results of a show that did not finish yet scored more than the finished best it did not
+     replace, the best line ends by saying why (James, 26 Oct 2026: "Finished shows rank first") */
+  var SHOWN_FIRST = 'Finished shows come first';
   function pbText(rec, variant, cfg, o) {
     if (!rec || rec.score == null) return '';
     var res = !!(o && o.results), t = '🏆 Your best: score ' + fmt(rec.score);
@@ -1743,8 +1749,9 @@
       var mine = res && o.result && isWhole(o.result.extra) ? decodeExtra(o.result.extra).medal : null;
       if (mine !== bm) t += ' · ' + md.icon + ' ' + md.name;
     }
-    if (res && dayOfIso(rec.at) !== ((cfg && cfg.day) || localDay())) return t;
-    return t + ' · 📅 Today’s stage';
+    if (!res || dayOfIso(rec.at) === ((cfg && cfg.day) || localDay())) t += ' · 📅 Today’s stage';
+    if (res && o.result && typeof o.result.score === 'number' && o.result.score > rec.score && !finishedRec(o.result) && finishedRec(rec)) t += ' · ' + SHOWN_FIRST;
+    return t;
   }
 
   /* ================================================================
@@ -1883,7 +1890,7 @@
     SECTIONS: SECTIONS, KINDS: KINDS, BEAT: BEAT, RUN_T: RUN_T, TUNING: TUNING, WIN: WIN, THEMES: THEMES, PATH: PATH, LETTERS: LETTERS,
     decodeExtra: decodeExtra, encodeExtra: encodeExtra, medal: medal, MEDALS: MEDALS, autopilotWants: autopilotWants,
     tierOf: tierOf, tumbleL: tumbleL, speedNow: speedNow, ringsFor: ringsFor, ringsByDefault: ringsByDefault, RINGS_KEY: PREF_KEY, def: def, FIG2D: FIG2D, titleFor: titleFor,
-    COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES, OUT_OF_HEARTS: OUT_OF_HEARTS,
+    COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES, OUT_OF_HEARTS: OUT_OF_HEARTS, SHOWN_FIRST: SHOWN_FIRST,
     _session: sess                                     /* test seam: this child's session memory (migrated on read) */
   };
   if (HAS_WIN) window.SLCourse = API;

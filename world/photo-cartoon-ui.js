@@ -292,7 +292,8 @@
       off();
       if (ov.parentNode) ov.parentNode.removeChild(ov);
       if (current && current.ov === ov) current = null;
-      try { if (opener && opener !== doc.body && typeof opener.focus === 'function' && opener.isConnected !== false) opener.focus(); } catch (e) { /* gone */ }
+      /* back to the opener without moving the page, as every island sheet does (c-island) */
+      try { if (opener && opener !== doc.body && typeof opener.focus === 'function' && opener.isConnected !== false) opener.focus({ preventScroll: true }); } catch (e) { /* gone */ }
       resolve(value || null);
     }
     function onKey(e) { if (e && e.key === 'Escape' && current && current.ov === ov) finish(result); }

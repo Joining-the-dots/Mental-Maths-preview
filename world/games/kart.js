@@ -492,7 +492,15 @@
          itself (the 3D HUD's place chip, the 2D place chip) — V4.55 fix run B11 */
       hud: function (o) {
         if (lv) lv.drawn();
-        var t = s.finishT != null ? s.finishT : s.t, lap = Math.min(LAPN, pr.lap + 1) + '/' + LAPN;
+        var lap = Math.min(LAPN, pr.lap + 1) + '/' + LAPN;
+        /* [C-KART-TIME] over the line the clock stops on the race's own time: the whole milliseconds the results
+           show and save (race.result().ms), in their m:ss.xx, so the top bar and the results never differ by
+           0.01 s (they rounded the finish twice: 0:50.22 here, 0:50.23 there). Before that, the running clock.
+           A narrow phone shows only '🏁 0:50.25' over the line (skeptic C-INDEX-GAMES #2): the lap count says
+           nothing new there, and '3/3 · ⏱ 0:50.25' was cut at 320 px wide while ⏸ is still in the bar */
+        var res = s.finishT != null ? race.result() : null;
+        if (res) return o && o.narrow ? '🏁 ' + L.fmt(res.ms) : 'Lap ' + lap + ' · ⏱ ' + L.fmt(res.ms);
+        var t = s.finishT != null ? s.finishT : s.t;
         /* a narrow phone (QA2C-12): the compact form, so the clock is never cut */
         if (o && o.narrow) return lap + ' · ⏱ ' + L.fmt(t * 1000, 1);
         return 'Lap ' + lap + ' · ⏱ ' + L.fmt(t * 1000);

@@ -181,7 +181,7 @@
      their land, and both are kept in w.crew3, never in w.pets (see the crew section).
      A pet with isle 'home' (the kids update's Home pets) is kept in crew3 the same way and
      needs no land.
-     The shop shelves and the act facts are tables (ISLE_SHELVES, ACT_INFO), not fields. */
+     The shop shelves and the act facts are tables (ISLE_SHELVES, ACT_INFO, RIDE_ACTS), not fields. */
   var CATALOG = [
     /* ---- starter (free, granted once) ---- */
     { id: 'house_cottage', kind: 'house', name: 'Your Home', price: 0, starter: true, fp: [2, 2], entrance: true, act: 'home', includes: ['shape_cottage', 'shape_loft'], desc: 'Your very own home. Tap it to change its colours.' },
@@ -661,6 +661,38 @@
     ACT_INFO[a] = { toggle: !!r[0], pet: !!r[1], sec: r[2], anim2d: r[3], glyph: r[4] };
   });
   deepFreeze(ACT_INFO);
+
+  /* the acts that are rides (c-copy-core; James, 26 Oct 2026: 'Try the Fountain' for non-rides). A ride is something
+     the pet gets ON and is carried, swung, spun, bounced, rocked or slid by, or climbs, hangs from or balances on: the
+     fairground rides, the swings, slides and trampolines, and the playground kit. Everything else is a thing to try:
+     a fountain, a café, a show, a statue, the penguin choir, a building or landmark with a lift, a zip line or a
+     drawbridge, a gate, a maze, a lane to run, and the things the pet goes IN or THROUGH rather than on (the canoe
+     creek, the log tunnel, the leaf pile), where 'Have a go on the …' would not read right. ACT_INFO cannot say this by
+     itself (the fountain, the café, the statue and the choir all have a part for the pet, and the trampoline hops like
+     the dance studio), so it is one act-level table here, beside ACT_INFO: one act is one behaviour, so a ride on one
+     item is a ride on every item that carries it. Every entry is an act with a part for the pet (ACT_INFO pet). The
+     Next step card reads it ('Have a go on the {item}.' for a ride, 'Try the {item}.' otherwise); nothing here
+     awards, spends or counts. */
+  var RIDE_ACTS = Object.freeze([
+    /* V4.54 and the first sky acts: the trampoline and bounce net, the swings, the carousel, the slides, the rope
+       bridge, the ice rink and the Big Wheel */
+    'bounce', 'swing', 'ride', 'slide', 'wobble', 'skate', 'wheel',
+    /* Theme Park Pier */
+    'droptower', 'teacups', 'chairs', 'swingship', 'train', 'dodgems', 'flume', 'coaster',
+    /* Jungle Treehouse Village: the hammock, the monkey bars, the rope-ladder den */
+    'rock', 'bars', 'climb',
+    /* Treetop Adventure Park: the cargo net, the zip-line tower, the balance beams, the seesaw */
+    'scramble', 'zipline', 'balance', 'seesaw',
+    /* Medieval Castle: the flower flinger (a see-saw catapult) */
+    'toss',
+    /* Penguin Ice Village: the ski lift */
+    'chairlift'
+  ]);
+  /* isRide(idOrItem) → true when the item's act is a ride (an unknown id, or an item with no act: false) */
+  function isRide(x) {
+    var it = typeof x === 'string' ? item(x) : x;
+    return !!(it && typeof it.act === 'string' && RIDE_ACTS.indexOf(it.act) >= 0);
+  }
 
   /* the shelves of each land's shop, in shop order: [shelfKey, [ids, cheapest first]] — in a
      'crew' shelf the mascots come first (the land's two kids-update animals, cheapest first,
@@ -1604,6 +1636,8 @@
      stay at most CARE.trialPantryMax ('trial_pantry', KU38).
      The wallet (F-KU4, walletOf(opts)): with 'coins' the price is coinPrice(), the balance
      coinBalance(), and the answer carries wallet: 'coins'; u.points is never looked at. */
+  /* a whole number with UK thousands commas (1500 → '1,500'), as the hosts' fmt() (toLocaleString('en-GB')) shows it */
+  function grouped(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function purchaseCheck(u, id, opts) {
     var trial = !!(opts && opts.trial);
     var w = ensureWorld(u), it = item(id);
@@ -1633,7 +1667,9 @@
       ok.price = 0; ok.trial = true;
     } else if (coins) {
       var cb = coinBalance(u);
-      if (cb < ok.price) return { ok: false, code: 'insufficient', need: ok.price - cb, wallet: 'coins', reason: 'You need ' + (ok.price - cb) + ' more 🪙.' };
+      /* James (25 Oct 2026): 'Need N more 🪙' for every shortfall (world-copy need.coins), N grouped as the shops show it
+         ('Need 1,500 more 🪙.'); the ⭐ reason below stays as it was */
+      if (cb < ok.price) return { ok: false, code: 'insufficient', need: ok.price - cb, wallet: 'coins', reason: 'Need ' + grouped(ok.price - cb) + ' more 🪙.' };
     } else {
       var bal = isInt(u.points) ? u.points : 0;
       if (bal < it.price) return { ok: false, code: 'insufficient', need: it.price - bal, reason: 'You need ' + (it.price - bal) + ' more ⭐.' };
@@ -2315,14 +2351,34 @@
     if (game === 'kart') return r.finished === true && isInt(r.ms) && r.ms >= g.minMs && r.ms <= g.maxMs;
     return isInt(r.score) && r.score >= 0 && r.score <= g.maxScore;
   }
+  /* [C-DEBUT-BEST] The Debut Run's best (James, 26 Oct 2026: "a finished show always ranks above an unfinished
+     one, then the higher score"): two kinds only, finished or not, and within the same kind the higher score wins
+     (a tie keeps the first). Nothing new is saved: whether a show finished is its medal, bits 0-2 of the extra
+     pet-course.js saves with the score (0 = the 🎀 Trainee ribbon, a show that did not finish; 1-4 = a finished
+     show's medal). An 👑 Encore Legend is a finished show like any other, so a higher-scoring 🥇 Superstar
+     replaces it. Once a show has finished, the island's best is the number the course boards hold (boards-core's
+     boardValue keeps the same 'finished' test, and a board keeps the higher finished score; before that the
+     island keeps an out-of-hearts best and the boards have nothing). A best saved without an extra
+     counts as finished (as pet-course's first-show rule reads it); medal bits 5-7 are no medal. */
+  function showTier(rec) {
+    var x = rec && rec.extra;
+    if (!isInt(x)) return 1;
+    var m = x & 7;
+    return m >= 1 && m <= 4 ? 1 : 0;
+  }
+  /* does r (a result or a stored best) beat the best prev on this game? */
+  function beatsBest(game, r, prev) {
+    var g = GAME_RULES[game];
+    if (g.better === 'lower') return r.ms < prev.ms;
+    if (game === 'course') { var a = showTier(r), b = showTier(prev); if (a !== b) return a > b; }
+    return r.score > prev.score;
+  }
   function recordResult(u, game, variant, r, ms) {
     var w = ensureWorld(u);
     if (!validResult(game, r)) return { ok: false, isPB: false };
     var key = game + ':' + String(variant || 'std').replace(/[^a-z0-9_]/gi, '').slice(0, 30);
     var prev = w.pb[key] || null, g = GAME_RULES[game];
-    var val = g.better === 'lower' ? r.ms : r.score;
-    var prevVal = prev ? (g.better === 'lower' ? prev.ms : prev.score) : null;
-    var isPB = prev == null || (g.better === 'lower' ? val < prevVal : val > prevVal);
+    var isPB = prev == null || beatsBest(game, r, prev);
     if (isPB) {
       var rec = { at: nowIso(ms) };
       if (g.better === 'lower') rec.ms = r.ms; else rec.score = r.score;
@@ -2479,14 +2535,14 @@
     /* M4 the newer data version of the two (only once either side is a v3 save) */
     var vN = nU.world && isInt(nU.world.v) ? nU.world.v : 0, vG = gU.world && isInt(gU.world.v) ? gU.world.v : 0;
     if (Math.max(vN, vG) >= VERSION) base.v = Math.max(vN, vG);
-    /* personal bests: the better of both sides, whichever side is the base */
+    /* personal bests: the better of both sides, whichever side is the base (a Debut Run's by [C-DEBUT-BEST]) */
     base.pb = {};
     [nw, gw].forEach(function (src) {
       Object.keys(src.pb || {}).forEach(function (k) {
-        var a = base.pb[k], b = src.pb[k], g = GAME_RULES[k.split(':')[0]];
+        var a = base.pb[k], b = src.pb[k], game = k.split(':')[0];
         if (!b) return;
         if (!a) { base.pb[k] = b; return; }
-        if (g && (g.better === 'lower' ? b.ms < a.ms : b.score > a.score)) base.pb[k] = b;
+        if (has(GAME_RULES, game) && beatsBest(game, b, a)) base.pb[k] = b;
       });
     });
     /* arcade minutes: per-day larger value (never summed — same play could be on both) */
@@ -2597,6 +2653,8 @@
     purchaseTx: purchaseTx, goalId: goalId, auditLedger: auditLedger,
     /* v3 land shops: shelves, act facts, colourways and the crew */
     ISLE_SHELVES: ISLE_SHELVES, ACT_INFO: ACT_INFO, DEFAULT_PET_NAMES: DEFAULT_PET_NAMES, setVariant: setVariant,
+    /* c-copy-core: which acts are rides (the Next step card's 'Have a go on' / 'Try the') */
+    RIDE_ACTS: RIDE_ACTS, isRide: isRide,
     isMascot: isMascot, isLandGear: isLandGear, crewList: crewList, crewPet: crewPet, activePetId: activePetId, wornBy: wornBy,
     /* kids update: the plug-in seam (issues: what a throwing hook left behind, newest last) */
     PLUGIN_KINDS: PLUGIN_KINDS, defineItems: defineItems, extraItems: extraItems, allItems: allItems, issues: ISSUES,

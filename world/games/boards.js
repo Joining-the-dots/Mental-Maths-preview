@@ -678,7 +678,8 @@
     var o = a.outcome, cfg = a.cfg || {}, name = nameOf(cfg), res = a.result || {};
     if (!S.ON.boards || !o || o.ok !== true || !guard(name)) return null;
     var key = typeof o.key === 'string' ? o.key : String(a.game) + ':' + String(a.variant || 'std'), r = B.rule(key);
-    var v = r ? (r.better === 'lower' ? res.ms : res.score) : null;
+    /* [C-DEBUT-BEST] the board's number for this round; none for a Debut Run show that did not finish */
+    var v = r ? B.boardValue(key, res) : null;
     if (!r || !B.validValue(key, v)) return null;
     lastGame = r.game;
     var day = dayOf(cfg), week = B.weekKey(day), u = profile(name), lb = B.notebook(u), noted = B.noteResult(lb, key, v, week);

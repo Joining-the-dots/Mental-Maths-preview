@@ -22,6 +22,10 @@
                    '📚 Learn' beside its need line and 'Save up for it'; the host starts the
                    learn-and-come-back trip for that character and closes the sheets (a returned false
                    keeps the cast open). Hidden without it (and in test mode nothing is short)
+     toggleGoal(id) → Promise<bool>   c-island: a cast card's '🎯 My goal' (set, clear, or swap the savings goal)
+                   goes through the host's own goal toggle, which asks 'Change your goal?' (Keep X / Yes, switch)
+                   before one goal replaces another, as the Island Shop does; true = it changed (the card redraws).
+                   Without it the card sets or clears the goal itself through commit, without asking
      findMe()      KU34: 'Find me on the island' in My character (the host closes the sheets)
      cover(delta)  pause / resume the 3D island under a sheet · sound(name) (default SLSound.play)
      use3D         true: turntables (SLPhotocard) over the 2D figure; false: 2D only (LOW, no 3D).
@@ -493,10 +497,19 @@
       if (s.onClosed) { try { s.onClosed(); } catch (e) { /* the sheet still closes */ } }
       ov.remove(); cover(ctx, -1);
       doc.removeEventListener('keydown', onKey);
-      try { if (opener && opener !== doc.body && opener.isConnected && opener.focus) opener.focus(); } catch (e) { /* ignore */ }
+      /* focus goes back without moving the page (c-island: as the host's sheets; 'Who's going on your island?' comes
+         up on its own as My Island opens, and its opener, the top bar's button, is under the sticky header by then) */
+      try { if (opener && opener !== doc.body && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
     };
     s.dismiss = function () { if (o.onDismiss) o.onDismiss(); else s.close(); };   /* ✕, Esc, the scrim */
-    function onKey(e) { if (e.key === 'Escape' && stack[stack.length - 1] === s) { if (e.preventDefault) e.preventDefault(); s.dismiss(); } }
+    /* one Esc = one dialog: a host card over this sheet (the island's 🎯 'Change your goal?', c-island) answers its own */
+    function onKey(e) {
+      if (e.key !== 'Escape' || stack[stack.length - 1] !== s) return;
+      var all = doc.querySelectorAll ? doc.querySelectorAll('.slw-ov') : null;
+      if (all && all.length && all[all.length - 1] !== ov) return;
+      if (e.preventDefault) e.preventDefault();
+      s.dismiss();
+    }
     doc.addEventListener('keydown', onKey);
     var armed = armScrim(ctx, ov, !!o.once);
     ov.addEventListener('click', function (e) { if (e.target === ov && armed(e)) s.dismiss(); });
@@ -864,6 +877,17 @@
         },
         goal: function (b) {
           var id = b.getAttribute('data-v');
+          /* c-island (James: 'Ask there too'): the host's toggleGoal asks 'Change your goal?' before one goal replaces
+             another, as the Island Shop does (no question with no goal, or for the same goal: it clears) */
+          if (typeof ctx.toggleGoal === 'function') {
+            var p;
+            try { p = ctx.toggleGoal(id); } catch (e) { return; }
+            Promise.resolve(p).then(function (changed) {
+              if (!(changed === true || (changed && changed.ok)) || !s.ov.isConnected) return;
+              sound(ctx, SOUND.pick); draw();
+            }, function () { /* the goal stays as it was */ });
+            return;
+          }
           commit(ctx, function (u) { var w = C().ensureWorld(u); return C().setGoal(u, C().goalId(w) === id ? null : id); }).then(function (r) { if (r.ok) { sound(ctx, SOUND.pick); draw(); } });
         },
         /* wave 3 (contract 5): learn and come back for this character; the host closes the sheets (false: the cast stays) */

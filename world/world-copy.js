@@ -48,7 +48,8 @@
    screens quote that their copy drafts left out (the Pet Corner's heading and buttons,
    the Pet Shop's groups, the creator's 'More in the Wardrobe'). These keys also use
    {name}, {move}, {food}, {fav}, {species} and {date}. The photo lines promise colours
-   picked on the device, never a likeness.
+   picked on the device, never a likeness. One key has {sign} (buy.game.look, c-copy-core): a game's
+   ▶ sign, which the host fills in itself.
 
    A count line may have a singular form '<key>.one'; t() uses it when vars.n is 1
    ('1 more of your crew is resting indoors', not 'are'). Callers pass n as usual.
@@ -327,6 +328,9 @@
     'next.visit': 'Pay a visit to {island}.',
     'next.flyThere': 'Fly there',
     'next.ride': 'Have a go on the {item}.',
+    /* c-copy-core (James, 26 Oct 2026: 'Try the Fountain' for non-rides): the same idea's words for a thing that is not a
+       ride (a fountain, a café, a statue, the penguin choir), which SLWorldCore.RIDE_ACTS decides by the thing's act */
+    'next.tryThing': 'Try the {item}.',
     'next.rideBtn': '✋ Have a go',
     'next.bag': 'Your bag has {n} things to put out.',
     'next.bag.one': 'Your bag has 1 thing to put out.',
@@ -342,6 +346,15 @@
     'learn.aboutDays.one': 'That’s about 1 day of learning.',
     /* the Games sheet when a grown-up has set no daily game time (was 'Island games have no daily time limit on this account.') */
     'games.noLimit': 'There’s no daily game time limit for you.',
+    /* c-copy-core (26 Oct 2026): the words other chunks already show through SLWorldCopy.t with these exact fallbacks, so
+       the table now holds them. A learning round's finish card (index.html [D-INDEX-FIN], James: '+N 🪙 for your island'
+       and a 🏝️ My Island button; '+{n}' reads the same for 1, so there is no '.one'), the island legend's line after the
+       starter course's sign, and the bought-a-game card (rewards-world.js SIGN_WORDS). {sign} is a game's ▶ sign
+       ('▶ Kart'), which the host fills in itself */
+    'finish.coins': '+{n} 🪙 for your island',
+    'finish.island': '🏝️ My Island',
+    'legend.play': 'tap a game’s sign to play',
+    'buy.game.look': 'It’s on your island now — look for the {sign} sign.',
     /* the intro slides (slide 1 used to promise the city across the bay) */
     'intro.1.title': 'Your island in the sky',
     'intro.1.body': 'A home, your first pet and the Debut Run. Five more islands float nearby, waiting to be opened.',

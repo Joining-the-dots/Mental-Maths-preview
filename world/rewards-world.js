@@ -172,7 +172,8 @@
     var css = document.createElement('style');
     css.id = 'slwCss';
     css.textContent = [
-      '.slw{max-width:1120px;margin:0 auto;padding:0 4px 18px;font-family:inherit;}',
+      /* c-island: above the theme's soft background blobs (slTheme body::before / ::after, z-index 0), as island-pixel.css */
+      '.slw{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:0 4px 18px;font-family:inherit;}',
       '.slw-hud{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 10px;}',
       '.slw-learn{background:linear-gradient(135deg,#6c5ce7,#a86ff0);color:#fff;border:none;border-radius:999px;padding:10px 18px;font:inherit;font-weight:800;font-size:15px;cursor:pointer;box-shadow:0 4px 14px rgba(108,92,231,.35);}',
       '.slw-pts{background:linear-gradient(135deg,#ffe27a,#ffb347);color:#5a3700;border-radius:999px;padding:8px 16px;font-family:"Baloo 2",sans-serif;font-weight:800;font-size:18px;}',
@@ -426,6 +427,8 @@
       '.slw-switch[aria-checked="true"] .tk{background:#6c5ce7;}.slw-switch[aria-checked="true"] .tk>i{left:auto;right:3px;}.slw-sheet.slw-shopsheet{height:92vh;}',
       '.slw-togs{display:flex;gap:6px;flex:0 0 auto;align-items:center;}.slw-tog{position:relative;width:44px;min-width:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:18px;}',
       '.slw-tog .slw-togic{display:inline-flex;align-items:center;justify-content:center;}.slw-tog .slw-togic svg{width:22px;height:22px;}',
+      /* c-island: the ⋯ square (Sound and help) in place of sound and ❓ on a phone up to 400px wide */
+      '.slw-togs .slw-more{display:none;}@media (max-width: 400px){.slw-togs .slw-tog[data-act="sound"],.slw-togs .slw-tog[data-act="info"]{display:none;}.slw-togs .slw-tog.slw-more{display:inline-flex;}}',
       /* phones: the HUD's buttons wrap (no sideways strip that hides My pets, QA#6) and the Next step card takes a whole row */
       '@media (max-width:640px){.slw-goal.slw-next{flex:1 1 100%;}}',
       '@media (prefers-reduced-motion: reduce){.slw-pet.slw-eat,.slw-pet.slw-eat>svg,.slw-feed2d .bit,.slw-feed2d .love i{animation:none !important;}}',
@@ -679,8 +682,9 @@
     return s ? String(tx(s[0], null, s[1])) : '▶ ' + ((it && it.name) || 'Play');
   }
   function playTag(it) { return '<span class="slw-tag play">' + esc(playSign(it)) + '</span>'; }
-  /* d-3d's NEW copy keys, not in world-copy.js yet (FOR THE LEAD / d-island to add, word for word): these fallbacks
-     show until then. buy.game.look's {sign} is a game's playSign, its ▶ kept with the name on a narrow card */
+  /* d-3d's copy keys, in world-copy.js word for word since c-copy-core (26 Oct): the island reads the table's words, and
+     these fallbacks are the same text for a page without the copy (tests/w3-copy.test.js checks they always match).
+     buy.game.look's {sign} is a game's playSign, its ▶ kept with the name on a narrow card */
   var SIGN_WORDS = { legend: ['legend.play', 'tap a game’s sign to play'], look: ['buy.game.look', 'It’s on your island now — look for the {sign} sign.'] };
   function signWords(k, it) {
     var w = SIGN_WORDS[k];
@@ -1251,6 +1255,9 @@
             '<button class="slw-btn slw-tog" type="button" data-act="music" data-fk="hud:music" aria-pressed="' + musicOn() + '" aria-label="Music" title="Music">' + musicIco() + '</button>' +
             '<button class="slw-btn slw-tog" type="button" data-act="sound" data-fk="hud:sound" aria-pressed="' + !u.muted + '" aria-label="Sound" title="Sound">' + soundIco(u.muted) + '</button>' +
             '<button class="slw-btn slw-tog" type="button" data-act="info" data-fk="hud:info" aria-label="Help" title="Help"><span aria-hidden="true">❓</span></button>' +
+            /* c-island: on a phone up to 400px wide, sound and ❓ fold into one ⋯ square (island-pixel.css), so 📚 Learn,
+               🪙 (even 9,999), music and ⋯ share row 1 and the whole 3D stage fits a 360 × 740 phone */
+            '<button class="slw-btn slw-tog slw-more" type="button" data-act="more" data-fk="hud:more" aria-haspopup="dialog" aria-label="' + esc(MORE_NAME) + '" title="' + esc(MORE_NAME) + '"><span aria-hidden="true">⋯</span></button>' +
           '</span>' +
           '<div class="slw-acts">' +
             '<button class="slw-btn big" type="button" data-act="shop" data-fk="hud:shop">' + lbl('shop', 'Island Shop') + '</button>' +
@@ -1294,6 +1301,37 @@
   /* the music and sound toggles' pictures (their aria-labels and aria-pressed say the rest; music off wears a slash) */
   function musicIco() { return '<span class="slw-togic" aria-hidden="true">' + (ico('music') || '🎵') + '</span>'; }
   function soundIco(muted) { return '<span class="slw-togic" aria-hidden="true">' + (muted ? '🔇' : '🔊') + '</span>'; }
+  /* sound on / off (the child's own u.muted, as the app's mute button): the HUD's 🔊 square and the ⋯ sheet's Sound
+     button both come here, and the square is put right whichever was tapped → muted now */
+  function flipSound() {
+    var u = me(); if (!u) return null;
+    u.muted = !u.muted; saveState();
+    try { if (typeof renderMuteBtn === 'function') renderMuteBtn(); } catch (er) {}
+    var sq = root && root.querySelector('.slw-hud [data-act="sound"]');
+    if (sq) { sq.innerHTML = soundIco(u.muted); sq.setAttribute('aria-pressed', String(!u.muted)); }
+    if (!u.muted) sfx('correct');
+    return u.muted;
+  }
+  /* c-island: the ⋯ square on a narrow phone (island-pixel.css shows it at 400px and less, in place of sound and ❓):
+     a small card with the same two controls, Sound (on / off, aria-pressed, as the square) and Help (the ❓ card) */
+  var MORE_NAME = 'Sound and help';
+  function openMore() {
+    var u = me(); if (!u) return null;
+    var ov = overlay('<h2>' + esc(MORE_NAME) + '</h2>' +
+      '<div class="slw-morelist" style="display:flex;flex-direction:column;gap:10px;">' +
+        '<button class="slw-btn big" type="button" id="slwMoreSound" aria-pressed="' + !u.muted + '">' + soundWords(u.muted) + '</button>' +
+        '<button class="slw-btn big" type="button" id="slwMoreHelp">' + esc('❓ How My Island works') + '</button>' +
+      '</div>', { small: true, cls: 'slw-moresheet' });
+    var sb = $('#slwMoreSound', ov);
+    sb.addEventListener('click', function () {
+      var m = flipSound(); if (m == null) return;
+      sb.innerHTML = soundWords(m); sb.setAttribute('aria-pressed', String(!m));
+    });
+    $('#slwMoreHelp', ov).addEventListener('click', function () { ov._close(); openInfo(); });
+    return ov;
+  }
+  /* the sheet's Sound button: its picture says on or off, its name stays 'Sound' (aria-pressed says the rest) */
+  function soundWords(muted) { return '<span aria-hidden="true">' + (muted ? '🔇' : '🔊') + '</span> Sound'; }
   function goalHtml(u) {
     if (trial()) return '<div class="slw-goal slw-trial" role="note"><span class="gt">' + (coinsOn() ? esc(tx('coins.goal.trial')) : 'Test mode: everything on the island is free. Your ⭐ stay put.') + '</span></div>';
     var gp = C.goalProgress(u);
@@ -1709,14 +1747,8 @@
       e.currentTarget.setAttribute('aria-pressed', String(onNow));
       return;
     }
-    if (a === 'sound') {
-      var u = me(); u.muted = !u.muted; saveState();
-      try { if (typeof renderMuteBtn === 'function') renderMuteBtn(); } catch (er) {}
-      e.currentTarget.innerHTML = soundIco(u.muted);
-      e.currentTarget.setAttribute('aria-pressed', String(!u.muted));
-      if (!u.muted) sfx('correct');
-      return;
-    }
+    if (a === 'sound') { flipSound(); return; }
+    if (a === 'more') return openMore();
     if (a === 'edit') {
       var lk = isleNow();
       if (mode === 'play' && !C.isleUnlocked(W(), lk)) {   /* a locked island is a preview: nothing to edit yet (D46) */
@@ -2106,7 +2138,10 @@
       if (first) { closed = true; cover(-1); openBehind(behind); behind = []; }
       ov.remove(); document.removeEventListener('keydown', onKey); if (opts.onClose) opts.onClose(how);
       try { window.removeEventListener('resize', onResize); } catch (e) {}
-      try { if (opener && document.body.contains(opener) && opener.focus) opener.focus(); } catch (e) {}
+      /* c-island: focus goes back without moving the page. A card the island opens by itself has, as its opener, the top
+         bar's 🏝️ My Island button, which the open's lift (fitStage) has just put under the sticky header; a plain focus()
+         scrolled the page back to it and pushed the stage's bottom off a phone's screen (360 × 740: 8px) */
+      try { if (opener && document.body.contains(opener) && opener.focus) opener.focus({ preventScroll: true }); } catch (e) {}
       if (first) done.splice(0).forEach(function (f) { try { f(); } catch (e) {} });
     }
     function onKey(e) {
@@ -3591,6 +3626,10 @@
       openShop: function (slot) { openShop('wardrobe', { slot: slot }); },
       /* wave 3 (contract 5): a short character card's '📚 Learn': a learn-and-come-back trip that reopens it */
       learnFor: function (id) { return startTrip(id, 'cast'); },
+      /* c-island (James, 26 Oct: 'Ask there too'): a cast card's '🎯 My goal' goes through the Island Shop's own
+         toggleGoal, so swapping one goal for another asks 'Change your goal?' (Keep X / Yes, switch) there too.
+         → Promise<bool> (did it change); one argument only (never the shop's `sure`) */
+      toggleGoal: function (id) { return toggleGoal(id); },
       use3D: on3D() && !document.documentElement.classList.contains('sl-low')
     };
     if (canFindMe()) ctx.findMe = findMe;
@@ -4642,8 +4681,9 @@
     if (at === isleNow() && !skyMapOn) return Promise.resolve(true);
     return goIsle(at).then(function (ok) { return !!ok && isleNow() === at && !skyMapOn; });
   }
-  /* 'Have a go on the {item}.' (d-island): play mode, then the thing is framed and plays its act once, exactly as a tap
-     on it would (reduced motion, its sounds and its re-tap guard included) */
+  /* the Next step card's ✋ Have a go (d-island), whichever words the card has: 'Have a go on the {item}.' for a ride,
+     'Try the {item}.' for anything else (c-copy-core, by SLWorldCore.RIDE_ACTS). Play mode, then the thing is framed and
+     plays its act once, exactly as a tap on it would (reduced motion, its sounds and its re-tap guard included) */
   function rideNow(uid, k) {
     if (typeof uid !== 'string' || !uid) return Promise.resolve(false);
     if (mode === 'place') { toast(tx('isle.finishFirst')); return Promise.resolve(false); }

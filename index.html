@@ -1899,9 +1899,11 @@
      mastered, accuracy, streak, that badge, who is online, the bonus drops and the version open from the ⭐ points
      in a small panel with ✕ (#slHdrMore, filled by the [D-INDEX-HDR] script). iPads and
      computers keep the header as it was: every rule here is inside the phone query, and the panel never shows
-     wider than that. */
+     outside it. [C-INDEX-HDR] Sideways phones too (James, 26 Oct: "Yes, sideways too"): the query also takes any
+     screen 500px tall or less held sideways (an 844 x 390 or 740 x 360 phone). No iPad is that short sideways
+     (the smallest is 744px tall), so iPads still keep the header as it was. */
   .sl-hdr-more { display: none; }
-  @media (max-width: 600px) {
+  @media (max-width: 600px), (orientation: landscape) and (max-height: 500px) {
     header.topbar { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; }
     header.topbar .brand { flex: none; gap: 0; font-size: 0; letter-spacing: 0; }
     header.topbar .brand > span:not(.logo) { display: none; }
@@ -3449,7 +3451,7 @@ function slLcMissing(code, where) {
     <div class="stat" title="Accuracy this session"><b id="stAcc">—</b>accuracy</div>
     <div class="stat" title="Current streak of correct answers"><b id="stStreak">0</b>streak</div>
   </div>
-  <!-- [D-INDEX] phones: the numbers behind the ⭐ points (filled when it opens; never shown wider than 600px) -->
+  <!-- [D-INDEX] phones: the numbers behind the ⭐ points (filled when it opens; only ever shown on a phone, upright or sideways) -->
   <div class="sl-hdr-more" id="slHdrMore" role="dialog" aria-label="Your numbers" hidden></div>
 </header>
 
@@ -5430,10 +5432,10 @@ function updatePointsDisplay() {
    ⭐ (pointsEarned, which only learning raises) from its start to its finish. No line when N is 0, or when the
    island core with its coin wallet isn't loaded (nothing could have paid them yet). The words go through
    SLWorldCopy.t when the island's copy is in, with the same text as the fallback.
-   SHELL-ONLY COPY KEYS (not in the copy contract; listed for the lead, 25 Oct): 'finish.coins' = '+{n} 🪙 for your
-   island' and 'finish.island' = '🏝️ My Island'. world/world-copy.js (chunk d-island) does not have them yet, so
-   today the fallback here IS the text; if the lead adds them there, it must be with exactly these words (a test
-   in tests/d-index.test.js checks that).
+   SHELL COPY KEYS (first listed here for the lead, 25 Oct): 'finish.coins' = '+{n} 🪙 for your island' and
+   'finish.island' = '🏝️ My Island'. world/world-copy.js has both, word for word (c-copy-core, 26 Oct), so the card
+   reads the table's words; the fallback here is the same text, for a page without the island's copy (tests in
+   tests/d-index.test.js and tests/w3-copy.test.js check that the two always match).
      slCoinCore()              the island core with its coin wallet is loaded
      slRoundMark()              the lifetime ⭐ now (a round's start)
      slRoundCoins(mark)         N for a round that started at mark (0 without the core or a mark)
@@ -9759,15 +9761,18 @@ slNavSync(getActiveApp());   /* the first paint already shows the right place (s
    [D-INDEX] rules) and the ⭐ points pill is a button: it opens #slHdrMore, a small panel under the header with the
    points, mastered, accuracy, streak, the Golden Run ⭐ badge, who is online (that pill's own button), the bonus
    drops and the version, and ✕. Its numbers are read from the header's own, which stay where they were (hidden on phones), so everything that
-   writes them is unchanged. Tap outside, ✕ or Escape closes it; so does the screen growing past 600px, where the
+   writes them is unchanged. Tap outside, ✕ or Escape closes it; so does the screen leaving the phone query, where the
    pill is a plain label again (no role, no tab stop) and the panel never shows. Nothing here writes the save.
+   [C-INDEX-HDR] (James, 26 Oct: "Yes, sideways too") the phone query is the stylesheet's own: up to 600px wide, or
+   500px tall or less held sideways (PHONE_MQ; a phone turned sideways keeps the slim header).
      window.slHdrMore.open() / close() / isOpen() / phone() */
 (function () {
   'use strict';
+  var PHONE_MQ = '(max-width: 600px), (orientation: landscape) and (max-height: 500px)';
   var pill = document.getElementById('pointsPill'), panel = document.getElementById('slHdrMore');
   if (!pill || !panel) return;
   var mq = null;
-  try { mq = window.matchMedia ? window.matchMedia('(max-width: 600px)') : null; } catch (e) { mq = null; }
+  try { mq = window.matchMedia ? window.matchMedia(PHONE_MQ) : null; } catch (e) { mq = null; }
   function phone() { return !!(mq && mq.matches); }
   function isOpen() { return !panel.hidden; }
   function txt(id) { var e = document.getElementById(id); return e ? String(e.textContent || '').trim() : ''; }

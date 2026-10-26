@@ -421,7 +421,8 @@
       cover(E, -1);
       ov.remove(); doc.removeEventListener('keydown', onKey);
       if (o.onClose) o.onClose();
-      try { if (opener && opener !== doc.body && opener.isConnected && opener.focus) opener.focus(); } catch (e) { /* ignore */ }
+      /* back to the opener without moving the page, as the host's overlay does (c-island) */
+      try { if (opener && opener !== doc.body && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
     }
     doc.addEventListener('keydown', onKey);
     var armed = armScrim(E, ov, !!o.once);

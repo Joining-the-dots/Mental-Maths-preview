@@ -70,7 +70,10 @@
                 Not when travel is false
        ride     a ride or landmark standing on the island the child is on (a fun thing or a
                 landmark with an act, never a game's ▶ PLAY sign or the house): next.ride {item}
-                + next.rideBtn → ride
+                ('Have a go on the …') when its act is one of the core's RIDE_ACTS (the Big Wheel,
+                the trampoline), else next.tryThing {item} ('Try the …': the fountain, the café, a
+                statue, the penguin choir; every thing, with a core that has no RIDE_ACTS), then
+                next.rideBtn → ride (the card's id is 'ride' either way)
        decorate on an island the child owns: things in the bag that may go there, next.bag {n}
                 + next.bagBtn → edit; else, with a free square and (test mode, or something
                 placeable there the child can buy now), next.add {island} + isle.openShop → shop
@@ -193,6 +196,8 @@
   function fn(x, name) { return typeof x.C[name] === 'function'; }
   function opened(x, k) { return fn(x, 'isleUnlocked') ? !!x.C.isleUnlocked(x.w, k) : k === 'home'; }
   function placedOn(x, k) { var l = fn(x, 'placedOn') ? x.C.placedOn(x.w, k) : []; return Array.isArray(l) ? l : []; }
+  /* the core's ride table (SLWorldCore.RIDE_ACTS, by act); a core without it has no rides, so every thing reads 'Try the' */
+  function isRide(x, it) { var R = x.C.RIDE_ACTS; return Array.isArray(R) && R.indexOf(it.act) >= 0; }
 
   /* ---------------- the card ---------------- */
   function key(k, params) { return { key: k, params: params || null }; }
@@ -276,7 +281,8 @@
         var it = p && x.C.item(p.id);
         if (!it || seen[it.id] || !has(RIDE_KINDS, it.kind) || typeof it.act !== 'string' || !it.act || has(NOT_RIDES, it.act) || typeof p.uid !== 'string') return;
         seen[it.id] = true;
-        out.push(card('ride', key('next.ride', { item: it.name }), { key: 'next.rideBtn', params: null, go: { to: 'ride', isle: x.isle, uid: p.uid } }, itemIcon(it.id)));
+        /* a real ride: 'Have a go on the Big Wheel.'; anything else: 'Try the Fountain.' (James, 26 Oct 2026) */
+        out.push(card('ride', key(isRide(x, it) ? 'next.ride' : 'next.tryThing', { item: it.name }), { key: 'next.rideBtn', params: null, go: { to: 'ride', isle: x.isle, uid: p.uid } }, itemIcon(it.id)));
       });
       return out;
     },
