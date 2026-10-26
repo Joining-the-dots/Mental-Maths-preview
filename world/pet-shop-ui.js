@@ -41,18 +41,33 @@
                    greyed Adopt / price button; the host starts the learn-and-come-back trip for that id
                    and closes the sheets (a returned false keeps the shop open). Absent → no Learn button
                    (the greyed button as before).
+     here          string | () → string: the land the child is on (the host's isleNow), where the shop
+                   opens; absent → Home (and the land page never says 'You're on …')
+     buyGear(id, {btn, err}) → Promise<res | bool>: the host's ordinary buy flow for pet clothes (kind
+                   'acc', with the host's own celebration), resolving falsy / {ok: false} when nothing
+                   was bought ('Not yet' on its confirm card included). Absent → no Clothes shelf at all
+                   (the Island Shop sells pet clothes), so the shop never shows a piece with nothing to tap
      now() → ms (default Date.now) · sound(name) or sfx(name): an SLSound name ('pop' when a food
      lands in the pantry) · C (default SLWorldCore) · care (default SLPetCare, bound to C) · shop
      (default SLIslandShop) · document, clock (→ ms, the scrim's arming and a learn trip's 3 hours; default
      Date.now): test seams
 
    API
-     openPetShop(deps, {filter, id, news}) → Promise   resolves when the shop closes. filter: 'all'
-                   (the default) | 'food' | 'home' | a land | 'adopt' ('I can adopt now'); id: that
-                   card is scrolled to, ringed and focused (All when the filter would hide it; R2: the
-                   tab a '📚 Learn' trip for that id left from, when it still shows it);
-                   news (the news card's 'Visit the Pet Shop') needs nothing more: the new species
-                   carry a 'New' badge (isle.chipNew) wherever the child has none of them
+     openPetShop(deps, {filter, id, news}) → Promise   resolves when the shop closes. Laid out like
+                   the Island Shop (James, 25 Oct: "Make them match"): a sticky row of land chips ('Shop
+                   at': Home, then the sky lands; owned ✓, a locked one wears its lock) picks ONE land
+                   page, and the page has a 'Jump to' row and three shelves: Animals (that land's
+                   species), Food (every food, on every land) and Clothes (that land's pet gear), with
+                   'I can buy' (never in test mode) filtering the land on show (a card stays only when it
+                   can be bought here and now; the free basic meal's line stays when its Food shelf
+                   goes). filter: 'all' (the
+                   default: the land the child is on) | 'food' (that land, scrolled to Food) | 'home' |
+                   a land | 'adopt' (the land the child is on if something can be adopted there, else
+                   the first land where it can, with 'I can buy' on); id: that card's land (a food:
+                   the land asked for), the card scrolled to, ringed and focused ('I can buy' off when
+                   it would hide it; R2: the land and filter a '📚 Learn' trip for that id left from,
+                   when they still show it); news (the news card's 'Visit the Pet Shop') needs nothing
+                   more: the new species carry a 'New' badge (isle.chipNew) wherever the child has none
      adopt(deps, petId, {btn, err}) → Promise<bool>   one adoption: 'Make room' first when home
                    is full (cap 'home' only, KU5), the care.adoptLimit question before the pet
                    that takes a child to 3 ('total'), the host's buy, the name step
@@ -62,7 +77,10 @@
      adoptOffer(ctx) → Promise<'shop' | 'later' | null>   the new player's card in the island-open
                    queue (KU13, prio 30): 'Adopt a friend for {name}' opens the Pet Shop, 'Later'
                    closes; null (nothing shown) when the cap shuts adoption
-     view-models (pure): shopView(deps, filter) · memoryView(deps) · FILTERS · CSS
+     view-models (pure): shopView(deps, at) (at: an opening name, or {land, filter 'all' | 'afford', jump}) → {land,
+                   here, filter, jump, lands (the chips), section, banner, jumps, groups (the shelves: Animals key = the
+                   land, 'food', 'clothes'), hidden, note (the free basic meal's line when 'I can buy' took its
+                   shelf), next, empty} · memoryView(deps) · FILTERS (the opening names) · CSS
    Nothing here reads or writes storage, sends anything, rolls a number or awards ⭐.
    ================================================================ */
 (function (root, factory) {
@@ -84,7 +102,12 @@
     return sibs[name];
   }
   function CP() { return sib('SLWorldCopy', './world-copy.js'); }
-  function tx(key, vars) { var c = CP(); return c && typeof c.t === 'function' ? c.t(key, vars) : key; }
+  /* fb: the words a key says until the copy table has it (the island's copy contract: the same text as the table) */
+  function tx(key, vars, fb) {
+    var c = CP();
+    if (c && typeof c.t === 'function') return c.t(key, vars, fb);
+    return (typeof fb === 'string' ? fb : key).replace(/\{(\w+)\}/g, function (m, k) { return vars && own(vars, k) && vars[k] != null ? String(vars[k]) : m; });
+  }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function fmt(n) { return (n || 0).toLocaleString('en-GB'); }
   function val(v) { return typeof v === 'function' ? v() : v; }
@@ -127,6 +150,8 @@
         return !!(root.SLPhotocard && I && I.v3Scene && !(html && html.classList && html.classList.contains('sl-low')));
       },
       now: function () { var n = typeof deps.now === 'function' ? deps.now() : Date.now(); return typeof n === 'number' && isFinite(n) ? n : Date.now(); },
+      /* the land the child is on (deps.here), or null when the host does not say */
+      here: function () { var h = null; try { h = val(deps.here); } catch (e) { h = null; } return typeof h === 'string' && C && own(C.ISLES, h) ? h : null; },
       sfx: function (n) {
         try { if (typeof deps.sound === 'function') deps.sound(n); else if (typeof deps.sfx === 'function') deps.sfx(n); } catch (e) { /* sound is never needed */ }
       }
@@ -164,11 +189,14 @@
     try { s = P && typeof P.foodIcon === 'function' ? P.foodIcon(id) : ''; } catch (e) { s = ''; }
     return '<span class="slps-food">' + (s || sprite(E, id)) + '</span>';
   }
+  /* a piece of pet gear: its 2D picture (a V4.54 piece on a puppy, a land's piece on its square card); never a data-pc */
+  function gearPic(E, id) { return '<span class="slps-2d slps-gear">' + sprite(E, id) + '</span>'; }
   /* the island's money (F-KU5): a card made in 🪙 (island-shop's wallet: 'coins', since the two wallets) shows 🪙 and
      its shortfall in coins; a ⭐ card (a core that pays in stars) reads as before */
   function symOf(c) { return c && c.wallet === 'coins' ? '🪙' : '⭐'; }
   function money(c) { return symOf(c) + ' ' + fmt(c.price); }
-  function needLine(c, n) { return tx(c && c.wallet === 'coins' ? 'char.cast.needCoins' : 'char.cast.need', { n: fmt(n) }); }
+  /* James (25 Oct): 'Need N more 🪙' for every shortfall (need.coins, the island's copy contract) */
+  function needLine(c, n) { return c && c.wallet === 'coins' ? tx('need.coins', { n: fmt(n) }, 'Need {n} more 🪙') : tx('char.cast.need', { n: fmt(n) }); }
   function priceHtml(c) {
     return '<div class="pr">' + (c.free ? '<s>' + money(c) + '</s> <span class="slw-free">' + esc(tx('wardrobe.free')) + '</span>' : money(c)) + '</div>';
   }
@@ -176,11 +204,31 @@
   /* ================================================================
      THE VIEW-MODEL (pure: the shop's data, the cap and every card's words and action)
      ================================================================ */
-  function chipsOf(E, f) {
-    return FILTERS.filter(function (k) { return k === 'all' || k === 'food' || k === 'adopt' || own(E.C.ISLES, k); }).map(function (k) {
-      var key = k === 'all' ? 'care.shop.all' : k === 'food' ? 'care.shop.food' : k === 'adopt' ? 'care.shop.canAdopt' : 'isle.short.' + k;
-      return { f: k, label: tx(key), on: k === f };
+  /* the land page's three shelves, in this order (care.shop.jump.*: the island's copy contract) */
+  var SHELVES = Object.freeze(['animals', 'food', 'clothes']);
+  var SHELF_WORDS = { animals: 'Animals', food: 'Food', clothes: 'Clothes' };
+  function shelfLabel(s) { return tx('care.shop.jump.' + s, null, SHELF_WORDS[s]); }
+  /* the land chips ('Shop at', the Island Shop's picker): Home first, then the sky lands in ISLE_ORDER */
+  function landsOf(E, U, land, here) {
+    var C = E.C;
+    return C.ISLE_ORDER.filter(function (k) { return own(C.ISLES, k); }).map(function (k) {
+      return { isle: k, name: C.ISLES[k].name, short: tx('isle.short.' + k, null, C.ISLES[k].name),
+        owned: k === 'home' || !!(U.world && typeof C.isleUnlocked === 'function' && C.isleUnlocked(U.world, k)), here: k === here, on: k === land };
     });
+  }
+  /* where a card lives: a pet or a piece of pet gear on its land (no land: Home); a food is on every land (null) */
+  function landOfId(E, id) {
+    var it = E.C.item(id);
+    if (!it || (it.kind !== 'pet' && it.kind !== 'acc')) return null;
+    return it.isle && own(E.C.ISLES, it.isle) ? it.isle : 'home';
+  }
+  /* 'I can buy' keeps what can be had now: an animal to adopt (or to make room for), a food, a piece of gear — each only
+     with the host's flow that buys it here (by.buy: deps.buy; by.gearBuy: deps.buyGear), so it never keeps a card that
+     has nothing to tap */
+  function canNow(c, by) {
+    if (c.kind === 'pet') return (c.act === 'adopt' || c.act === 'room') && !!c.can && !!by.buy;
+    if (c.kind === 'gear') return c.act === 'gear' && !!c.can && !!by.gearBuy;
+    return c.act === 'buy' && !!c.can && !!by.buy;
   }
   /* the kids update's new species (SLIslandLook.KU_IDS): a card's 'New' badge while the child has none */
   function isNew(id) { var L = sib('SLIslandLook', './world-look.js'); return !!(L && Array.isArray(L.KU_IDS) && L.KU_IDS.indexOf(id) >= 0); }
@@ -214,6 +262,7 @@
     }
     /* 'total' at the cap ('ownFull'): the cap chip and the Pet Corner (above); the banner says why (care.ownFull) */
     if ((vm.act === 'adopt' || vm.act === 'room') && !vm.can && c.code === 'insufficient' && typeof c.need === 'number') {
+      vm.need = c.need;
       vm.line = needLine(c, c.need);
       vm.learn = learnOn(E, c.need);                         /* wave 3: '📚 Learn' beside the need line */
     }
@@ -227,6 +276,9 @@
       act: 'buy', can: !!c.can, line: null, learn: false, pantry: tx('care.pantry') + ' · ' + c.have };
     if (c.state === 'full') vm.line = tx('care.pantryFull', { food: c.name });
     else if (c.state === 'short' && typeof c.need === 'number') {
+      /* the food shortfall is My pets' pantry line word for word (care.noCoins; d-island's copy says 'Need {n} more 🪙 for
+         {food}.', James's one shortfall wording), so the Pet Shop and My pets never say it two ways */
+      vm.need = c.need;
       vm.line = tx(c.wallet === 'coins' ? 'care.noCoins' : 'care.noPoints', { n: fmt(c.need), food: c.name });
       vm.learn = learnOn(E, c.need);
     }
@@ -234,44 +286,131 @@
     else if (c.state === 'trialFull') vm.line = tx('care.trialFull', { n: trialMax || ((E.C.CARE || {}).trialPantryMax) || 0 });
     return vm;
   }
-  function shopView(deps, filter) {
-    var E = env(deps), C = E.C, f = FILTERS.indexOf(filter) >= 0 ? filter : 'all';
-    if (f !== 'all' && f !== 'food' && f !== 'adopt' && !own(C.ISLES, f)) f = 'all';
-    var U = readCopy(E), room = typeof C.petRoom === 'function' ? C.petRoom(U.world) : null, trial = E.trial();
-    var raw = E.shop && typeof E.shop.petShop === 'function' ? E.shop.petShop(C, U, { filter: f, trial: trial }) : [];
-    var groups = raw.map(function (g) {
-      if (g.key === 'food') {
-        var meter = tx('care.pantry') + ' · ' + g.meals + (g.trialMax ? ' / ' + g.trialMax : '');
-        var lines = g.lineKey ? [tx(g.lineKey, { n: g.trialMax })] : [];
-        /* no meal the child can get now (F-KU4's free basic meal, F-KU5): a hungry pet is never left out, the Pet Corner has it */
-        if (!trial && E.care && typeof E.care.basicMeal === 'function' && !g.items.some(function (c) { return c.group !== 'treat' && c.can; }) &&
-            g.items.some(function (c) { return c.group !== 'treat' && c.state === 'short'; })) lines.push(tx('care.basic.shop'));
-        return { key: 'food', kind: 'food', title: tx(g.labelKey), lines: lines, meter: meter,
-          cards: g.items.map(function (c) { return foodCardVM(E, c, g.trialMax); }) };
+  /* a piece of pet gear (kind 'acc') on the Clothes shelf: its 2D picture, the core's own state (owned, locked, short,
+     affordable) and its price in the wallet the island uses; bought through the host's buyGear (with the host's own
+     celebration), worn in My pets */
+  function gearCardVM(E, U, id, trial, isle) {
+    var C = E.C, it = C.item(id), o = { trial: trial };
+    var st = (typeof C.itemState === 'function' ? C.itemState(U, id, o) : null) || {}, chk = C.purchaseCheck(U, id, o) || {};
+    var p = typeof C.priceOf === 'function' ? C.priceOf(id, o) : null, coins = typeof C.walletOf === 'function' && C.walletOf(o) === 'coins';
+    var vm = { id: id, kind: 'gear', name: it.name, fact: descOf(E, id), price: typeof p === 'number' && isFinite(p) ? p : it.price, free: trial,
+      state: st.state || 'affordable', wallet: coins ? 'coins' : null, chip: null, act: null, can: false, line: null, learn: false };
+    if (st.state === 'owned') {
+      /* the child has it: where to wear it (My pets), never a second Buy */
+      vm.chip = { cls: 'own', text: tx('care.shop.owned', null, '✓ Owned') };
+      vm.act = E.deps.openCorner ? 'corner' : null;
+      vm.can = !!vm.act;
+    } else if (st.state === 'locked') {
+      vm.chip = { cls: 'lock', text: tx('care.shop.unlock', { island: tx('isle.short.' + isle) }) };
+    } else {
+      vm.act = 'gear';
+      vm.can = !!chk.ok;
+      if (!chk.ok && chk.code === 'insufficient' && typeof chk.need === 'number') {
+        vm.need = chk.need;
+        vm.line = needLine(vm, chk.need);
+        vm.learn = learnOn(E, chk.need);
       }
-      var title = g.key === 'home' ? tx('care.shop.home') : g.name;
-      return { key: g.key, kind: 'pets', title: title, locked: !g.owned, lines: g.owned ? [] : [tx('care.shop.unlock', { island: g.name })],
-        cards: g.items.map(function (c) { return petCardVM(E, c, room, U); }) };
-    });
+    }
+    return vm;
+  }
+  /* the land's pet gear, cheapest first in the island's money (the order never changes when one is bought) */
+  function gearOf(E, U, k, trial) {
+    var C = E.C, o = { trial: trial }, list = typeof C.shopItems === 'function' ? C.shopItems() : C.CATALOG;
+    var price = function (it) { var p = typeof C.priceOf === 'function' ? C.priceOf(it.id, o) : null; return typeof p === 'number' && isFinite(p) ? p : it.price; };
+    return list.filter(function (it) { return it && it.kind === 'acc' && !it.retired && (it.isle && own(C.ISLES, it.isle) ? it.isle : 'home') === k; })
+      .map(function (it, i) { return { it: it, i: i, p: price(it) }; })
+      .sort(function (a, b) { return (a.p - b.p) || (a.i - b.i); })
+      .map(function (x) { return gearCardVM(E, U, x.it.id, trial, k); });
+  }
+  /* where the shop opens: {land, filter 'all' | 'afford', jump: a shelf | null}. at is an opening name (FILTERS: 'all',
+     'food', 'home', a land, 'adopt') or {land, filter, jump}. 'adopt' is the land the child is on when an animal can
+     be adopted there, else the first land where one can, with 'I can buy' on. In test mode the filter is always 'all'
+     (nothing is short, as in the Island Shop) */
+  function adoptable(g, room) {
+    return g.items.some(function (c) { return c.state === 'adopt' ? c.can && c.code !== 'not_for_sale' : c.state === 'homeFull' && c.afford && !!room && room.mode === 'home'; });
+  }
+  function openAt(E, at, byKey, room, here) {
+    var C = E.C, o = { land: here, filter: 'all', jump: null };
+    if (at && typeof at === 'object') {
+      if (typeof at.land === 'string' && own(C.ISLES, at.land)) o.land = at.land;
+      if (at.filter === 'afford') o.filter = 'afford';
+      if (SHELVES.indexOf(at.jump) >= 0) o.jump = at.jump;
+    } else if (at === 'food') o.jump = 'food';
+    else if (at === 'adopt') {
+      o.filter = 'afford';
+      var ks = [here].concat(C.ISLE_ORDER.filter(function (k) { return k !== here; }));
+      for (var i = 0; i < ks.length; i++) if (byKey[ks[i]] && adoptable(byKey[ks[i]], room)) { o.land = ks[i]; break; }
+    } else if (typeof at === 'string' && at !== 'all' && own(C.ISLES, at)) o.land = at;
+    if (E.trial()) o.filter = 'all';
+    return o;
+  }
+  function shopView(deps, at) {
+    var E = env(deps), C = E.C;
+    var U = readCopy(E), room = typeof C.petRoom === 'function' ? C.petRoom(U.world) : null, trial = E.trial();
+    var known = E.here(), here = known || 'home';
+    var raw = E.shop && typeof E.shop.petShop === 'function' ? E.shop.petShop(C, U, { filter: 'all', trial: trial }) : [];
+    var byKey = {};
+    raw.forEach(function (g) { byKey[g.key] = g; });
+    var o = openAt(E, at, byKey, room, here), k = o.land, owned = k === 'home' || !!(U.world && C.isleUnlocked(U.world, k));
+    var groups = [], pg = byKey[k], fg = byKey.food;
+    /* Animals: the land's species (a locked land is shown, never hidden: its unlock line, every card's lock chip) */
+    if (pg) {
+      groups.push({ key: k, shelf: 'animals', kind: 'pets', title: shelfLabel('animals'), locked: !pg.owned, lines: pg.owned ? [] : [tx('care.shop.unlock', { island: pg.name })],
+        cards: pg.items.map(function (c) { return petCardVM(E, c, room, U); }) });
+    }
+    /* Food: every food, on every land (the pantry is the child's, wherever they shop) */
+    var basic = null;
+    if (fg) {
+      var meter = tx('care.pantry') + ' · ' + fg.meals + (fg.trialMax ? ' / ' + fg.trialMax : '');
+      var lines = fg.lineKey ? [tx(fg.lineKey, { n: fg.trialMax })] : [];
+      /* no meal the child can get now (F-KU4's free basic meal, F-KU5): a hungry pet is never left out, the Pet Corner has it */
+      if (!trial && E.care && typeof E.care.basicMeal === 'function' && !fg.items.some(function (c) { return c.group !== 'treat' && c.can; }) &&
+          fg.items.some(function (c) { return c.group !== 'treat' && c.state === 'short'; })) lines.push(basic = tx('care.basic.shop'));
+      groups.push({ key: 'food', shelf: 'food', kind: 'food', title: shelfLabel('food'), lines: lines, meter: meter,
+        cards: fg.items.map(function (c) { return foodCardVM(E, c, fg.trialMax); }) });
+    }
+    /* Clothes: the land's pet gear, only with the host's buyGear (without it the Island Shop sells pet clothes, and this
+       shop never shows a piece with nothing to tap) */
+    var gearBuy = typeof E.deps.buyGear === 'function', gear = gearBuy ? gearOf(E, U, k, trial) : [];
+    if (gear.length) {
+      groups.push({ key: 'clothes', shelf: 'clothes', kind: 'gear', title: shelfLabel('clothes'), locked: !owned,
+        lines: owned ? [] : [tx('care.shop.unlock', { island: C.ISLES[k].name })], cards: gear });
+    }
     var banner = null;
-    if (f === 'food') banner = null;                         /* the food aisle: the cap is not its news */
-    else if (room && room.mode === 'home' && room.atCap) banner = { key: 'care.homeFull', text: tx('care.homeFull'), corner: false };
+    if (room && room.mode === 'home' && room.atCap) banner = { key: 'care.homeFull', text: tx('care.homeFull'), corner: false };
     else if (room && room.mode !== 'home' && !room.canAdopt) banner = { key: 'care.ownFull', text: tx('care.ownFull', { n: room.count }), corner: !!E.deps.openCorner };
     else if (room && room.mode !== 'home') banner = { key: 'care.welcome.capTotal', text: tx('care.welcome.capTotal'), corner: false };
     /* R2 (QA2B-3): the cap is said once a screen. With the banner saying it (care.ownFull), an animal the child does not
        have keeps only its Full chip ('3 of 3 pets' / 'Full: you have 4 pets'); the detail sheet, with no banner, keeps its line */
     if (banner && banner.key === 'care.ownFull') groups.forEach(function (g) { g.cards.forEach(function (c) { if (c.kind === 'pet' && c.state === 'ownFull') c.line = null; }); });
-    var empty = groups.length ? null : (banner && banner.key === 'care.ownFull' ? null : tx('char.cast.save'));
-    return { filter: f, room: room, trial: trial, buy: typeof E.deps.buy === 'function', chips: chipsOf(E, f), banner: banner, groups: groups, empty: empty };
+    /* 'I can buy' (the Island Shop's rule): only what can be had now; a shelf left with nothing goes. next = the card the
+       child is nearest to (the smallest shortfall on the page), for the empty state */
+    var hidden = 0, next = null;
+    groups.forEach(function (g) { g.cards.forEach(function (c) { if (typeof c.need === 'number' && c.need > 0 && (!next || c.need < next.need)) next = { id: c.id, name: c.name, need: c.need, learn: !!c.learn }; }); });
+    var by = { buy: typeof E.deps.buy === 'function', gearBuy: gearBuy };
+    if (o.filter === 'afford') {
+      groups.forEach(function (g) { var n = g.cards.length; g.cards = g.cards.filter(function (c) { return canNow(c, by); }); hidden += n - g.cards.length; });
+      groups = groups.filter(function (g) { return g.cards.length > 0; });
+    }
+    /* 'I can buy' took the Food shelf away (nothing there to buy now): its free basic meal line stays on the page, as a
+       hungry pet with no coins is just when it is needed */
+    var note = basic && !groups.some(function (g) { return g.shelf === 'food'; }) ? basic : null;
+    var empty = groups.length ? null : tx('shop.filter.none');
+    var line = known && k === known ? tx('shop.isleHere', { island: C.ISLES[k].name }) : null;
+    return { land: k, here: here, filter: o.filter, jump: o.jump, room: room, trial: trial, buy: by.buy, gearBuy: by.gearBuy,
+      lands: landsOf(E, U, k, known), banner: banner,
+      section: { isle: k, name: C.ISLES[k].name, title: k === 'home' ? tx('care.shop.home') : C.ISLES[k].name, owned: owned, line: line },
+      jumps: groups.map(function (g) { return { key: g.shelf, label: g.title }; }),
+      groups: groups, hidden: hidden, note: note, next: empty ? next : null, empty: empty };
   }
 
   /* ---------------- the markup ---------------- */
-  function cardHtml(E, c, buy) {
-    var pet = c.kind === 'pet';
+  function cardHtml(E, c, vm) {
+    var pet = c.kind === 'pet', buy = c.kind === 'gear' ? vm.gearBuy : vm.buy;
     var h = '<div class="slw-card slps-card" data-kind="' + c.kind + '" data-id="' + esc(c.id) + '" data-state="' + esc(c.state) + '">' +
       (pet ? '<button type="button" class="ic" data-a="open" data-id="' + esc(c.id) + '" aria-label="' + esc(c.name) + '">' + petPic(E, c.id) +
         (c.fresh ? '<span class="chip uni slps-new">' + esc(c.fresh) + '</span>' : '') + '</button>'
-        : '<div class="ic">' + foodPic(E, c.id) + '</div>') +
+        : '<div class="ic">' + (c.kind === 'gear' ? gearPic(E, c.id) : foodPic(E, c.id)) + '</div>') +
       '<div class="nm">' + esc(c.name) + '</div>' + (c.fact ? '<div class="ds">' + esc(c.fact) + '</div>' : '');
     if (c.loves) h += '<div class="slps-loves">' + foodPic(E, c.loves.id) + '<span>' + esc(c.loves.text) + '</span></div>';
     /* the card's foot (its state, price, why and button) sits at the bottom, so a two-line name never pushes one
@@ -280,16 +419,16 @@
     if (c.kind === 'food') h += '<span class="chip rep slps-have">' + esc(c.pantry) + '</span>';
     if (c.chip) h += '<span class="chip ' + c.chip.cls + '">' + esc(c.chip.text) + '</span>';
     /* a short card's button is '📚 Learn', so its price shows on the card instead */
-    var priceOnButton = c.act === 'buy' && !c.free && buy && !c.learn;
+    var priceOnButton = (c.act === 'buy' || c.act === 'gear') && !c.free && buy && !c.learn;
     if ((!c.chip || c.chip.cls === 'lock') && !priceOnButton) h += priceHtml(c);
     if (c.line) h += '<div class="slps-need' + (c.state === 'ownFull' ? ' slps-capline' : '') + '">' + esc(c.line) + '</div>';
     if (c.learn) return h + '<div class="row">' + learnBtn(c) + '</div><div class="slw-err" aria-live="polite"></div></div></div>';
     var label = c.act === 'adopt' ? tx('care.shop.adopt') : c.act === 'room' ? tx('care.makeRoom') : c.act === 'corner' ? tx('care.corner.title')
-      : c.act === 'buy' ? (c.free ? tx('isle.unlockFree') : money(c)) : '';
-    var needsBuy = c.act === 'adopt' || c.act === 'room' || c.act === 'buy';
+      : c.act === 'buy' || c.act === 'gear' ? (c.free ? tx('isle.unlockFree') : money(c)) : '';
+    var needsBuy = c.act === 'adopt' || c.act === 'room' || c.act === 'buy' || c.act === 'gear';
     if (label && (!needsBuy || buy)) {
       h += '<div class="row"><button type="button" class="' + (c.act === 'corner' ? 'slw-btn' : 'slw-buy') + '" data-a="' + c.act + '" data-id="' + esc(c.id) + '"' +
-        (c.act === 'buy' ? ' aria-label="' + esc(c.name + ' · ' + label) + '"' : '') + (c.can ? '' : ' disabled') + '>' + esc(label) + '</button></div>';
+        (c.act === 'buy' || c.act === 'gear' ? ' aria-label="' + esc(c.name + ' · ' + label) + '"' : '') + (c.can ? '' : ' disabled') + '>' + esc(label) + '</button></div>';
     }
     return h + '<div class="slw-err" aria-live="polite"></div></div></div>';
   }
@@ -299,37 +438,73 @@
     var label = tx('learn.go');
     return '<button type="button" class="slw-btn slw-learnbtn" data-a="learn" data-id="' + esc(c.id) + '" aria-label="' + esc(c.name + ' · ' + label) + '">' + esc(label) + '</button>';
   }
+  function isleIcon(E, k, locked) {
+    var A = E.art;
+    try { return A && typeof A.isleIcon === 'function' ? A.isleIcon(k, { locked: !!locked }) || '' : ''; } catch (e) { return ''; }
+  }
+  /* the land chips: the Island Shop's look (.slw-shopland's .slw-btn, an owned sky land ' ✓', a locked one's icon wears
+     the lock, the land on show pressed in), named in full for a screen reader */
+  function landsHtml(E, vm) {
+    return vm.lands.map(function (p) {
+      var sky = p.isle !== 'home', open = p.owned;
+      return '<button type="button" class="slw-btn' + (p.on ? ' on' : '') + (p.here ? ' here' : '') + (open ? '' : ' locked') + '" data-land="' + p.isle + '" aria-pressed="' + (p.on ? 'true' : 'false') + '"' +
+        ' aria-label="' + esc(p.name + (sky && open ? ', ' + tx('shop.unlocked') : '')) + '">' + isleIcon(E, p.isle, !open) +
+        '<span>' + esc(p.short + (sky && open ? ' ✓' : '')) + '</span></button>';
+    }).join('');
+  }
+  function bannerHtml(b) {
+    return '<div class="slps-banner" data-key="' + esc(b.key) + '"><span>' + esc(b.text) + '</span>' +
+      (b.corner ? '<button type="button" class="slw-btn" data-a="corner">' + esc(tx('care.corner.title')) + '</button>' : '') + '</div>';
+  }
+  /* one land's page (the Island Shop's isleSectionHtml): its heading, where you are, the cap, 'I can buy' (never in test
+     mode), the Jump to row, then the shelves (Animals, Food, Clothes), each a heading the Jump to chips scroll to */
   function bodyHtml(E, vm) {
-    var h = '';
-    if (vm.banner) {
-      h += '<div class="slps-banner" data-key="' + esc(vm.banner.key) + '"><span>' + esc(vm.banner.text) + '</span>' +
-        (vm.banner.corner ? '<button type="button" class="slw-btn" data-a="corner">' + esc(tx('care.corner.title')) + '</button>' : '') + '</div>';
+    var s = vm.section, k = s.isle, on = vm.filter === 'afford';
+    var h = '<section class="slw-shopisle slps-land" data-isle="' + k + '" aria-labelledby="slpsSI-' + k + '"><h3 id="slpsSI-' + k + '">' + isleIcon(E, k, !s.owned) + esc(s.title) + '</h3>';
+    if (s.line) h += '<p class="slw-isleline">' + esc(s.line) + '</p>';
+    if (vm.banner) h += bannerHtml(vm.banner);
+    if (!vm.trial) {
+      h += '<div class="slw-shopswitch"><button type="button" class="slw-switch' + (on ? ' on' : '') + '" role="switch" aria-checked="' + (on ? 'true' : 'false') + '" data-afford="1">' +
+        '<span class="tk" aria-hidden="true"><i></i></span><span class="tx">' + esc(tx('shop.filter.afford')) + '</span></button></div>';
     }
+    if (vm.jumps.length > 1) {
+      h += '<div class="slw-shopfilter slps-jumps"><span class="lb">' + esc(tx('shop.jump')) + '</span>' + vm.jumps.map(function (j) {
+        return '<button type="button" class="slw-btn slw-jump" data-jump="slpsSh-' + k + '-' + j.key + '">' + esc(j.label) + '</button>';
+      }).join('') + '</div>';
+    }
+    /* the free basic meal's line when 'I can buy' took its Food shelf (above the shelves left, or the empty state) */
+    if (vm.note) h += '<p class="slps-line slps-note">' + esc(vm.note) + '</p>';
     vm.groups.forEach(function (g) {
-      h += '<section class="slps-group" data-g="' + esc(g.key) + '"><h3 class="slps-gh">' + esc(g.title) + '</h3>';
+      h += '<h4 class="slw-shelfhd" id="slpsSh-' + k + '-' + g.shelf + '" tabindex="-1">' + esc(g.title) + ' <span class="n">' + g.cards.length + '</span></h4>' +
+        '<section class="slps-group" data-g="' + esc(g.key) + '" data-shelf="' + g.shelf + '" aria-labelledby="slpsSh-' + k + '-' + g.shelf + '">';
       if (g.meter) h += '<div class="slps-meter">' + esc(g.meter) + '</div>';
       g.lines.forEach(function (l) { h += '<p class="slps-line">' + esc(l) + '</p>'; });
-      h += '<div class="slw-grid slps-grid">' + g.cards.map(function (c) { return cardHtml(E, c, vm.buy); }).join('') + '</div></section>';
+      h += '<div class="slw-grid slps-grid">' + g.cards.map(function (c) { return cardHtml(E, c, vm); }).join('') + '</div></section>';
     });
-    if (vm.empty) h += '<p class="slps-line slps-empty">' + esc(vm.empty) + '</p>';
-    return h;
-  }
-  function chipsHtml(vm) {
-    return vm.chips.map(function (c) {
-      return '<button type="button" class="slw-btn" data-f="' + c.f + '" aria-pressed="' + (c.on ? 'true' : 'false') + '">' + esc(c.label) + '</button>';
-    }).join('');
+    /* 'I can buy' with nothing to buy on this land: say so, then the thing nearest to it and '📚 Learn' (the Island Shop's
+       empty state) */
+    if (vm.empty) {
+      h += '<div class="slw-shopempty slps-empty" role="status"><p>' + esc(vm.empty) + '</p>' +
+        (vm.next ? '<p>' + esc(tx('shop.filter.next', { item: vm.next.name, n: fmt(vm.next.need) })) + '</p>' + (vm.next.learn ? learnBtn(vm.next) : '') : '') + '</div>';
+    }
+    return h + '</section>';
   }
 
   /* ---------------- the page's style (scoped: .slps-*; island-pixel's tokens when present) ---------------- */
   var CSS = [
     '.slps-ov .slw-sheet{max-width:880px;}',
-    '.slps-chips{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;margin:6px 0 10px;padding:2px 2px 8px;position:sticky;top:calc(var(--slw-hdh, 0px) - 18px);z-index:2;background:var(--px-panel,#fff);}',
-    '.slps-chips::-webkit-scrollbar{display:none;}',
-    '.slps-chips .slw-btn{flex:0 0 auto;white-space:nowrap;}',
+    /* the shop itself is as wide as the Island Shop (the host's sheet: 960px) */
+    '.slps-ov .slw-sheet.slw-shopsheet{max-width:960px;}',
+    /* the land chips, the 'I can buy' switch, the Jump to row, the land heading and the shelf headings are the Island
+       Shop's own (.slw-shopland, .slw-shopswitch, .slw-shopfilter, .slw-shopisle, .slw-shelfhd: island-pixel.css and
+       the host's sheet style, sticky under the sheet's header by --slw-hdh); nothing here restyles them. Only the
+       scrollbar of the two sideways rows is hidden, as the Island Shop's */
+    '.slps-ov .slps-lands::-webkit-scrollbar,.slps-ov .slps-jumps::-webkit-scrollbar{display:none;}',
+    '.slps-ov .slps-jumps{scrollbar-width:none;}',
     '.slps-banner{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px;padding:10px 12px;background:var(--px-sign,#FFF4D6);border:2px solid var(--px-sun-lip,#C99A00);border-radius:10px;color:var(--px-ink,#1B2150);font-weight:700;font-size:15px;line-height:1.35;}',
     '.slps-banner span{flex:1 1 200px;min-width:0;}',
     '.slps-group{margin:0 0 18px;}',
-    '.slps-gh{margin:14px 0 6px;font-size:19px;line-height:1.2;color:var(--px-ink,#1B2150);}',
+    '.slps-gear svg{max-width:100%;}',
     '.slps-line{margin:0 0 8px;font-weight:700;font-size:15px;line-height:1.35;color:var(--px-ink-2,#474E7E);}',
     '.slps-meter{display:inline-block;margin:0 0 8px;padding:3px 10px;background:var(--px-well,#EEF7FF);border:2px solid var(--px-ink-2,#474E7E);border-radius:6px;font-weight:800;font-size:14px;color:var(--px-ink,#1B2150);font-variant-numeric:tabular-nums;}',
     /* the skins' 3:4 shop card would widen a two-up phone card past its column: these cards size to their words */
@@ -388,7 +563,6 @@
     '.slps-memcard:focus{outline:3px solid var(--px-ink,#1B2150);outline-offset:2px;}',
     '.slps-memcard svg{width:100%;max-width:170px;height:auto;}',
     '.slps-memcard h3{margin:2px 0 0;font-size:18px;}.slps-memcard .sp,.slps-memcard .days{font-size:14px;font-weight:700;color:var(--px-ink-2,#474E7E);}',
-    '@media (max-width:600px),(orientation:landscape) and (max-height:540px){html body .slps-ov .slw-sheet .slps-chips{top:calc(var(--slw-hdh, 0px) - 18px);}}',
     '@media (max-width:600px){',
     'html body .slps-ov .slps-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}',
     '.slps-card .ic{height:96px;}.slps-card .ic svg{max-height:88px;}.slps-food svg{width:80px;height:80px;max-height:80px;}',
@@ -456,42 +630,143 @@
   /* ================================================================
      THE PET SHOP
      ================================================================ */
+  /* a sideways row (the land chips, Jump to) marks the end with more to see (data-more 'l', 'r' or 'lr': island-pixel's
+     soft fade and arrow, as the Island Shop's rowEdges); a tap on an arrow (the row itself, within its end) slides it */
+  function rowEdges(row) {
+    if (!row || !row.getAttribute) return '';
+    var max = (row.scrollWidth || 0) - (row.clientWidth || 0), x = row.scrollLeft || 0, m = '';
+    if (max > 8) m = (x > 8 ? 'l' : '') + (x < max - 8 ? 'r' : '');
+    if ((row.getAttribute('data-more') || '') !== m) { if (m) row.setAttribute('data-more', m); else row.removeAttribute('data-more'); }
+    return m;
+  }
+  function wireEdges(row) {
+    if (!row || typeof row.addEventListener !== 'function') return;
+    if (!row._slpsEdges) {
+      row._slpsEdges = true;
+      row.addEventListener('scroll', function () { rowEdges(row); }, { passive: true });
+      row.addEventListener('click', function (e) {
+        var m = row.getAttribute('data-more') || '';
+        if (!m || !e || e.target !== row || typeof row.getBoundingClientRect !== 'function') return;
+        var b = row.getBoundingClientRect(), x = e.clientX - b.left, end = 56;
+        var dir = x >= b.width - end && m.indexOf('r') >= 0 ? 1 : x <= end && m.indexOf('l') >= 0 ? -1 : 0;
+        if (dir) { row.scrollLeft = Math.max(0, (row.scrollLeft || 0) + dir * Math.round((row.clientWidth || 0) * 0.6)); rowEdges(row); }
+      });
+    }
+    rowEdges(row);
+  }
+  /* a pressed chip comes into view in its sideways row, never scrolling the sheet itself */
+  function showChip(row, b) {
+    if (!row || !b || typeof b.getBoundingClientRect !== 'function' || !(row.scrollWidth > row.clientWidth + 1)) return;
+    var sr = row.getBoundingClientRect(), br = b.getBoundingClientRect(), x0 = sr.left + (row.clientLeft || 0);
+    if (br.left < x0 - 0.5 || br.right > x0 + row.clientWidth + 0.5) row.scrollLeft += br.left - x0;
+  }
+  /* draw()'s focus for a land chip: the chip pressed (its row is drawn again), never a selector in the page */
+  var LAND_CHIP = ':land';
+  /* the sheet's sticky header (the host's .slw-sheethd: the title, the balance and ✕) */
+  function headH(ov) { var hd = q(ov, '.slw-sheethd'); return hd && hd.offsetHeight > 0 ? hd.offsetHeight : 0; }
+
   function openPetShop(deps, opts) {
-    var E = env(deps), f = opts && opts.filter;
+    var E = env(deps);
+    opts = opts || {};
     if (!E.C || typeof E.deps.overlay !== 'function' || !E.shop) return Promise.resolve(null);
     return new Promise(function (resolve) {
-      var ov = sheet(E, '<h2>' + esc(tx('care.shop.title')) + '</h2><div class="slw-cats slps-chips" role="group" aria-label="' + esc(tx('care.shop.title')) + '"></div><div class="slps-body"></div>',
+      var ov = sheet(E, '<h2>' + esc(tx('care.shop.title')) + '</h2><div class="slw-shopland slps-lands" role="group" aria-label="' + esc(tx('shop.at')) + '"></div><div class="slps-body"></div>',
         { cls: 'slps-ov', onClose: function () { stopLazy(); resolve(true); } });
-      var chipsEl = q(ov, '.slps-chips'), body = q(ov, '.slps-body'), filter = FILTERS.indexOf(f) >= 0 ? f : 'all', io = null, busy = false;
+      var landsEl = q(ov, '.slps-lands'), body = q(ov, '.slps-body'), sc = q(ov, '.slw-sheet'), io = null, busy = false, markQ = false;
+      /* the Island Shop's sheet: its height stays whatever 'I can buy' shows, and a focused card scrolls clear of the bands */
+      if (sc && sc.classList) sc.classList.add('slw-shopsheet');
+      var at = { land: 'home', filter: 'all' };
       function stopLazy() { if (io) { try { io.disconnect(); } catch (e) { /* gone */ } io = null; } }
-      /* lazy photocards: each group is filled as it scrolls into view (none on LOW or in 2D; never the food) */
+      /* lazy photocards: each shelf of animals is filled as it scrolls into view (none on LOW or in 2D; never food or gear) */
       function lazy() {
         stopLazy();
         if (!E.use3D() || typeof E.deps.fillPhotocards !== 'function') return;
-        var groups = qa(body, '.slps-group').filter(function (g) { return g.getAttribute('data-g') !== 'food'; });
+        var groups = qa(body, '.slps-group').filter(function (g) { return g.getAttribute('data-shelf') === 'animals'; });
         var fill = function (g) { try { E.deps.fillPhotocards(g); } catch (e) { /* the 2D sprite stays */ } };
         if (typeof root.IntersectionObserver !== 'function') { groups.forEach(fill); return; }
         io = new root.IntersectionObserver(function (ents) {
           ents.forEach(function (en) { if (en.isIntersecting) { if (io) io.unobserve(en.target); fill(en.target); } });
-        }, { root: q(ov, '.slw-sheet'), rootMargin: '160px 0px' });
+        }, { root: sc, rootMargin: '160px 0px' });
         groups.forEach(function (g) { io.observe(g); });
       }
+      /* a Jump to chip: the sheet scrolls to that shelf (under the sticky bands: the heading's scroll-margin-top and the
+         sheet's header) and the heading takes focus, so a keyboard and a screen reader land there too */
+      function jumpTo(id, quiet) {
+        var h = q(body, '#' + id);
+        if (!h || !sc || typeof h.getBoundingClientRect !== 'function') return;
+        var cs = null;
+        try { cs = root.getComputedStyle ? root.getComputedStyle(h) : null; } catch (e) { cs = null; }
+        var m = ((cs && parseFloat(cs.scrollMarginTop)) || 8) + headH(ov);
+        var top = sc.scrollTop + h.getBoundingClientRect().top - sc.getBoundingClientRect().top - m;
+        pin = id;
+        try { if (typeof sc.scrollTo === 'function') sc.scrollTo({ top: top, behavior: E.reduced() || quiet ? 'auto' : 'smooth' }); else sc.scrollTop = top; } catch (e) { sc.scrollTop = top; }
+        try { if (h.focus) h.focus({ preventScroll: true }); } catch (e) { /* gone */ }
+        markShelf();
+      }
+      /* Jump to marks the shelf in view (aria-current and the 'on' look): the shelf just jumped to until the child scrolls
+         the sheet themselves (pin: a short last shelf's heading never reaches the band, so it would never be marked);
+         else the last shelf whose heading has come up to the Jump to band, the last one once the sheet is at its very
+         bottom, else the first */
+      var pin = null;
+      function unpin() { pin = null; }
+      function markShelf() {
+        var row = q(body, '.slps-jumps'), chips = qa(row, '[data-jump]');
+        if (!chips.length) return;
+        var band = typeof row.getBoundingClientRect === 'function' ? row.getBoundingClientRect().bottom : 0, cur = null;
+        if (pin) cur = chips.filter(function (c) { return c.getAttribute('data-jump') === pin; })[0] || null;
+        if (!cur) {
+          chips.forEach(function (c, i) {
+            var h = q(body, '#' + c.getAttribute('data-jump'));
+            if (h && (i === 0 || (typeof h.getBoundingClientRect === 'function' && h.getBoundingClientRect().top <= band + 24))) cur = c;
+          });
+          var max = sc ? (sc.scrollHeight || 0) - (sc.clientHeight || 0) : 0;
+          if (max > 1 && (sc.scrollTop || 0) >= max - 2) cur = chips[chips.length - 1];
+        }
+        chips.forEach(function (c) {
+          var on = c === cur;
+          if (c.classList) c.classList.toggle('on', on);
+          if (on) c.setAttribute('aria-current', 'true'); else c.removeAttribute('aria-current');
+        });
+        if (cur) showChip(row, cur);
+      }
+      if (sc && typeof sc.addEventListener === 'function') {
+        try {
+          sc.addEventListener('scroll', function () {
+            if (markQ) return;
+            markQ = true;
+            setTimeout(function () { markQ = false; if (ov.isConnected !== false) markShelf(); }, 80);
+          }, { passive: true });
+          /* the child's own scrolling (a wheel, a finger, a key, a drag on the scrollbar) ends the jump's pin */
+          ['wheel', 'touchstart', 'keydown', 'pointerdown', 'mousedown'].forEach(function (t) { sc.addEventListener(t, unpin, { passive: true }); });
+        } catch (e) { /* no scroll events: the first shelf stays marked */ }
+      }
       function draw(focusSel) {
-        var vm = shopView(deps, filter), sc = q(ov, '.slw-sheet'), top = sc ? sc.scrollTop : 0;
-        filter = vm.filter;
-        chipsEl.innerHTML = chipsHtml(vm);
+        var vm = shopView(deps, at), top = sc ? sc.scrollTop : 0, jr = q(body, '.slps-jumps'), lsl = landsEl.scrollLeft || 0, jsl = jr ? jr.scrollLeft || 0 : 0;
+        at = { land: vm.land, filter: vm.filter };
+        landsEl.innerHTML = landsHtml(E, vm);
         body.innerHTML = bodyHtml(E, vm);
         if (sc) sc.scrollTop = top;
-        bind(chipsEl, '[data-f]', function (b) {
-          filter = b.getAttribute('data-f');
-          draw();
-          var s2 = q(ov, '.slw-sheet'); if (s2) s2.scrollTop = 0;
+        landsEl.scrollLeft = lsl;
+        var jr2 = q(body, '.slps-jumps');
+        if (jr2) jr2.scrollLeft = jsl;
+        /* a land chip: that land's page, from its top; 'I can buy' stays as it was (the Island Shop's way); focus stays on
+           the chip just pressed (its row is drawn again), as in the Island Shop */
+        bind(landsEl, '[data-land]', function (b) {
+          at = { land: b.getAttribute('data-land'), filter: at.filter };
+          pin = null;
+          draw(LAND_CHIP);
+          if (sc) sc.scrollTop = 0;
         });
+        bind(body, '[data-afford]', function () { pin = null; at = { land: at.land, filter: at.filter === 'afford' ? 'all' : 'afford' }; draw('[data-afford]'); });
+        bind(body, '[data-jump]', function (b) { jumpTo(b.getAttribute('data-jump')); });
         bind(body, '[data-a]', act);
         lazy();
-        var pressed = q(chipsEl, '[aria-pressed="true"]');
-        try { if (pressed && pressed.scrollIntoView) pressed.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) { /* old engines */ }
-        var el = focusSel ? q(body, focusSel) : null;
+        var pressed = q(landsEl, '[aria-pressed="true"]');
+        showChip(landsEl, pressed);
+        wireEdges(landsEl);
+        wireEdges(jr2);
+        markShelf();
+        var el = focusSel === LAND_CHIP ? pressed : focusSel ? q(body, focusSel) : null;
         if (focusSel && (!el || el.disabled)) el = pressed;
         try { if (el && el.focus) el.focus(); } catch (e) { /* gone */ }
         return vm;
@@ -500,11 +775,12 @@
         var a = b.getAttribute('data-a');
         if (busy) return;
         var id = b.getAttribute('data-id'), card = id ? q(body, '.slps-card[data-id="' + id + '"]') : null, err = card ? q(card, '.slw-err') : null;
-        /* a pet the child has: the Corner opens where it is (the Pet Corner picks the tab); the cap card and the banner open it plain */
+        /* a pet the child has: the Corner opens where it is (the Pet Corner picks the tab); the cap card, the banner and a
+           piece of gear the child has (worn in My pets) open it plain */
         if (a === 'corner') { if (E.deps.openCorner) E.deps.openCorner(id && card && own(PLACE, card.getAttribute('data-state')) ? id : undefined); return; }
         /* wave 3: learn and come back for this card (the host closes the sheets; false keeps the shop open) */
-        if (a === 'learn') { learnFor(E, id, ov, filter); return; }
-        if (a === 'open') { openDetail(E, deps, id, function () { draw('.slps-card[data-id="' + id + '"] .ic'); }, filter); return; }
+        if (a === 'learn') { learnFor(E, id, ov, at); return; }
+        if (a === 'open') { openDetail(E, deps, id, function () { draw('.slps-card[data-id="' + id + '"] .ic'); }, at); return; }
         busy = true;
         /* redraw (counts, states, the cap) unless a refusal's reason is on the card: that card stays as it is */
         var done = function (ok, sel) { busy = false; if ((ok || !(err && err.textContent)) && ov.isConnected !== false) draw(sel); };
@@ -514,16 +790,34 @@
             var c = q(body, '.slps-card[data-id="' + id + '"]');
             if (ok && c && !E.reduced()) c.classList.add('slps-got');
           });
+        } else if (a === 'gear') {
+          /* bought: the card now says ✓ Owned with My pets (where it is worn); focus goes there, else to the card's picture.
+             The host's celebration card is over the shop then and hands no focus back: when it goes, focus comes back here */
+          buyGear(E, id, b, err).then(function (ok) {
+            var sel = ok ? '.slps-card[data-id="' + id + '"] [data-a]' : '[data-a="gear"][data-id="' + id + '"]';
+            done(ok, sel);
+            if (ok) afterCele(E, ov, function () { return q(body, sel) || q(body, '.slps-card[data-id="' + id + '"] .ic'); });
+          });
         } else adopt(deps, id, { btn: b, err: err }).then(function (ok) { done(ok, '.slps-card[data-id="' + id + '"] .ic'); });
       }
       ov._petShopDraw = draw;
-      /* opened on one card (the Pet Corner's 'Adopt a {species} again', the way back from a learn trip): the tab the trip
-         left from when it still shows the card (R2), else the tab asked for when it shows it, else All; the card in view,
-         ringed (.slps-here: static under reduced motion) and focused (its button when it can be used, else its picture) */
-      var want = opts && typeof opts.id === 'string' ? opts.id : null, trip = want ? tripFor(E, want) : null;
-      var inView = function (vm) { return vm.groups.some(function (g) { return g.cards.some(function (c) { return c.id === want; }); }); };
-      if (want && trip && trip.filter !== filter && inView(shopView(deps, trip.filter))) filter = trip.filter;
-      else if (want && filter !== 'all' && !inView(shopView(deps, filter))) filter = 'all';
+      /* where it opens: the opening name (opts.filter) on the land the child is on. Opened on one card (the Pet Corner's
+         'Adopt a {species} again', a food's sheet, the way back from a learn trip): the land and filter the trip left from
+         when they still show the card (R2), else the card's own land (a food: the land asked for) with 'I can buy' off
+         when it would hide the card; the card in view, ringed (.slps-here: static under reduced motion) and focused (its
+         button when it can be used, else its picture) */
+      var vm0 = shopView(deps, opts.filter), want = typeof opts.id === 'string' ? opts.id : null, trip = want ? tripFor(E, want) : null, jump = vm0.jump;
+      at = { land: vm0.land, filter: vm0.filter };
+      var inView = function (a0) { return shopView(deps, a0).groups.some(function (g) { return g.cards.some(function (c) { return c.id === want; }); }); };
+      if (want) {
+        jump = null;
+        var home = landOfId(E, want);
+        if (trip && inView({ land: trip.land, filter: trip.filter })) at = { land: trip.land, filter: trip.filter };
+        else {
+          if (home) at.land = home;
+          if (at.filter !== 'all' && !inView(at)) at.filter = 'all';
+        }
+      }
       draw();
       var card = want ? q(body, '.slps-card[data-id="' + want + '"]') : null;
       if (card) {
@@ -533,19 +827,28 @@
           var b = qa(card, '.row [data-a]').filter(function (x) { return !x.disabled; })[0] || q(card, '.ic') || q(card, '[data-a]');
           try { if (card.scrollIntoView) card.scrollIntoView({ block: 'center' }); if (b && b.focus) b.focus(); } catch (e) { /* gone */ }
         }, 60);
+      } else if (jump) {
+        /* 'food' (the pantry's way in): the land's page, scrolled to its Food shelf once the sheet is up; never once the
+           child has started on the page (a tap there moves focus into it) */
+        setTimeout(function () {
+          var d = E.doc, a = d && d.activeElement;
+          /* (the land chips count too: a button that switched off hands its focus to the pressed chip) */
+          if (ov.isConnected === false || (a && ((body.contains && body.contains(a)) || (landsEl.contains && landsEl.contains(a))))) return;
+          jumpTo('slpsSh-' + at.land + '-' + jump, true);
+        }, 60);
       }
     });
   }
 
   /* wave 3 (contract 5): the host's learn-and-come-back trip for this id, from the Pet Shop; the sheet closes unless the
-     host says no (it may already have closed every sheet). R2 (QA2B-7): the shop remembers the card and the tab it was
-     on (in memory, for the trip's 3 hours), so the way back (the host's openPetShop {filter: 'all' | 'food', id}) opens
-     that tab on that card (spec §7: 'reopens the Pet Shop on that animal') */
+     host says no (it may already have closed every sheet). R2 (QA2B-7): the shop remembers the card, the land and the
+     filter it was on (in memory, for the trip's 3 hours), so the way back (the host's openPetShop {filter: 'all' | 'food',
+     id}) opens that land on that card (spec §7: 'reopens the Pet Shop on that animal') */
   var TRIP_MS = 3 * 3600 * 1000, lastTrip = null;
-  function learnFor(E, id, ov, filter) {
+  function learnFor(E, id, ov, at) {
     if (typeof E.deps.learnFor !== 'function') return;
     var r;
-    lastTrip = { id: id, filter: FILTERS.indexOf(filter) >= 0 ? filter : 'all', at: clockOf(E) };
+    lastTrip = { id: id, land: at && typeof at.land === 'string' ? at.land : 'home', filter: at && at.filter === 'afford' ? 'afford' : 'all', at: clockOf(E) };
     try { r = E.deps.learnFor(id, { from: 'petShop' }); } catch (e) { r = false; }
     if (r === false) { lastTrip = null; return; }
     if (ov && ov.isConnected !== false && typeof ov._close === 'function') ov._close();
@@ -557,6 +860,28 @@
     lastTrip = null;
     var age = clockOf(E) - t.at;
     return age >= 0 && age <= TRIP_MS ? t : null;
+  }
+  /* a piece of pet gear: the host's ordinary buy flow (its confirm card, test mode, its own celebration) */
+  /* the host's celebration card (.slw-cele, the Clothes buy's) never hands focus back: once no celebration is up, focus
+     comes back to find() in the shop — only when the shop is the top sheet and focus was left on nothing (the page's
+     body), never over the sheet a celebration button opened (My pets) or away from where the child put it. Without
+     MutationObserver nothing is done */
+  function afterCele(E, ov, find) {
+    var d = E.doc, MO = root.MutationObserver;
+    if (!d || !d.body || typeof MO !== 'function' || !q(d, '.slw-cele')) return;
+    var mo = new MO(function () {
+      if (q(d, '.slw-cele')) return;
+      mo.disconnect();
+      var a = d.activeElement, top = qa(d, '.slw-ov').pop();
+      if (ov.isConnected === false || top !== ov || (a && a !== d.body && a !== d.documentElement)) return;
+      var el = find();
+      try { if (el && el.focus) el.focus(); } catch (e) { /* gone */ }
+    });
+    mo.observe(d.body, { childList: true });
+  }
+  function buyGear(E, id, btn, err) {
+    if (typeof E.deps.buyGear !== 'function') return Promise.resolve(false);
+    return Promise.resolve(E.deps.buyGear(id, { btn: btn, err: err })).then(okOf, function () { return false; });
   }
   /* a food: the host's buy flow, then the pantry count on the card goes up */
   function buyFood(E, id, btn, err) {

@@ -324,11 +324,22 @@
     cols = cols || 16; rows = rows || 10;
     return { x: clamp(cell.c - grab.c, 0, cols - fp[0]), y: clamp(cell.r - grab.r, 0, rows - fp[1]) };
   }
-  /* the keyboard list's labels: today's aria-labels from rewards-world */
-  function itemLabel(it, mode, selected) {
+  /* the keyboard list's labels: today's aria-labels from rewards-world. A game says its ▶ sign's words too, without
+     the ▶ (d-3d, label in name: 'Penalty Pitch — tap to play Shootout'), from play.sign.<game> through copy
+     (SLWorldCopy, or its t function) with rewards-world's fallbacks word for word; isles-view says the same */
+  var PLAY_SIGN = { course: ['play.sign.course', '▶ Debut Run'], penalty: ['play.sign.penalty', '▶ Shootout'], kart: ['play.sign.kart', '▶ Kart'] };
+  function playWords(it, copy) {
+    var s = it && Object.prototype.hasOwnProperty.call(PLAY_SIGN, it.game) ? PLAY_SIGN[it.game] : null, w = '';
+    if (!s) return '';
+    var f = typeof copy === 'function' ? copy : (copy && typeof copy.t === 'function' ? copy.t : null);
+    try { w = f ? String(f(s[0], null, s[1])) : s[1]; } catch (e) { w = s[1]; }
+    w = w.replace(/^\s*▶\s*/, '');
+    return w && w !== it.name ? ' ' + w : '';
+  }
+  function itemLabel(it, mode, selected, copy) {
     if (!it) return '';
     if (normMode(mode) !== 'play') return it.name + (selected ? ' (selected)' : '') + ' — select to move it';
-    return it.name + (it.act === 'launch' ? ' — tap to play' : it.act ? ' — tap to play with it' : '');
+    return it.name + (it.act === 'launch' ? ' — tap to play' + playWords(it, copy) : it.act ? ' — tap to play with it' : '');
   }
   /* a crew member's label ('Pets' are the 'Crew' in labels: SLWorldCopy 'label.crew') */
   function petLabel(C, p, copy) {
@@ -445,6 +456,39 @@
       }
     }
     return best.at;
+  }
+  /* D-3D (James, 25 Oct: "Name them"): a game's ▶ sign now says its name (▶ Debut Run / ▶ Shootout / ▶ Kart), so it
+     is wider than ▶ PLAY was and two games side by side could cover each other's names. The ▶ signs are placed first:
+     each one whose game is on the stage keeps clear of the other ▶ signs and of fixed (the camera buttons), whole
+     inside the stage by o.inset px (the one lowest on screen, nearest the camera, keeps its own spot; the nearest clear
+     spot as placeSigns, a step up or down before a step sideways); one wholly off the stage stays where it is (unseen)
+     and the others avoid it. Then the island signs keep clear of those and of fixed, as before (R2 QA2A-6). Last, a
+     sign whose game is just off the stage, so that it showed cut ('▶ S' on a 320px phone), comes whole inside around
+     everything already placed.
+     plays / signs: [{x, y, w, h}] (x the centre, y the bottom); fixed: [{x0, y0, x1, y1}].
+     → {plays: [{x, y}], signs: [{x, y}]} in the lists' own orders */
+  function placeTags(plays, signs, fixed, W, H, o) {
+    var inner = [], edge = [], off = [], out = { plays: [], signs: [] }, i;
+    plays = plays || []; signs = signs || []; fixed = fixed || [];
+    for (i = 0; i < plays.length; i++) {
+      var p = plays[i];
+      out.plays[i] = { x: p.x, y: p.y };
+      if (p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H) inner.push(i);                              /* its game is on the stage */
+      else if (p.x + p.w / 2 > 0 && p.x - p.w / 2 < W && p.y > 0 && p.y - p.h < H) edge.push(i);  /* just off: the sign shows cut */
+      else off.push(boxAt(p.x, p.y, p.w, p.h));
+    }
+    function place(list, avoid) {
+      if (!list.length) return [];
+      list.sort(function (a, b) { return plays[b].y - plays[a].y || a - b; });   /* the front one first */
+      var at = placeSigns(list.map(function (k) { return plays[k]; }), avoid, W, H, o);
+      return list.map(function (k, j) { if (at[j]) out.plays[k] = at[j]; return boxAt(out.plays[k].x, out.plays[k].y, plays[k].w, plays[k].h); });
+    }
+    var boxes = place(inner, fixed.concat(off)).concat(off, fixed);
+    out.signs = signs.length ? placeSigns(signs, boxes, W, H, o) : [];
+    /* a game just off the stage: its sign comes whole inside, around everything already placed (an island sign keeps
+       its spot by its island) */
+    place(edge, boxes.concat(signs.map(function (sg, j) { return boxAt(out.signs[j].x, out.signs[j].y, sg.w, sg.h); })));
+    return out;
   }
   /* ---------------- v3 (pure) ---------------- */
   var ISLES3 = ['home', 'pier', 'jungle', 'treetop', 'castle', 'ice'];
@@ -1031,6 +1075,11 @@
     var SL3D = root.SL3D;
     var dead = false, failed = null, failTold = false, issues = [];
     var timers = [];
+    /* the stage's own timers (the feeding moment's backstop, the ready waits, the debut and encore, the travel's
+       guards through o.later / o.clear): setTimeout / clearTimeout, or opts.timers {later(fn, ms) → id, clear(id)}
+       when the host keeps time itself (the Node harness steps frames faster than real time and runs these on its
+       frame clock, tests/island-scene-v3.test.js) */
+    var clock = opts.timers && typeof opts.timers.later === 'function' && typeof opts.timers.clear === 'function' ? opts.timers : null;
 
     function qa() { return !!(SL3D && SL3D.qa); }
     function issue(msg) {
@@ -1043,15 +1092,18 @@
       try { return f.apply(null, Array.prototype.slice.call(arguments, 1)); } catch (e) { issue('on.' + name + ' threw: ' + errText(e)); return undefined; }
     }
     function later(fn, ms) {
-      var id = setTimeout(function () {
+      var id, wait = Math.max(0, ms | 0);
+      function run() {
         var i = timers.indexOf(id);
         if (i >= 0) timers.splice(i, 1);
         if (!dead) fn();
-      }, Math.max(0, ms | 0));
+      }
+      id = clock ? clock.later(run, wait) : setTimeout(run, wait);
       timers.push(id);
       return id;
     }
-    function cancelLater(id) { var i = timers.indexOf(id); if (i >= 0) { timers.splice(i, 1); clearTimeout(id); } }
+    function unlater(id) { if (clock) clock.clear(id); else clearTimeout(id); }
+    function cancelLater(id) { var i = timers.indexOf(id); if (i >= 0) { timers.splice(i, 1); unlater(id); } }
 
     var stage = {};
     function fail(reason) {
@@ -3254,8 +3306,9 @@
     /* R2: the signs keep out of each other's way. After the tags are projected: each sign stays inside the stage with an
        SIGN_INSET margin, out of the camera buttons' corner, and clear of every ▶ PLAY tag and of the other signs (the
        nearest clear spot, the signs placed again in another order when a crowded phone stage leaves one none: the pure
-       placeSigns; a PLAY tag never moves). The tags' sizes are measured once per set of tags (and on a resize), before
-       any of them is moved, never in the middle of the frame's writes */
+       placeSigns). D-3D: the named ▶ signs go first (the pure placeTags): clear of each other and of the camera buttons,
+       whole inside the stage; a ▶ sign wholly off the stage never moves. The tags' sizes are measured once per
+       set of tags (and on a resize), before any of them is moved, never in the middle of the frame's writes */
     var SIGN_INSET = 8, SIGN_GAP = 4, tagSizesDirty = true, camBox = null;
     function measureTags() {
       if (!tagSizesDirty) return;
@@ -3267,27 +3320,27 @@
         camBox = { x0: x0 - SIGN_GAP, y0: y0 - SIGN_GAP, x1: x0 + camctlEl.offsetWidth + SIGN_GAP, y1: y0 + camctlEl.offsetHeight + SIGN_GAP };
       }
     }
-    function boxOf(x, y, sz) { return { x0: x - sz.w / 2, y0: y - sz.h, x1: x + sz.w / 2, y1: y }; }
+    function tagBox(a) { return { x: a.x, y: a.y, w: a.sz.w, h: a.sz.h }; }
+    /* half-pixel steps (the 4px gap between signs takes up the rounding) */
+    function moveTag(a, p) {
+      if (!p) return;
+      var x = Math.round(p.x * 2) / 2, y = Math.round(p.y * 2) / 2;
+      if (x !== a.x || y !== a.y) { a.x = x; a.y = y; a.wrap.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0)'; }
+    }
     function declutter() {
       if (!(cssW > 0 && cssH > 0)) return;
-      var fixed = [], signs = [], i;
+      var fixed = [], plays = [], signs = [], i;
       for (i = 0; i < anchorList.length; i++) {
         var a = anchorList[i];
         if (!a.vis || !a.sz) continue;
-        if (a.kind === 'play') fixed.push(boxOf(a.x, a.y, a.sz));
+        if (a.kind === 'play') plays.push(a);
         else if (a.kind === 'sign') signs.push(a);
       }
       if (camBox) fixed.push(camBox);
-      if (!signs.length) return;
-      var at = placeSigns(signs.map(function (s) { return { x: s.x, y: s.y, w: s.sz.w, h: s.sz.h }; }), fixed, cssW, cssH,
-        { inset: SIGN_INSET, gap: SIGN_GAP });
-      for (i = 0; i < signs.length; i++) {
-        var s = signs[i], p = at[i];
-        if (!p) continue;
-        /* half-pixel steps (the 4px gap between signs takes up the rounding) */
-        var x = Math.round(p.x * 2) / 2, y = Math.round(p.y * 2) / 2;
-        if (x !== s.x || y !== s.y) { s.x = x; s.y = y; s.wrap.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0)'; }
-      }
+      if (!signs.length && !plays.length) return;
+      var at = placeTags(plays.map(tagBox), signs.map(tagBox), fixed, cssW, cssH, { inset: SIGN_INSET, gap: SIGN_GAP });
+      for (i = 0; i < plays.length; i++) moveTag(plays[i], at.plays[i]);
+      for (i = 0; i < signs.length; i++) moveTag(signs[i], at.signs[i]);
     }
     /* v3 (D55): which labels show — the visited island's tags, Home's region signs on Home, island
        signs at 'gate' / 'dock' / 'map' (never in edit / place, never for the island you are on, a
@@ -3629,7 +3682,7 @@
       sorted.forEach(function (r) {
         if (!r.it) return;
         if (mode === 'play' && !r.it.act) return;
-        items.push({ key: 'u:' + r.uid, label: itemLabel(r.it, mode, r.uid === selectedUid) });
+        items.push({ key: 'u:' + r.uid, label: itemLabel(r.it, mode, r.uid === selectedUid, Copy) });
       });
       if (mode === 'play') {
         (Array.isArray(view.pets) ? view.pets : []).forEach(function (p) { if (p && p.id) items.push({ key: 'pet:' + p.id, label: petLabel(C, p, Copy) }); });
@@ -4284,7 +4337,7 @@
       if (dead) return;
       teardownContent();
       dead = true;
-      timers.slice().forEach(function (id) { clearTimeout(id); });
+      timers.slice().forEach(unlater);
       timers.length = 0;
       try { if (root.document && root.document.removeEventListener) { root.document.removeEventListener('pointerdown', onPress, true); root.document.removeEventListener('keydown', onPress, true); } } catch (e) {}
       var di = DEBUG.listeners.indexOf(onDebugGrid);
@@ -5069,7 +5122,7 @@
     normMode: normMode, batchKey: batchKey, diffPlaced: diffPlaced, litChanges: litChanges, rayBox: rayBox,
     choosePick: choosePick, dragTarget: dragTarget, itemLabel: itemLabel, petLabel: petLabel,
     nextDance: nextDance, modelAct: modelAct, toScreen: toScreen, FX_PRESETS: FX_PRESETS,
-    rectDist: rectDist, TAG_PAD: TAG_PAD, NEAR_PX: NEAR_PX, NEAR_FRAC: NEAR_FRAC, placeSigns: placeSigns,
+    rectDist: rectDist, TAG_PAD: TAG_PAD, NEAR_PX: NEAR_PX, NEAR_FRAC: NEAR_FRAC, placeSigns: placeSigns, placeTags: placeTags,
     /* Encore City: per-copy style, placement variety, auto-tiling, layer ownership, the QA grid */
     ENCORE_CAM: ENCORE_CAM, ENCORE_SEC: ENCORE_SEC, NO_JITTER: NO_JITTER,
     seedVariant: seedVariant, houseStyle: houseStyle, copyStyle: copyStyle, ghostUid: ghostUid, jitterFor: jitterFor, idNeighbours: idNeighbours,

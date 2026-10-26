@@ -1060,7 +1060,7 @@ html body .slw-grid > .slw-card.shine-1 {
 /* 2 · a pastel edge drifting round over 8 s (still on LOW and under reduced motion) */
 html body .slw-grid > .slw-card.shine-2 {
   border: 3px solid transparent; padding: 8px 8px 10px;
-  background: linear-gradient(var(--px-panel), var(--px-panel)) padding-box, conic-gradient(from var(--px-foil), #FF9FCF, #8FD9FF, #9DEBB0, #FFE27A, #FF9FCF) border-box;
+  background: linear-gradient(var(--px-panel), var(--px-panel)) padding-box, conic-gradient(from var(--px-foil, 0deg), #FF9FCF, #8FD9FF, #9DEBB0, #FFE27A, #FF9FCF) border-box;
   animation: pxFoil 8s linear infinite;
 }
 /* 3 · a gold edge with two 4-point pixel glints per 4 s */

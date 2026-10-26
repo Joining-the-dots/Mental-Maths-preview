@@ -782,6 +782,9 @@
   var mem = lru(MEM_MAX, function (k, url) { try { root.URL.revokeObjectURL(url); } catch (e) { /* ignore */ } });
   var jobs = new Map(), renderQ = [], tts = [], liveBuf = [];
   var rafId = 0, slowId = 0, idleId = 0, waitCanvas = false;
+  /* perf-4: icons drawn and waiting for their ink check + PNG (inkIcon); taskNo counts the scheduler's tasks (frames and
+     background slots), so an icon's second step never shares its drawing's task */
+  var inkQ = [], taskNo = 0;
   var freeCanvas = [], canvasTotal = 0, probe = null;
 
   /* ---------------- SL3D (no mounted island needed) ---------------- */
@@ -1182,6 +1185,7 @@
       while (i < hashQ.length && hashQ[i].prio <= prio) i++;
       hashQ.splice(i, 0, hj);
     } else if (prio < hj.prio) { hj.prio = prio; hashQ.splice(hashQ.indexOf(hj), 1); hashQ.unshift(hj); }
+    if (el) watchEl(el);
     return new Promise(function (res) { hj.waiters.push({ el: el, prio: prio, res: res }); wake(); });
   }
   /* the hash of what R.make will draw: SL3D.vox.displayVoxels (the same route; land_<isle> → the
@@ -1190,19 +1194,32 @@
     var V = root.SLVox, m = S.vox.displayVoxels(spec.id, spec.st);
     return m && V && typeof V.hash === 'function' ? V.hash(m) : null;
   }
-  function hashStep(t0) {
-    do {
-      var hj = hashQ.shift(), key = '';
-      hashJobs.delete(hj.mk);
-      if (pxReady()) {
-        try { key = pixelKey(hj.spec, pxHash(hj.spec), S.tier) || ''; } catch (e) { log('no vox display for ' + hj.spec.pre + ': ' + errText(e)); }
-      }
-      pxKeys.set(memoKey(hj.spec), key);
-      if (key) stats.hashed++; else stats.noVox++;
-      settleHash(hj, key ? keyed(hj.spec, key) : null);
-    } while (hashQ.length && perf() - t0 < PX.hashMs);
+  function hashOne(hj) {
+    var key = '';
+    hashJobs.delete(hj.mk);
+    if (pxReady()) {
+      try { key = pixelKey(hj.spec, pxHash(hj.spec), S.tier) || ''; } catch (e) { log('no vox display for ' + hj.spec.pre + ': ' + errText(e)); }
+    }
+    pxKeys.set(memoKey(hj.spec), key);
+    if (key) stats.hashed++; else stats.noVox++;
+    settleHash(hj, key ? keyed(hj.spec, key) : null);
+  }
+  /* the frame's hash slice: the on-screen icons' hashes (perf-4; every one without an observer), at least one, then
+     while the slice is under PX.hashMs → true when on-screen ones are left. The background hashes one at a time */
+  function hashStep(t0, vis) {
+    var did = 0;
+    for (var i = 0; i < hashQ.length;) {
+      var hj = hashQ[i];
+      if (vis && !onScreen(hj.prio, hj.waiters)) { i++; continue; }
+      if (did && (!vis || perf() - t0 >= PX.hashMs)) return vis;
+      hashQ.splice(i, 1);
+      hashOne(hj);
+      did++;
+    }
+    return false;
   }
   function settleHash(hj, spec) {
+    if (!spec) hj.waiters.forEach(function (w) { unwatchEl(w.el); });
     hj.waiters.forEach(function (w) { (spec ? request(spec, w.el, w.prio) : Promise.resolve(null)).then(w.res); });
     hj.waiters = [];
   }
@@ -1241,7 +1258,7 @@
       job.prio = prio;
       if (job.queued) { renderQ.splice(renderQ.indexOf(job), 1); job.queued = false; enqueue(job); }
     }
-    if (el && job.els.indexOf(el) < 0) job.els.push(el);
+    if (el && job.els.indexOf(el) < 0) { job.els.push(el); watchEl(el); }
     return job.promise;
   }
   function enqueue(job) {
@@ -1256,6 +1273,9 @@
   function finish(job, blob) {
     if (jobs.get(job.key) === job) jobs.delete(job.key);
     if (job.queued) { var i = renderQ.indexOf(job); if (i >= 0) renderQ.splice(i, 1); job.queued = false; }
+    var k = inkQ.indexOf(job);
+    if (k >= 0) inkQ.splice(k, 1);
+    if (job.cv) { giveCanvas(job.cv); job.cv = null; }                 /* drawn, then cancelled (clear / dispose) */
     var url = null;
     if (blob) {
       try { url = root.URL.createObjectURL(blob); } catch (e) { url = null; }
@@ -1263,11 +1283,16 @@
     }
     var els = job.els;
     job.els = [];
+    els.forEach(unwatchEl);
     if (url) els.forEach(function (el) { apply(el, url, job.key); });
     job.resolve(url);
     scheduleQuiet();
   }
-  function failQueue() { failHashes(); renderQ.slice().forEach(function (j) { finish(j, null); }); renderQ.length = 0; }
+  function failQueue() {
+    failHashes();
+    renderQ.slice().concat(inkQ).forEach(function (j) { finish(j, null); });
+    renderQ.length = 0; inkQ.length = 0;
+  }
   /* wait (once per font, at most 1.5 s) for the display fonts an icon's textures use, so a
      cached icon is not drawn in a fallback face for good */
   var fontWait = {};
@@ -1592,15 +1617,38 @@
       ctx.imageSmoothingEnabled = true;
       try { ctx.imageSmoothingQuality = 'high'; } catch (e) { /* ignore */ }
       ctx.drawImage(g.canvas, 0, 0, BUF, BUF, 0, 0, OUT, OUT);
-      if (!hasInk(cv)) { lost = gpuLost(); throw new Error('blank render'); }
       ok = true;
-      stats.renders++; stats.lastMs = Math.round((perf() - t0) * 10) / 10;
     } catch (e) {
       if (!lost) { stats.fails++; log('icon ' + job.key + ': ' + errText(e)); }
     } finally {
       if (built) disposeBuilt(built);
     }
     if (!ok) { giveCanvas(cv); return lost ? 'retry' : 'fail'; }
+    /* perf-4: the ink check and the PNG come in a later task (inkIcon), once the GPU has drawn this copy */
+    job.cv = cv; job.drawnIn = taskNo; job.ms = perf() - t0;
+    return 'drawn';
+  }
+  /* an icon's second step (perf-4), in a later task than its drawing: the ink check's and the PNG encoder's reads of the
+     canvas no longer wait on the GPU in the middle of the drawing's task (at 4x CPU that wait was most of a 200-400 ms
+     task). A blank copy (context trouble) is never cached: 'retry' when the context went, else 'fail'. now: a card on
+     screen is encoded here and shows at once (the async encoder waits for idle time, a second or more on a busy iPad);
+     the background's icons keep the async encoder */
+  function inkIcon(job, now) {
+    var cv = job.cv, t0 = perf();
+    job.cv = null;
+    if (!cv) return 'fail';
+    if (!hasInk(cv)) {
+      giveCanvas(cv);
+      var lost = gpuLost();
+      if (!lost) { stats.fails++; log('icon ' + job.key + ': blank render'); }
+      return lost ? 'retry' : 'fail';
+    }
+    stats.renders++; stats.lastMs = Math.round(((job.ms || 0) + perf() - t0) * 10) / 10;
+    if (now && typeof cv.toDataURL === 'function' && typeof root.atob === 'function') {
+      var b = null;
+      try { b = dataUrlBlob(cv.toDataURL('image/png')); } catch (e) { b = null; }
+      if (b && b.size > 0) { giveCanvas(cv); storePut(job.key, b); finish(job, b); return 'done'; }
+    }
     toBlob(cv, function (blob) {
       giveCanvas(cv);
       if (blob) storePut(job.key, blob);
@@ -2063,15 +2111,188 @@
   }
 
   /* ================================================================
-     THE SCHEDULER — one rAF loop for turntable frames and queued icons
+     THE SCHEDULER — one rAF loop for turntable frames and on-screen icons; background slots for the rest (perf-4)
      ================================================================ */
   function wake() {
     if (idleId) { clearTimeout(idleId); idleId = 0; }
     if (slowId) { clearTimeout(slowId); slowId = 0; }
     if (!rafId) rafId = raf(tick);
   }
+  /* perf-4 (RELEASE-FIXES): after the Island Shop opened, its off-screen cards' icons kept adding 200-400 ms tasks for
+     10-34 s at 4x CPU, and every later tap waited behind one. Now:
+       · an icon is two steps in two tasks: drawing (renderIcon) and, later, its ink check and PNG (inkIcon);
+       · the frame loop takes only the cards on screen (onScreen: an IntersectionObserver's answer, a card it has not
+         answered for yet counting as on screen; without an observer every card is, the old order), one step a frame
+         at least, and never in the VIS_QUIET ms after a tap, a key or a scroll (the tap's own screen paints first);
+       · the rest (off screen, prewarm) runs in background slots (requestIdleCallback with a short timeout where there
+         is one): one step, or several cheap ones while the slot is under BG_SLICE ms, then a pause as long as the slot
+         (40-300 ms), never within BG_QUIET ms of a tap, a key or a scroll. A card scrolled into view moves to the frame
+         loop at once */
+  var VIS_QUIET = 100, BG_QUIET = 500, BG_GAP = [40, 300], BG_SLICE = 12, BG_TIMEOUT = 250, VIS_MARGIN = '96px';
+  var lastInput = -1e9, bgT = 0, bgIdle = 0, bgGap = BG_GAP[0];
+  function onInput() { lastInput = perf(); }
+  try {
+    ['pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll'].forEach(function (t) {
+      document.addEventListener(t, onInput, { capture: true, passive: true });
+    });
+  } catch (e) { /* ignore */ }
+  /* which cards are on screen: each queued card's picture box (overBox: past display: contents) is watched once the
+     frame loop runs (its style is computed by then); answers land in visOn. An observer's rootMargin grows its root
+     only, never the clip of a scroller in between (the Island Shop's sheet scrolls on its own: with the viewport as
+     the root a card counted only once inside the sheet, VIS_MARGIN did nothing). So a box is watched in its nearest
+     scrolling ancestor (root: that scroller, VIS_MARGIN round it), that scroller in its own, and so on up to the
+     viewport: a card is near when every link says so (one not answered yet counts as near). visRefs counts each
+     target's users: a scroller leaves its own root (and its observer goes) when its last card is done */
+  var visOK = null, visNew = [], visMemo = null, SCROLLS = /^(auto|scroll|overlay)$/;
+  var visIOs = typeof Map === 'function' ? new Map() : null;
+  var visBox = typeof WeakMap === 'function' ? new WeakMap() : null, visOn = visBox ? new WeakMap() : null;
+  var visUp = visBox ? new WeakMap() : null, visRefs = visBox ? new WeakMap() : null;
+  function watchEl(el) { if (el && el.nodeType === 1 && visOK !== false && visBox && !visBox.has(el) && visNew.indexOf(el) < 0) visNew.push(el); }
+  function unwatchEl(el) {
+    if (!el || !visBox) return;
+    var k = visNew.indexOf(el);
+    if (k >= 0) visNew.splice(k, 1);                      /* done before the frame loop watched it */
+    var b = visBox.get(el);
+    visBox.delete(el);
+    if (b) visDrop(b);
+  }
+  /* t's nearest scrolling ancestor (overflow auto / scroll / overlay either way); null = the viewport (html and body
+     scroll the page). visMemo (one watchNew pass) keeps each ancestor's answer for its siblings */
+  function scrollerOf(t) {
+    var seen = [], e = t ? t.parentNode : null, r = null, d = document, g, cs;
+    for (g = 0; e && e.nodeType === 1 && g < 64; g++, e = e.parentNode) {
+      if (e === d.body || e === d.documentElement) break;
+      if (visMemo && visMemo.has(e)) { r = visMemo.get(e); break; }
+      seen.push(e);
+      try { cs = root.getComputedStyle(e); } catch (x) { cs = null; }
+      if (cs && (SCROLLS.test(cs.overflowY) || SCROLLS.test(cs.overflowX))) { r = e; break; }
+    }
+    if (visMemo) for (g = 0; g < seen.length; g++) visMemo.set(seen[g], r);
+    return r;
+  }
+  /* the observer round a root (a scroller, or null: the viewport) → {io, n targets} | null */
+  function ioFor(R) {
+    var o = visIOs.get(R);
+    if (o) return o;
+    var op = { rootMargin: VIS_MARGIN };
+    if (R) op.root = R;
+    try { o = { io: new root.IntersectionObserver(onVis, op), n: 0 }; } catch (e) { return null; }
+    visIOs.set(R, o);
+    return o;
+  }
+  function visHold(t, R) {
+    var n = visRefs.get(t) || 0;
+    if (n) { visRefs.set(t, n + 1); return; }
+    var o = ioFor(R);
+    if (!o && R) { R = null; o = ioFor(null); }          /* no observer round that scroller: the viewport's */
+    if (!o) return;
+    visRefs.set(t, 1);
+    visUp.set(t, R);
+    if (R && !o.n) visHold(R, scrollerOf(R));            /* a new scroller root is watched in its own root */
+    o.n++;
+    try { o.io.observe(t); } catch (e) { /* ignore */ }
+  }
+  function visDrop(t) {
+    var n = visRefs.get(t) || 0;
+    if (n > 1) { visRefs.set(t, n - 1); return; }
+    if (!n) return;
+    var R = visUp.get(t), o = visIOs.get(R);
+    visRefs.delete(t); visUp.delete(t); visOn.delete(t);
+    if (!o) return;
+    try { o.io.unobserve(t); } catch (e) { /* ignore */ }
+    if (--o.n > 0 || !R) return;
+    try { o.io.disconnect(); } catch (e) { /* ignore */ }
+    visIOs.delete(R);
+    visDrop(R);                                           /* the scroller's last card: it leaves its own root */
+  }
+  function watchNew() {
+    if (!visNew.length) return;
+    if (visOK === null) visOK = !!(visBox && visIOs && typeof root.IntersectionObserver === 'function' && ioFor(null));
+    var list = visNew;
+    visNew = [];
+    if (!visOK) return;
+    visMemo = new Map();
+    try {
+      list.forEach(function (el) {
+        if (visBox.has(el)) return;
+        var b = overBox(el);
+        visBox.set(el, b);
+        visHold(b, scrollerOf(b));
+      });
+    } finally { visMemo = null; }
+  }
+  function onVis(entries) {
+    var came = false;
+    entries.forEach(function (e) { visOn.set(e.target, !!e.isIntersecting); if (e.isIntersecting) came = true; });
+    if (came) wake();                                     /* a card (or its scroller) came into view: the frame loop takes it now */
+  }
+  /* a box is near the screen: it, and each scroller it sits in, near its own root (one not answered yet: near) */
+  function visNear(t) {
+    for (var g = 0; t && g < 64; g++) {
+      if (visOn.get(t) === false) return false;
+      t = visUp.get(t);
+    }
+    return true;
+  }
+  /* a job (els) or a hash job (waiters {el}) of this priority is on screen: prewarm (prio 1) never once an observer
+     answers; a caller waiting with no card (url()) always */
+  function onScreen(prio, list) {
+    if (!visOK) return true;
+    if (prio > 0) return false;
+    var any = false;
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i] && list[i].nodeType ? list[i] : list[i] && list[i].el;
+      if (!el) continue;
+      any = true;
+      var b = visBox.get(el);
+      if (!b || visNear(b)) return true;                 /* not watched or not answered yet: on screen */
+    }
+    return !any;
+  }
+  /* the next step: an icon drawn in an earlier task gets its ink check + PNG first (oldest first), then the next
+     queued icon (vis: on-screen ones only) → {job, ink} | null */
+  function nextStep(vis) {
+    var i, j;
+    for (i = 0; i < inkQ.length; i++) { j = inkQ[i]; if (j.drawnIn !== taskNo && (!vis || onScreen(j.prio, j.els))) return { job: j, ink: true }; }
+    if (waitCanvas) return null;
+    for (i = 0; i < renderQ.length; i++) { j = renderQ[i]; if (!vis || onScreen(j.prio, j.els)) return { job: j, ink: false }; }
+    return null;
+  }
+  /* on-screen work for the coming frames (an icon drawn this task counts: its second step comes next frame) */
+  function visWork() {
+    var i;
+    for (i = 0; i < inkQ.length; i++) if (onScreen(inkQ[i].prio, inkQ[i].els)) return true;
+    if (!waitCanvas) for (i = 0; i < renderQ.length; i++) if (onScreen(renderQ[i].prio, renderQ[i].els)) return true;
+    return false;
+  }
+  /* one step (now: the frame loop's, for a card on screen) → renderIcon's / inkIcon's answer */
+  function runStep(st, now) {
+    var job = st.job, r, i;
+    if (st.ink) {
+      i = inkQ.indexOf(job);
+      if (i >= 0) inkQ.splice(i, 1);
+      r = inkIcon(job, now);
+      if (r === 'retry') { if (++job.tries > 2) finish(job, null); else enqueue(job); }
+      else if (r === 'fail') finish(job, null);
+      return r;                                           /* 'done': the encoder finishes it (at once, or later) */
+    }
+    r = renderIcon(job);
+    if (r === 'wait') { waitCanvas = true; return r; }
+    if (r === 'retry') { if (++job.tries > 2) finish(job, null); return r; }
+    if (r === 'fail') { finish(job, null); return r; }
+    i = renderQ.indexOf(job);
+    if (i >= 0) renderQ.splice(i, 1);
+    job.queued = false;
+    inkQ.push(job);
+    return r;
+  }
+  function hashesOnScreen() {
+    for (var i = 0; i < hashQ.length; i++) if (onScreen(hashQ[i].prio, hashQ[i].waiters)) return true;
+    return false;
+  }
   function tick() {
     rafId = 0;
+    taskNo++;
     var now = perf(), t0 = now, more = false, i;
     if (document.hidden) { scheduleQuiet(); return; }
     liveBuf.length = 0;                                   /* a reused list: a stop may edit tts mid-loop */
@@ -2082,39 +2303,70 @@
     }
     liveBuf.length = 0;
     if (tts.length && !S) kickS();
+    watchNew();
+    var quiet = now - lastInput >= VIS_QUIET;
     if (hashQ.length) {                                   /* v3 keys first: the hash slice of this frame */
       if (!pxReady()) kickS();
-      else { hashStep(perf()); if (hashQ.length) more = true; }
+      else if (!quiet) { if (hashesOnScreen()) more = true; }
+      else if (hashStep(perf(), true)) more = true;
     }
-    if (renderQ.length) {
+    if (renderQ.length || inkQ.length) {
       if (!S) kickS();
-      else {
-        var budget = tts.length ? 6 : 12, did = 0;
-        while (renderQ.length && (!did || perf() - t0 < budget)) {    /* at least one icon per frame */
-          var job = renderQ[0], r = renderIcon(job);
+      else if (quiet) {
+        var budget = tts.length ? 6 : 12, did = 0, st;
+        while ((!did || perf() - t0 < budget) && (st = nextStep(true))) {    /* at least one step per frame */
+          var r = runStep(st, !!visOK);          /* an observer said (or will say) it is on screen */
           did++;
-          if (r === 'wait') { waitCanvas = true; break; }
-          if (r === 'retry') { if (++job.tries > 2) finish(job, null); more = true; break; }
-          if (r === 'fail') finish(job, null);
-          else { var qi = renderQ.indexOf(job); if (qi >= 0) renderQ.splice(qi, 1); job.queued = false; }   /* an encoder that answers at once has finished it already */
+          if (r === 'wait') break;
+          if (r === 'retry') { more = true; break; }
         }
-        if (renderQ.length && !waitCanvas) more = true;
-      }
+        if (visWork()) more = true;
+      } else if (visWork()) more = true;
     }
     if (more) wake();
     else scheduleQuiet();
+    bgKick();
   }
-  /* nothing to draw this frame: watch still turntables slowly, else start the idle clock */
+  /* the background slots: a drawn icon's PNG first, else the hashes, else an off-screen icon (one step, or cheap ones
+     while the slot is under BG_SLICE ms) */
+  function bgWork() { return !!(S && (inkQ.length || (renderQ.length && !waitCanvas) || (hashQ.length && pxReady()))); }
+  function bgKick() {
+    if (bgT || bgIdle || off || document.hidden || !bgWork()) return;
+    bgT = setTimeout(function () {
+      bgT = 0;
+      if (typeof root.requestIdleCallback === 'function') {
+        try { bgIdle = root.requestIdleCallback(function () { bgIdle = 0; bgRun(); }, { timeout: BG_TIMEOUT }); return; } catch (e) { bgIdle = 0; }
+      }
+      bgRun();
+    }, Math.max(bgGap, lastInput + BG_QUIET - perf()));
+  }
+  function bgRun() {
+    if (off || document.hidden || !bgWork()) return;
+    if (perf() - lastInput < BG_QUIET) { bgKick(); return; }
+    taskNo++;
+    var t0 = perf(), st, r;
+    do {
+      st = nextStep(false);
+      if (st && (st.ink || !hashQ.length || !pxReady())) { r = runStep(st); if (r === 'wait' || r === 'retry') break; }
+      else if (hashQ.length && pxReady()) hashStep(perf(), false);
+      else break;
+    } while (perf() - t0 < BG_SLICE && bgWork());
+    bgGap = Math.min(BG_GAP[1], Math.max(BG_GAP[0], perf() - t0));
+    if (!rafId) scheduleQuiet();
+    bgKick();
+  }
+  /* nothing to draw this frame: watch still turntables slowly, else start the idle clock (the background slots carry
+     on with what is off screen) */
   function scheduleQuiet() {
     if (rafId) return;
     if (tts.length) { if (!slowId) slowId = setTimeout(function () { slowId = 0; wake(); }, 700); return; }
-    if ((renderQ.length || hashQ.length) && !waitCanvas && S) { wake(); return; }
+    if (S && (visWork() || (hashQ.length && hashesOnScreen()))) { wake(); return; }
     if (idleId || (!gpu && !res && !pres)) return;
     idleId = setTimeout(idleDispose, IDLE_MS);
   }
   function idleDispose() {
     idleId = 0;
-    if (tts.length || renderQ.length || hashQ.length || canvasTotal > freeCanvas.length) { scheduleQuiet(); return; }
+    if (tts.length || renderQ.length || inkQ.length || hashQ.length || canvasTotal > freeCanvas.length) { scheduleQuiet(); return; }
     log('idle: renderer disposed');
     dropGpu(true);
     disposeRes();
@@ -2124,14 +2376,14 @@
   /* ---------------- page lifecycle ---------------- */
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && gpu) gpu.away = true;              /* a later loss of this context is routine */
-    if (!document.hidden && (tts.length || renderQ.length)) { tts.forEach(function (t) { t.dirty = true; t.lastNow = -1; }); wake(); }
+    if (!document.hidden && (tts.length || renderQ.length || inkQ.length || hashQ.length)) { tts.forEach(function (t) { t.dirty = true; t.lastNow = -1; }); wake(); }
   });
   root.addEventListener('pagehide', function () {
     /* free the GPU now (bfcache may keep the page); scenes stay for a pageshow */
     dropGpu(true);
     if (!tts.length) { disposeRes(); releaseCanvases(); }
   });
-  root.addEventListener('pageshow', function (e) { if (e && e.persisted && (tts.length || renderQ.length)) wake(); });
+  root.addEventListener('pageshow', function (e) { if (e && e.persisted && (tts.length || renderQ.length || inkQ.length || hashQ.length)) wake(); });
 
   /* ================================================================
      PUBLIC API
@@ -2189,6 +2441,8 @@
     failQueue();
     if (idleId) { clearTimeout(idleId); idleId = 0; }
     if (slowId) { clearTimeout(slowId); slowId = 0; }
+    if (bgT) { clearTimeout(bgT); bgT = 0; }
+    if (bgIdle) { try { root.cancelIdleCallback(bgIdle); } catch (e) { /* ignore */ } bgIdle = 0; }
     dropGpu(true);
     disposeRes();
     releaseCanvases();
@@ -2212,8 +2466,8 @@
   function info() {
     var out = {
       version: VERSION, look: lookVersion(), ready: !!S, off: off, blocked: blocked(), gpu: !!gpu, res: !!res,
-      queue: renderQ.length, jobs: jobs.size, memory: mem.size, turntables: tts.length, contextLosses: lostCount,
-      canvases: canvasTotal, member: member, stats: {},
+      queue: renderQ.length, ink: inkQ.length, jobs: jobs.size, memory: mem.size, turntables: tts.length, contextLosses: lostCount,
+      canvases: canvasTotal, canvasesFree: freeCanvas.length, member: member, stats: {},
       registry: registry(), pixel: { ready: pxReady(), keys: pxKeys.size, hashing: hashQ.length, res: !!pres }
     };
     for (var k in stats) out.stats[k] = stats[k];

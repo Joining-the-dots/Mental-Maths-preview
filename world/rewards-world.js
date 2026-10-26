@@ -65,6 +65,10 @@
   function priceOf(it) { var p = it && typeof C.priceOf === 'function' ? C.priceOf(it) : null; return typeof p === 'number' && isFinite(p) ? p : it ? it.price : 0; }
   function balOf(u) { return !u ? 0 : typeof C.walletBalance === 'function' ? C.walletBalance(u) : u.points || 0; }
   function money(n) { return SYM() + ' ' + fmt(n); }
+  /* d-island (James, 25 Oct 2026): one wording for every shortfall, 'Need N more 🪙' (need.coins), and one for every goal
+     button, '🎯 My goal' (goal.my; ' ✓' while it is the goal). Plain text: the caller escapes it */
+  function needLine(n) { return coinsOn() ? tx('need.coins', { n: fmt(n) }, 'Need ' + fmt(n) + ' more 🪙') : 'Need ' + fmt(n) + ' more ⭐'; }
+  function goalWord(on) { return tx('goal.my', null, '🎯 My goal') + (on ? ' ✓' : ''); }
   /* a price badge (a sign, a land chip, a tray): 'Free' in test mode (the one word, wardrobe.free; R2, QA2A-12), else the
      price in the island's money. Plain text: the caller escapes it */
   function freeOr(n) { return trial() ? tx('wardrobe.free') : money(n); }
@@ -415,6 +419,8 @@
       '.slw-card .row{flex-wrap:wrap;}.slw-card .row>.slw-cardgoal{flex:1 0 100%;}.slw-learnwrap{display:flex;flex-direction:column;align-items:flex-start;gap:6px;}.slw-learnwrap>.slw-learntime{flex:none;}',
       /* R2: a closed shelf's other cards, 'See all', the 'I can buy' switch (island-pixel.css draws the real look) */
       '.slw-grid>.slw-card[hidden],.slw-seeall[hidden]{display:none !important;}.slw-seeall{display:flex;margin:-2px auto 16px;}',
+      /* d-island: the HUD's 📚 Learn steps aside while the Next step card shows its own */
+      '.slw-hud .slw-learn[hidden]{display:none !important;}',
       '.slw-shopswitch{display:flex;justify-content:flex-end;margin:0 0 8px;}.slw-switch{display:inline-flex;align-items:center;gap:8px;min-height:44px;background:none;border:0;font:inherit;font-weight:800;cursor:pointer;}',
       '.slw-switch .tk{position:relative;width:46px;height:26px;border-radius:13px;background:#d9d2ee;}.slw-switch .tk>i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;}',
       '.slw-switch[aria-checked="true"] .tk{background:#6c5ce7;}.slw-switch[aria-checked="true"] .tk>i{left:auto;right:3px;}.slw-sheet.slw-shopsheet{height:92vh;}',
@@ -514,10 +520,18 @@
       }, 300);
     }());
   }
+  /* compat-1 (RELEASE-FIXES, d-island): Safari 15.0-16.3 has WebGL2 but no import maps, so `three` can never load there.
+     Without them the 2D island is the island at once and stage.js (and its 3.4 MB of 3D code) is never fetched. Safari
+     16.0-16.3 has HTMLScriptElement.supports() but says no to 'importmap'; 15.x has no supports() at all */
+  function importMaps() {
+    try { return typeof HTMLScriptElement !== 'undefined' && typeof HTMLScriptElement.supports === 'function' && HTMLScriptElement.supports('importmap') === true; }
+    catch (e) { return false; }
+  }
   function maybeBoot3D() {
     if (stage3d || booting3d || use3D === false) return;
     try { if (localStorage.getItem('slNo3D') === '1') { use3D = false; lowPanels(); return; } } catch (e) {}
     if (typeof WebGL2RenderingContext === 'undefined') { use3D = false; lowPanels(); return; }
+    if (!importMaps()) { use3D = false; lowPanels(); return; }
     booting3d = true;
     /* R2 (QA2D-3): calm and not ready from the boot's first moment: the 3D scripts compile, then the stage's first build
        holds the page for a second or two, and a HUD that still looked ready then would answer a tap late */
@@ -655,6 +669,28 @@
      wears it (V4.54 things keep theirs) and a full island is not lost under hands; the first-visit
      hint names the landmark */
   function handDot(it) { return !!(it.act && it.act !== 'home' && it.act !== 'launch' && (!it.isle || it.kind === 'landmark')); }
+  /* D-3D (James, 25 Oct: "Name them"): a game's ▶ sign says which game it opens, in 2D and over the 3D island
+     (play.sign.<game>); a game with no sign word of its own is named by its item (▶ <name>), never a bare ▶ PLAY.
+     The same words are in the bought-a-game card ('look for the ▶ Kart sign'), the legend's example sign and the
+     game's spoken label (label in name: 'Penalty Pitch — tap to play Shootout'; island3d / isles-view say the same) */
+  var PLAY_SIGN = { course: ['play.sign.course', '▶ Debut Run'], penalty: ['play.sign.penalty', '▶ Shootout'], kart: ['play.sign.kart', '▶ Kart'] };
+  function playSign(it) {
+    var s = it && Object.prototype.hasOwnProperty.call(PLAY_SIGN, it.game) ? PLAY_SIGN[it.game] : null;
+    return s ? String(tx(s[0], null, s[1])) : '▶ ' + ((it && it.name) || 'Play');
+  }
+  function playTag(it) { return '<span class="slw-tag play">' + esc(playSign(it)) + '</span>'; }
+  /* d-3d's NEW copy keys, not in world-copy.js yet (FOR THE LEAD / d-island to add, word for word): these fallbacks
+     show until then. buy.game.look's {sign} is a game's playSign, its ▶ kept with the name on a narrow card */
+  var SIGN_WORDS = { legend: ['legend.play', 'tap a game’s sign to play'], look: ['buy.game.look', 'It’s on your island now — look for the {sign} sign.'] };
+  function signWords(k, it) {
+    var w = SIGN_WORDS[k];
+    return String(tx(w[0], null, w[1])).replace('{sign}', function () { return playSign(it).replace(/▶ /, '▶\u00a0'); });
+  }
+  /* a game's spoken label: what it is, what a tap does and its sign's words (without the ▶) */
+  function playLabel(it) {
+    var w = playSign(it).replace(/^\s*▶\s*/, '');
+    return it.name + ' — tap to play' + (w && w !== it.name ? ' ' + w : '');
+  }
   /* HTML labels that float over the 3D items (same markup and classes as 2D) */
   function anchors3D() {
     var w = W(), list = [], k = isleNow();
@@ -668,7 +704,7 @@
       C.placedOn(w, k).forEach(function (p) {          /* the visited island's tags only */
         var it = C.item(p.id); if (!it) return;
         var inner = '';
-        if (it.act === 'launch') inner += '<span class="slw-tag play">▶ PLAY</span>';
+        if (it.act === 'launch') inner += playTag(it);
         else if (handDot(it)) inner += '<span class="slw-dot" aria-hidden="true">✋</span>';
         if (window._slwNew && window._slwNew[p.uid]) inner += '<span class="slw-new">NEW!</span>';
         if (!inner) return;
@@ -785,6 +821,7 @@
     /* a forced trip (a purchase, Take, Undo) never carries a half-done placement to another island */
     if (placing && placing.isle !== k) endPlacement(placing.fromBuy ? 'play' : 'edit');
     var seq = ++travelSeq, from = isleNow(), fromMap = skyMapOn;
+    if (from !== k) nextLeft = from;                           /* the Next step card offers no visit straight back (d-island) */
     visitIsle = k; skyMapOn = false; selectedUid = null;      /* edit mode stays on, on the new island (D46) */
     if (!on3D()) {
       /* 2D: the frame shows the new island at once (a land's mascots take turns from visit to visit, D112) */
@@ -816,6 +853,7 @@
   }
   function arrived(k) {
     var w = W(), open = C.isleUnlocked(w, k);
+    syncNext();                                   /* d-island: the Next step card's ideas are this island's now */
     announce(tx(open ? 'isle.arrived' : 'isle.arrivedLocked', { island: isleName(k) }));
     if (!open && mode !== 'play') { if (placing) endPlacement('play'); else { mode = 'play'; draw(); } toast(tx('isle.locked')); return; }
     if (open && k !== 'home' && !w.tutSeen['isle:' + k] && !document.querySelector('.slw-cele')) firstVisit(k);
@@ -846,7 +884,7 @@
   /* My Island opens on Home: a real open, leaving the tab, a profile switch */
   function resetIsle() {
     var away = visitIsle !== 'home' || skyMapOn;
-    visitIsle = 'home'; skyMapOn = false; travelSeq++; lmBusy = {};
+    visitIsle = 'home'; skyMapOn = false; travelSeq++; lmBusy = {}; nextLeft = null;
     if (away) s3('visitIsle', 'home', { instant: true });
   }
 
@@ -873,6 +911,15 @@
     });
     return html + '</ul>' + hereHtml(w, k) + '</nav>';
   }
+  /* the here row's 📚 Learn (a learn-and-come-back trip for the land): a locked island the child is looking at, in play
+     mode, with real prices, short of its land → the land's id, else null (d-island: the HUD's Learn and the Next step
+     card's 📚 Learn idea give way to it) */
+  function hereLearn() {
+    var w = W(), k = isleNow();
+    if (!w || skyMapOn || k === 'home' || mode !== 'play' || trial() || C.isleUnlocked(w, k)) return null;
+    var land = C.item(C.ISLES[k].unlock), u = me(), ls = land && u ? iState(u, land.id) : null;
+    return ls && ls.state === 'short' ? land.id : null;
+  }
   /* the here row: hidden on Home; a sky island's name and room (editing: the name only, the edit bar
      counts the squares); a preview's Unlock (→ its land sheet, which holds the real Buy) and the way home */
   function hereHtml(w, k) {
@@ -890,7 +937,7 @@
          and '📚 Learn' (a learn-and-come-back trip for the land), never a big green button that looks buyable */
       var ls = land && !trial() ? iState(me(), land.id) : null;
       html += '<span class="st">' + esc(tx('isle.lockedHint')) + '</span>' + (!land ? ''
-        : ls && ls.state === 'short' ? '<span class="slw-need">' + esc('Need ' + fmt(ls.need) + ' more ' + SYM()) + '</span>' + learnBtnHtml(land.id, 'here')
+        : ls && ls.state === 'short' ? '<span class="slw-need">' + esc(needLine(ls.need)) + '</span>' + learnBtnHtml(land.id, 'here')
         : '<button type="button" class="slw-buy" data-act="isle-unlock" data-land="' + land.id + '" data-fk="here:unlock">' +
           lbl('lock', trial() ? tx('isle.unlockFree') : tx(coinsOn() ? 'isle.unlockForCoins' : 'isle.unlockFor', { price: fmt(priceOf(land)) })) + '</button>');
     }
@@ -918,6 +965,8 @@
     if (nav) { old.parentNode.insertBefore(nav, old); wireIsleBar(nav, sl); }
     old.remove();
     if (fk) refocus(root, fk);
+    /* the here row's own 📚 Learn came or went (d-island): the card gives way to it or comes back, the HUD's follows */
+    if (nextEnv && nextCard && !!nextEnv.learnHere !== !!hereLearn()) syncNext(); else syncLearn();
     fitStage();                          /* the here row comes and goes: the stage's top moves */
   }
   /* Edit waits on a locked preview: aria-disabled with the dashed off look, still focusable (D46) */
@@ -1129,6 +1178,7 @@
     injectCss();
     /* a real open starts on Home; a refresh of the same child (another tab saved) stays where it was */
     if (!again && !keep) { resetIsle(); petTurn++; }       /* the Home crew's rotation steps once per open (D97) */
+    if (!again && !keep) nextOpens++;                     /* and the Next step card's turn (d-island) */
     if (!again && !keep) openPending = true;              /* the island-open queue runs once per real open (KU13) */
     if (!again && !keep) careOpen = kidDue = true;        /* and the pets' island day (P4.1) */
     loadNextStep();                                       /* the Next step card's rules (wave 3; the goal bar until they are in) */
@@ -1185,12 +1235,15 @@
     if (!hudShown) setTimeout(function () { if (renderedFor != null && root) hudShown = true; }, 0);
     stopPets();
     var is3d = !!(use3D && stage3d), fk = focusKey(root);    /* the HUD button, chip or here-row button that had focus */
+    /* the Next step card first: while it shows its own 📚 Learn the HUD's hides (d-island: never three Learn buttons
+       with the top bar's) */
+    var nx = nextHtml(u);
     root.innerHTML =
       '<div class="slw' + (mode !== 'play' ? ' slw-edit' : '') + (showtimeOn || (!is3d && Date.now() < encoreUntil) ? ' showtime' : '') + '">' +
         '<div class="slw-hud"' + (hudBusy && (is3d || booting3d) ? ' aria-busy="true"' : '') + '>' +
-          '<button class="slw-learn" type="button" data-act="learn" data-fk="hud:learn">' + esc(tx('learn.go')) + '</button>' +
+          '<button class="slw-learn" type="button" data-act="learn" data-fk="hud:learn"' + (hudLearnTo() ? ' hidden' : '') + '>' + esc(tx('learn.go')) + '</button>' +
           '<div class="slw-pts" title="' + esc(balTitle()) + '">' + SYM() + ' <span id="slwPts">' + fmt(balOf(u)) + '</span></div>' +
-          nextHtml(u) +
+          nx +
           /* R2 (QA2B-1): music, sound and ❓ are one compact group of icon squares beside the Next step card (the HUD keeps
              two rows on an iPad held sideways); the two toggles say what they switch (Music, Sound) and whether it is on
              (aria-pressed), never two buttons that both just say 'On' */
@@ -1212,7 +1265,9 @@
         '<div class="slw-stagewrap' + (is3d ? ' slw-is3d' : '') + '"><div class="slw-stage" id="slwStage"></div></div>' +
         '<div class="slw-pan" aria-hidden="true">Swipe the island sideways to see it all</div>' +
         '<div id="slwBar"></div>' +
-        '<div class="slw-legend"><span><i style="background:#ffd23f;color:#4a3200;">▶ PLAY</i> tap to play a game</span>' +
+        /* d-3d: the legend's example sign is one every child has (the starter course's), and says what a sign is for
+           (legend.play: SIGN_WORDS) */
+        '<div class="slw-legend"><span><i style="background:#ffd23f;color:#4a3200;">' + esc(playSign(C.item('att_course'))) + '</i> ' + esc(signWords('legend')) + '</span>' +
           '<span><i style="background:#fff;border:2px solid #6c5ce7;">✋</i> tap to play with it</span>' +
           '<span><i style="background:#4a4468;color:#fff;">🔒</i> unlock in the Island Shop</span>' +
           '<span>Everything else is just for looks</span></div>' +
@@ -1227,6 +1282,7 @@
     var nav = root.querySelector('.slw-isles'); if (nav) wireIsleBar(nav);
     syncEdit();
     wireGoal(root.querySelector('.slw-goal'));
+    if (fk === 'hud:learn' && hudLearnTo()) fk = hudLearnTo();   /* the HUD's Learn hid: the card's own, or the here row's (d-island) */
     if (fk) refocus(root, fk);
     fitStage();                          /* the HUD may have changed its rows (Edit / Done, the goal) */
   }
@@ -1279,11 +1335,11 @@
     if (boxes && !isPath && hUnits > 0) boxes.push([x * 100, top, (x + fw) * 100, top + hUnits]);
     var interactive = mode !== 'play' || !!it.act;
     var tag = '';
-    if (mode === 'play' && it.act === 'launch') tag = '<span class="slw-tag play">▶ PLAY</span>';
+    if (mode === 'play' && it.act === 'launch') tag = playTag(it);
     else if (mode === 'play' && handDot(it)) tag = '<span class="slw-dot" aria-hidden="true">✋</span>';
-    /* NEW! sits on the item's base (sprite boxes are taller than short art); games keep it on top, clear of ▶ PLAY */
+    /* NEW! sits on the item's base (sprite boxes are taller than short art); games keep it on top, clear of the ▶ sign */
     var newBadge = (window._slwNew && window._slwNew[p.uid]) ? '<span class="slw-new' + (it.act === 'launch' ? '' : ' base') + '">NEW!</span>' : '';
-    var label = it.name + (it.act === 'launch' ? ' — tap to play' : it.act ? ' — tap to play with it' : '');
+    var label = it.act === 'launch' ? playLabel(it) : it.name + (it.act ? ' — tap to play with it' : '');
     var styleAttr = 'left:' + pct(x * 100, STAGE_W) + ';top:' + pct(top, STAGE_H) + ';width:' + pct(fw * 100, STAGE_W) + ';height:' + pct(hUnits, STAGE_H) + ';z-index:' + (isPath ? 2 : 10 + (y + fh) * 10) + ';';
     var cls = 'slw-obj' + (isPath ? ' path' : '') + (selectedUid === p.uid ? ' sel' : '');
     return interactive
@@ -2212,13 +2268,13 @@
       : rep ? repChip(it, s)
       : '<span class="chip uni">' + (trial() ? esc(tx('intro.3.trialTitle')) : 'Buy once, keep forever') + '</span>';
     var buyLabel = s.state === 'owned' ? (it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant' ? 'Use it' : 'Owned ✓')
-      : s.state === 'locked' ? '🔒 Locked' : s.state === 'short' ? 'Need ' + fmt(s.need) + ' more ' + SYM() : s.state === 'capped' ? 'Plenty ✓' : s.free ? 'Get it free' : 'Buy';
+      : s.state === 'locked' ? '🔒 Locked' : s.state === 'short' ? needLine(s.need) : s.state === 'capped' ? 'Plenty ✓' : s.free ? 'Get it free' : 'Buy';
     var disabled = s.state === 'locked' || s.state === 'short' || s.state === 'capped' || (s.state === 'owned' && !(it.kind === 'style' || it.kind === 'cosmetic' || it.kind === 'variant'));
     var isGoal = C.goalId(w) === it.id;
     /* every card button carries a focus key (card:<what>:<id>), so a repaint (a goal set, a buy refused) keeps focus on it */
     /* R2 (QA2B-5): the goal button says what it does in the item sheet's own words, on a row of its own under the card's
        button (never a lone 🎯 with only a tooltip) */
-    var goalBtn = (s.state === 'owned' || s.state === 'full' || trial()) ? '' : '<button type="button" class="slw-goalbtn slw-cardgoal' + (isGoal ? ' on' : '') + '" data-goal="' + it.id + '" data-fk="card:goal:' + it.id + '" aria-pressed="' + isGoal + '">🎯 ' + (isGoal ? 'My goal ✓' : 'Make it my goal') + '</button>';
+    var goalBtn = (s.state === 'owned' || s.state === 'full' || trial()) ? '' : '<button type="button" class="slw-goalbtn slw-cardgoal' + (isGoal ? ' on' : '') + '" data-goal="' + it.id + '" data-fk="card:goal:' + it.id + '" aria-pressed="' + isGoal + '">' + esc(goalWord(isGoal)) + '</button>';
     var shine = (window.SLIslandLook && SLIslandLook.shineLevel) ? ' shine-' + SLIslandLook.shineLevel(it.price) : '';
     /* an owned sky land is a way there; a locked land's things are a preview: a look, never a Buy (D99) */
     /* wave 3: no dead Buy. A locked thing is a look (its sheet says what it needs); one the child is short of keeps
@@ -2724,12 +2780,10 @@
     });
     return parts.join('<br>');
   }
-  /* the item sheet's shortfall (escaped HTML): 'just' once at least half is saved; nothing saved yet is said kindly,
-     never 'just 2,150 more' from 0 (F-KU5 review) */
-  function shortLine(bal, need) {
-    if (!(bal > 0)) return 'Nothing saved yet. Every bit of learning helps.';
-    return 'You have ' + money(bal) + ' — ' + (need <= bal ? 'just ' : '') + fmt(need) + ' more to go!';
-  }
+  /* the item sheet's shortfall (escaped HTML). d-island (James, 25 Oct 2026): the one wording, 'Need N more 🪙', from 0
+     or nearly there alike (it was 'You have 🪙 400 — just 200 more to go!'); the sheet's header shows the balance, and
+     the time line under 📚 Learn and come back says how long it is */
+  function shortLine(bal, need) { return esc(needLine(need)); }
   /* → the sheet (wave 3: o.onClose, and the queue and go() wait on it), or null */
   function openItem(id, o) {
     var it = C.item(id); if (!it) return null;
@@ -2748,7 +2802,7 @@
       : ik && !there ? '<button class="' + (s.state === 'owned' ? 'slw-buy' : 'slw-btn') + '" type="button" id="slwIsleGo">' + esc(tx(s.state === 'owned' ? 'isle.goThere' : 'isle.visit')) + '</button>' : '';
     /* wave 3 (WAVE3-PLAN §6): short of it, '📚 Learn and come back' beside the goal button and how long that is ('That’s
        about 10 minutes of learning.'); locked, a way to what it needs. Never a dead Buy */
-    var goalB = trial() ? '' : '<button class="slw-goalbtn' + (C.goalId(w) === id ? ' on' : '') + '" type="button" id="slwGoalNow">🎯 ' + (C.goalId(w) === id ? 'My goal ✓' : 'Make it my goal') + '</button>';
+    var goalB = trial() ? '' : '<button class="slw-goalbtn' + (C.goalId(w) === id ? ' on' : '') + '" type="button" id="slwGoalNow" aria-pressed="' + (C.goalId(w) === id) + '">' + esc(goalWord(C.goalId(w) === id)) + '</button>';
     var learnAt = s.state === 'short' && !trial() ? learnTime(s.need) : '', needIt = s.state === 'locked' && s.needs && C.item(s.needs[0]);
     /* the name leads the sheet, so it rides in the sticky header with the ⭐ balance and the ✕ (A9) */
     var ov = overlay(
@@ -2813,9 +2867,10 @@
 
   /* the purchase flow: confirm (expensive only) → locked commit → celebrate. o.quiet (people-ui's buy, KU-CH13) and
      o.care (the Pet Shop's buy, P3.2): no celebration of the host's own (the sheet plays its own), and 'Not yet' on the
-     confirm card answers done(false) */
+     confirm card answers done(false). o.answer (the Pet Shop's Clothes, d-pets): the host's own celebration, and 'Not
+     yet' (or a throw) still answers done(false) */
   function buyFlow(it, btn, errEl, done, o) {
-    var quiet = !!(o && (o.quiet || o.care)), went = false;
+    var quiet = !!(o && (o.quiet || o.care)), answer = quiet || !!(o && o.answer), went = false;
     if (buying || confirming) return;   /* a double-tap must not stack two confirm boxes */
     var u = me();
     var chk = C.purchaseCheck(u, it.id, TO());
@@ -2847,7 +2902,7 @@
         buying = false;
         if (errEl) errEl.textContent = 'Something went wrong — please try again.';
         if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
-        if (quiet && done) done(false);
+        if (answer && done) done(false);
       });
     };
     /* the price in the wallet the purchase uses (chk.price: 🪙 since the two wallets, F-KU5); ECONOMY.confirmAt is in that money too */
@@ -2856,7 +2911,7 @@
       var c = overlay('<h2>Buy ' + esc(it.name) + '?</h2><div class="big" style="width:140px;margin:8px auto;position:relative;">' + iconHtml(it.id, artState(W())) + '</div>' +
         '<p style="font-weight:700;">It costs <b>' + money(cost) + '</b>. You’ll have <b>' + money(balOf(u) - cost) + '</b> left.</p>' +
         '<p class="slw-moneynote" style="font-size:13px;font-weight:700;color:#6b6390;margin-top:-4px;">' + (coinsOn() ? esc(tx('coins.confirm.note')) : 'These are the same ⭐ you save for real prizes in 🎁 My rewards.') + '</p>' +
-        '<div style="display:flex;gap:8px;justify-content:center;"><button class="slw-btn big" type="button" id="slwNo">Not yet</button><button class="slw-buy" type="button" id="slwYes" style="flex:0 0 auto;padding:10px 22px;">Yes, buy it!</button></div>', { small: true, onClose: function () { confirming = false; if (quiet && !went && done) done(false); } });
+        '<div style="display:flex;gap:8px;justify-content:center;"><button class="slw-btn big" type="button" id="slwNo">Not yet</button><button class="slw-buy" type="button" id="slwYes" style="flex:0 0 auto;padding:10px 22px;">Yes, buy it!</button></div>', { small: true, onClose: function () { confirming = false; if (answer && !went && done) done(false); } });
       confirming = true;
       fillPhotocards(c);
       $('#slwNo', c).addEventListener('click', function () { c._close(); });
@@ -2900,6 +2955,7 @@
       if (!on3D() && mode !== 'place') {
         /* 2D: the frame shows the new land at once, with its landmark and NEW!, then the same card */
         closeAllOverlays(); travelSeq++;
+        if (isleNow() !== k) nextLeft = isleNow();     /* the Next step card offers no visit straight back (d-island) */
         visitIsle = k; skyMapOn = false; selectedUid = null; landTurn[k] = (landTurn[k] || 0) + 1;
         draw(); card(); revealView();
         return;
@@ -2907,6 +2963,7 @@
       if (!on3D() || !canTravel() || typeof stage3d.unlockIsle !== 'function' || mode === 'place') { draw(); card(); return; }
       closeAllOverlays();                             /* a shop left under the land's sheet too: the child watches the reveal */
       var seq = ++travelSeq, from = isleNow(), fromMap = skyMapOn;
+      if (from !== k) nextLeft = from;
       visitIsle = k; skyMapOn = false; selectedUid = null; mode = 'play';
       anim3d.unlockIsle = k;                          /* the stage keeps it a preview until unlockIsle runs */
       draw(); revealView();
@@ -2928,7 +2985,8 @@
       if (res.placedUid) { window._slwNew = window._slwNew || {}; window._slwNew[res.placedUid] = 1; }
       if (isleNow() !== 'home') goIsle('home', { force: true });   /* games stand on Home Island: go and see it */
       draw();
-      celebrate({ title: (isGoal ? '🎯 Goal reached! ' : '🎉 ') + it.name + '!', sub: res.placedUid ? 'It’s on your island now — look for the ▶ PLAY sign.' + (trial() ? '' : ' Yours forever!') : 'Your island is full — put something away in ✏️ Edit to make room. You can play it from 🎮 Games right now.', icon: it.id, sfx: 'fanfare',
+      /* d-3d: the card names the game's own sign (buy.game.look: SIGN_WORDS) */
+      celebrate({ title: (isGoal ? '🎯 Goal reached! ' : '🎉 ') + it.name + '!', sub: res.placedUid ? signWords('look', it) + (trial() ? '' : ' Yours forever!') : 'Your island is full — put something away in ✏️ Edit to make room. You can play it from 🎮 Games right now.', icon: it.id, sfx: 'fanfare',
         btns: [{ label: '▶ Play now', fn: function () { launch(it.game); } }] });
       return;
     }
@@ -3174,7 +3232,7 @@
     try { return !!(window.SLIsland3D && SLIsland3D.forget && SLIsland3D.remembered && SLIsland3D.remembered(window.SL_WORLD_VER)); } catch (e) { return false; }
   }
   function timeHtml(st) {
-    if (!st.status.limited) return '<div class="slw-time" style="background:#f1edfb;border-color:#d9d2ee;color:#4a3f75;">🎮 Island games have no daily time limit on this account.</div>';
+    if (!st.status.limited) return '<div class="slw-time" style="background:#f1edfb;border-color:#d9d2ee;color:#4a3f75;">🎮 ' + esc(tx('games.noLimit', null, 'There’s no daily game time limit for you.')) + '</div>';
     var m = Math.floor(st.status.leftSec / 60), s = Math.floor(st.status.leftSec % 60);
     /* under a minute: '50 seconds left today', never '0 min 50 s' (R2, QA2C-10) */
     var left = m > 0 ? m + ' min ' + (s ? s + ' s ' : '') : s + (s === 1 ? ' second' : ' seconds');
@@ -3608,7 +3666,7 @@
       act = '<button type="button" class="slw-btn" data-open="' + id + '">' + esc(tx('shop.seeIt')) + '</button>';
     } else if (c.state === 'short') {
       /* wave 3: the need line, then '📚 Learn' (a learn-and-come-back trip) beside the goal button */
-      act = '<span class="slw-need">' + esc(line) + '</span>' + (trial() ? '' : '</div><div class="row slw-learnrow">' + learnBtnHtml(id) + '<button type="button" class="slw-goalbtn' + (c.goal ? ' on' : '') + '" data-goal="' + id + '" aria-pressed="' + c.goal + '">🎯 ' + esc(tx('char.cast.save')) + '</button>');
+      act = '<span class="slw-need">' + esc(line) + '</span>' + (trial() ? '' : '</div><div class="row slw-learnrow">' + learnBtnHtml(id) + '<button type="button" class="slw-goalbtn' + (c.goal ? ' on' : '') + '" data-goal="' + id + '" aria-pressed="' + c.goal + '">' + esc(goalWord(c.goal)) + '</button>');
     } else if (c.can) {
       act = '<button type="button" class="slw-buy" data-buy="' + id + '" aria-label="' + esc(c.name + ', ' + (c.free ? tx('wardrobe.free') : price)) + '">' + (c.free ? esc(tx('isle.unlockFree')) : price) + '</button>';
     }
@@ -3992,6 +4050,8 @@
       toast: function (t) { toast(t); }, sound: careSound, trial: trial, reduced: function () { return reduced; },
       use3D: function () { return on3D() && !document.documentElement.classList.contains('sl-low'); },
       stageFeed: stageFeed, buy: buyCare,
+      /* d-pets: the Pet Shop opens on the land the child is on, and its Clothes shelf buys through the ordinary flow */
+      here: function () { return isleNow(); }, buyGear: buyGearCare,
       openShop: openPetShop, openMemories: openMemories,
       openCorner: function (petId) { return openCareCorner(typeof petId === 'string' ? { petId: petId } : {}); },
       openGear: function () { openShop({ isle: 'home', shelf: 'pets' }); },   /* Home's Pets shelf: the pet gear (wave 3) */
@@ -4057,6 +4117,17 @@
     return new Promise(function (res) {
       var settled = false;
       buyFlow(it, (o && o.btn) || null, (o && o.err) || null, function (ok) { if (!settled) { settled = true; res(!!ok); } }, { care: true });
+    });
+  }
+  /* d-pets: the Pet Shop's Clothes shelf (kind 'acc'): the host's ordinary buy flow WITH its own celebration (the piece
+     goes on the runner and the card names who wears it, as from the Island Shop); 'Not yet' on the confirm card, a
+     refusal or a failed save answer false, so the shop's card is free again */
+  function buyGearCare(id, o) {
+    var it = C.item(id);
+    if (!it || it.kind !== 'acc' || buying || confirming) return Promise.resolve(false);
+    return new Promise(function (res) {
+      var settled = false;
+      buyFlow(it, (o && o.btn) || null, (o && o.err) || null, function (ok) { if (!settled) { settled = true; res(!!ok); } }, { answer: true });
     });
   }
   function careBought(it) {
@@ -4351,22 +4422,54 @@
      ================================================================ */
   var nextCard = null, goalShown = null, TRIP_MS = 3 * 60 * 60 * 1000;
   var TRIP_FROM = { item: 1, card: 1, next: 1, hud: 1, petShop: 1, cast: 1 };
+  /* d-island: the card's turn (SLNextStep env.turn, the contract): the island day's number plus the real My Island opens
+     of this page session (render() moves nextOpens on), so each open, and each new day after a reload, comes round to
+     the next island idea; plus the cards acted on (onNext moves nextActs on), so the card after Fly there, ✋ Have a go
+     or Open my bag is the next idea, never the same one again. Memory only. qaTurn: a QA script's fixed turn (QA mode
+     only). nextLeft: the island the child last flew from in this open (env.left: no visit straight back) */
+  var nextOpens = 0, nextActs = 0, qaTurn = null, nextEnv = null, nextLeft = null;
+  function nextTurn() {
+    if (typeof qaTurn === 'number') return qaTurn;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(careDay() || ''));
+    return (m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000) : 0) + nextOpens + nextActs;
+  }
   function loadNextStep() {
     if (window.SLNextStep) return;
     loadScript('world/next-step.js?v=' + (window.SL_WORLD_VER || '1')).then(function () { if (window.SLNextStep) syncNext(); }, function () {});
   }
   /* SLNextStep.island with the host's env (W3-2 as built): test mode, the island's wallet, the care rules once they are
-     ready and the island day, the trip, who is playing and whether today's game time has room for a ▶ Play */
+     ready and the island day, the trip, who is playing and whether today's game time has room for a ▶ Play; d-island:
+     the island the child is on, whether the stage can fly, the turn, the island just left and whether the here row
+     shows its own 📚 Learn */
   function nextOf(u) {
     var N = window.SLNextStep;
     if (!N || typeof N.island !== 'function' || !u) return null;
     try {
       var env = { trial: trial(), care: care(), day: careDay(), now: Date.now(), trip: window.slLearnTrip || null, who: state.activeUser,
-        games: C.roundGate(arcadeState().status).allowed !== false };
+        games: C.roundGate(arcadeState().status).allowed !== false, isle: isleNow(), travel: canTravel(), turn: nextTurn(),
+        left: nextLeft && nextLeft !== isleNow() ? nextLeft : null, learnHere: !!hereLearn() };
       if (typeof C.walletOf === 'function') env.wallet = C.walletOf();
+      nextEnv = env;
       var n = N.island(C, u, env);
       return n && n.text && typeof n.text.key === 'string' ? n : null;
     } catch (e) { return null; }
+  }
+  /* the card on show has its own 📚 Learn: the HUD's hides (d-island) */
+  function learnInCard() { return !!(nextCard && nextCard.btn && nextCard.btn.key === 'learn.go'); }
+  /* the HUD's 📚 Learn hides while My Island shows its own: the card's, or the here row's on a locked island the child
+     is short of (d-island: never three Learn buttons with the top bar's) → where focus on it goes, or null */
+  function hudLearnTo() {
+    if (learnInCard()) return 'hud:next';
+    var id = hereLearn();
+    return id ? 'card:learn:' + id : null;
+  }
+  /* the HUD's Learn hidden or back, in place (the card or the here row just changed); focus on it moves to the one on show */
+  function syncLearn() {
+    var lb = root && root.querySelector('.slw-hud [data-act="learn"]');
+    if (!lb) return;
+    var to = hudLearnTo();
+    if (to && document.activeElement === lb) refocus(root, to);
+    if (to) lb.setAttribute('hidden', ''); else lb.removeAttribute('hidden');
   }
   /* the card (keeps the .slw-goal classes, so it sits where the goal bar was; a whole row on phones): a small 'Next step'
      label, the pet's portrait or the thing's picture, one sentence, at most one button, the bar while saving */
@@ -4375,6 +4478,7 @@
     if (!n) return goalHtml(u);
     var w = C.ensureWorld(u), ic = n.icon || {}, pic = '', p = n.progress, label = esc(tx('next.label'));
     if (ic.kind === 'pet' && C.item(ic.id)) pic = iconHtml(ic.id, { acc: C.wornBy(w, ic.id) });
+    else if (ic.kind === 'isle' && C.ISLES[ic.id]) pic = typeof ART.isleIcon === 'function' ? ART.isleIcon(ic.id, { locked: !C.isleUnlocked(w, ic.id) }) : '';   /* an island's own icon (d-island) */
     else if (ic.id && C.item(ic.id)) pic = iconHtml(ic.id, artState(w));
     return '<div class="slw-goal slw-next' + (n.id === 'enough' ? ' ready' : '') + '" role="group" aria-label="' + label + '" data-next="' + esc(n.id) + '">' +
       (pic ? '<span class="gi" aria-hidden="true">' + pic + '</span>' : '') +
@@ -4403,13 +4507,17 @@
     g.parentNode.insertBefore(ng, g); g.remove();
     wireGoal(ng); fillPhotocards(ng);
     if (fk) refocus(ng, fk);
+    syncLearn();                                  /* the HUD's 📚 Learn hides while the card has its own, and comes back after */
     fitStage();
   }
+  /* d-island: acting on the card moves its turn on, so the card after it (worked out again when the place is done; a
+     sheet's close first, so its focus goes back to the card) is the next idea, never the one just done */
   function onNext() {
     var n = nextCard, g = n && n.btn && n.btn.go;
     if (!g || typeof g.to !== 'string') return;
     if (g.to === 'learn') { if (typeof g.id === 'string') startTrip(g.id, 'next'); return; }
-    goNow(g.to, g);
+    nextActs++;
+    Promise.resolve(goNow(g.to, g)).then(function () { syncNext(); }, function () {});
   }
   /* the savings goal while it is still short (real prices only): 📚 Learn in the HUD makes the trip for it */
   function shortGoal() {
@@ -4467,13 +4575,16 @@
       var t = window.slLearnTrip, it = t && C.item(t.id);
       window.slLearnTrip = null;                         /* once: the trip ends when the child is back */
       if (!it) return Promise.resolve();
-      if (care() && (it.kind === 'food' || (it.kind === 'pet' && t.from === 'petShop'))) return openPetShop({ filter: it.kind === 'food' ? 'food' : 'all', id: t.id });
+      /* (d-pets: a piece of pet clothes from the Pet Shop's Clothes shelf comes back there too) */
+      if (care() && (it.kind === 'food' || ((it.kind === 'pet' || it.kind === 'acc') && t.from === 'petShop'))) return openPetShop({ filter: it.kind === 'food' ? 'food' : 'all', id: t.id });
       return untilClosed(openItem(t.id));
     } });
   /* SLWorld.go(to, o) (contract 3; the top bar, the goal toast, the Next step card): to = island | games | shop | item | pets
      | play | learn | char. My Island comes up first when it is hidden (≤ 4 s, as joinChallenge); while the welcome is still
      to come the place waits for it, first in the island-open queue. false with nobody signed in or while a game runs */
-  var GO_TO = { island: 1, games: 1, shop: 1, item: 1, pets: 1, play: 1, learn: 1, char: 1 };
+  /* d-island: + land (fly to o.isle), ride (o.uid on o.isle, framed and played as a tap would) and edit (Edit mode on
+     o.isle, the bag in view), the Next step card's island ideas */
+  var GO_TO = { island: 1, games: 1, shop: 1, item: 1, pets: 1, play: 1, learn: 1, char: 1, land: 1, ride: 1, edit: 1 };
   function go(to, o) {
     o = o && typeof o === 'object' ? o : {};
     if (typeof to !== 'string' || !Object.prototype.hasOwnProperty.call(GO_TO, to) || !me() || running) return false;
@@ -4520,7 +4631,58 @@
     }
     else if (to === 'play') { if (GAMES[o.game]) launch(o.game, typeof o.course === 'string' ? { course: o.course } : null); }
     else if (to === 'char') return Promise.resolve(openMyChar({}));
+    else if (to === 'land') return typeof o.isle === 'string' && C.ISLES[o.isle] ? goIsle(o.isle) : Promise.resolve(false);
+    else if (to === 'ride') return rideNow(o.uid, o.isle);
+    else if (to === 'edit') return editNow(o.isle);
     return untilClosed(ov);
+  }
+  /* there first: the island o.isle names (the one the child is on when it names none), off the Sky map → Promise<bool> */
+  function landFirst(k) {
+    var at = typeof k === 'string' && C.ISLES[k] ? k : isleNow();
+    if (at === isleNow() && !skyMapOn) return Promise.resolve(true);
+    return goIsle(at).then(function (ok) { return !!ok && isleNow() === at && !skyMapOn; });
+  }
+  /* 'Have a go on the {item}.' (d-island): play mode, then the thing is framed and plays its act once, exactly as a tap
+     on it would (reduced motion, its sounds and its re-tap guard included) */
+  function rideNow(uid, k) {
+    if (typeof uid !== 'string' || !uid) return Promise.resolve(false);
+    if (mode === 'place') { toast(tx('isle.finishFirst')); return Promise.resolve(false); }
+    if (mode === 'edit') { mode = 'play'; selectedUid = null; draw(); }
+    return landFirst(k).then(function (ok) {
+      var f = ok && root ? findPlaced(W(), uid) : null;
+      if (!f || f.isle !== isleNow()) return false;
+      if (on3D()) { s3('frameItem', uid); tapItem(uid, null); return true; }
+      var el = root.querySelector('#slwStage [data-uid="' + uid + '"]');
+      if (!el) return false;
+      show2d(el);
+      tapItem(uid, el);
+      return true;
+    });
+  }
+  /* the room a floating chip of the app's takes at the foot of the screen (the Daily 30 pill, bottom left; 0 when there
+     is none): what scrolls into view stops above it, so the chip never covers a label. A pill hidden for a moment (the
+     app shows it again up to a second after a sheet closes) keeps its usual room, FOOT_CHIP */
+  var FOOT_CHIP = 64;
+  function footChip(vh) {
+    var c = document.querySelector('.d30-chip'), r = c && c.getBoundingClientRect ? c.getBoundingClientRect() : null;
+    if (!c) return 0;
+    return r && r.height > 0 ? (r.top < vh ? Math.max(0, vh - r.top) : 0) : FOOT_CHIP;
+  }
+  /* 'Your bag has N things to put out.' (d-island): Edit mode on that island, the bag's first thing focused and in view
+     (above the Daily 30 pill on a phone) */
+  function editNow(k) {
+    if (mode === 'place') { toast(tx('isle.finishFirst')); return Promise.resolve(false); }
+    return landFirst(k).then(function (ok) {
+      if (!ok || !root || !C.isleUnlocked(W(), isleNow())) return false;
+      if (mode !== 'edit') { mode = 'edit'; selectedUid = null; draw(); }
+      var tray = $('#slwBar .slw-tray', root), first = tray && tray.querySelector('[data-tray]'), vh = window.innerHeight || 0;
+      if (tray && vh && tray.getBoundingClientRect && typeof window.scrollTo === 'function') {
+        var r = tray.getBoundingClientRect(), gap = 12 + footChip(vh);
+        if (r.height && r.bottom > vh - gap + 4) try { window.scrollTo({ top: (window.pageYOffset || 0) + r.bottom - vh + gap, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
+      }
+      if (first) try { first.focus({ preventScroll: true }); } catch (e) {}
+      return true;
+    });
   }
 
   /* ---------------- leaving the island tab ---------------- */
@@ -4592,8 +4754,10 @@
         enqueueOpen: enqueueOpen, openQueue: function () { return { ids: OPENQ.map(function (e) { return e.id; }), run: openRun ? { shown: openRun.shown, done: Object.keys(openRun.done) } : null }; },
         /* pet care (P4.1): the island day, the ctx the Pet Corner and the Pet Shop get, and the feeding moment */
         careDay: careDay, careCtx: careCtx, stageFeed: stageFeed,
-        /* wave 3: the Next step card on show, and the trip */
-        next: function () { return nextCard; }, trip: function () { return window.slLearnTrip || null; } };
+        /* wave 3: the Next step card on show, and the trip; d-island: the env it was worked out with, and a fixed turn
+           (a number; anything else goes back to the island day + this session's opens), the card redrawn */
+        next: function () { return nextCard; }, trip: function () { return window.slLearnTrip || null; },
+        nextEnv: function () { return nextEnv; }, setTurn: function (n) { qaTurn = typeof n === 'number' && isFinite(n) ? n : null; syncNext(); return nextCard; } };
     }
   };
 })();

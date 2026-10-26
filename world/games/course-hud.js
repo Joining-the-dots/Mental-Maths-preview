@@ -10,16 +10,16 @@
      top-centre  HYPE bar (notches x2 / x3 / FEVER) + E N C O R E slots
      top-right   snacks · ✦ glow sparks · score
      bottom      mini runway: 5 Stage Door dots, pet marker, finish flag
-     centre      one pop at a time (section names, FEVER!, BOUNCE!…)
+     centre      one pop at a time ('Part 2 of 6' at each Stage Door, FEVER!, BOUNCE!…)
    ENCORE CITY skin (v2): night-glass panels (rgba(22,18,40,.72), a 1px
    rgba(255,255,255,.12) edge; solid #15112A on html.sl-low or without
    backdrop-filter), flat 12px corners, Outfit for every HUD word and
    number (tabular-nums), Unbounded 800 for the big pops, Star Gold and
    the member colour as the accents. Text on a panel is white, Star Gold
    or #E6E1F7 (≥ 4.5:1 even over a white scene).
-   Only heart losses, 'Encore unlocked' and the curtain call are
-   announced (aria-live polite); the shell's top text stays the
-   accessible summary.
+   Only heart losses, 'Encore unlocked' and the curtain call ('Out of
+   hearts — good try!') are announced (aria-live polite); the shell's top
+   text stays the accessible summary.
 
    SHORT LANDSCAPE (phones held sideways, COMPACT.mq): the top band is
    where the action flies — ENCORE letters, glow stars and the pet at
@@ -79,6 +79,8 @@
     pet_flamingo: '🦩', pet_sloth: '🦥', pet_toucan: '🐦', pet_redpanda: '🐾', pet_hedgehog: '🦔',
     pet_goatkid: '🐐', pet_peacock: '🦚', pet_reindeer: '🦌', pet_snowleopard: '🐆' };
   var POP_BIG = { door: 1, fever: 1, tier: 1, cleanStage: 1, lettersComplete: 1, encoreStart: 1, finish: 1, curtain: 1 };
+  /* all 3 hearts gone (D-GAMES 2, James 25 Oct 2026: plainer words; was 'CURTAIN CALL!'): pet-course.js's own line (it loads after this file, so it is read when it is needed) */
+  function outWords() { var C = window.SLCourse; return C && typeof C.OUT_OF_HEARTS === 'string' ? C.OUT_OF_HEARTS : 'Out of hearts\u00a0— good\u00a0try!'; }
   /* the island's type tokens (world/island-encore.css), with the same fallbacks when that sheet is absent */
   var UI_FONT = 'var(--sle-ui,"Outfit",system-ui,-apple-system,"Segoe UI",sans-serif)';
   var DISPLAY_FONT = 'var(--sle-display,"Unbounded","Outfit",system-ui,sans-serif)';
@@ -265,7 +267,7 @@
           case 'lettersComplete': pop('ENCORE UNLOCKED!', 2); say('Encore unlocked!'); break;
           case 'encoreStart': pop('ENCORE!', 2); break;
           case 'finish': pop('SHOW COMPLETE!', 2); break;
-          case 'curtain': pop('CURTAIN CALL!', 2); say('Curtain call!'); break;
+          case 'curtain': pop(outWords(), 2); say(outWords()); break;
           case 'bump': if (e.rehearsal) lastBonk = now(); else { hypeEl.classList.remove('shatter'); void hypeEl.offsetWidth; hypeEl.classList.add('shatter'); } break;
         }
       }

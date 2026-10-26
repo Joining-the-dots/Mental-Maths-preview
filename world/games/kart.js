@@ -480,6 +480,14 @@
         return '';
       },
       forceEnd: function () { round.done = true; purrStop(); if (lv) lv.stop(); },
+      /* the shell's Exit check: past the line (the victory coast) the time is final, so 🏝️ Exit shows the
+         results at once; endNow ends the coast as its last step would (a shared race settles its place) */
+      ended: function () { return !round.done && s.phase === 'coast'; },
+      endNow: function () {
+        if (round.done || s.phase !== 'coast') return false;
+        s.done = true; round.done = true; purrStop(); if (lv) lv.settle();
+        return true;
+      },
       /* the shell's text pill: the lap and the clock. The place is shown once, big, by the race view
          itself (the 3D HUD's place chip, the 2D place chip) — V4.55 fix run B11 */
       hud: function (o) {

@@ -11,7 +11,9 @@
    a bump takes a heart, wipes Hype, spills treats and loses exactly two
    beats. Every show has exactly 3 hearts and a lost heart never comes
    back (no Stage Door heal, no refill, no heart pickup); losing the 3rd
-   brings a kind CURTAIN CALL.
+   brings a kind curtain call ("Out of hearts — good try!", D-GAMES 2:
+   James, 25 Oct 2026, plainer words) that keeps every point earned:
+   spilled snacks cost snacks, never points.
 
    This file is the pure, Node-testable rules (UMD: window.SLCourse in
    the browser, module.exports in Node) plus the shell wiring and the
@@ -51,7 +53,7 @@
     SLIP_F: 0.5, SLIP_T: 2 * BEAT, SLIP_LAG: BEAT,
     SPILL_BUMP: 8, SPILL_SPLASH: 3, SPILL_POOL: 11, SPILL_G: 1400, SPILL_GRAB: 0.35, SPILL_SIT: 0.6, SPILL_Y: 24,
     SPILL_VX0: -240, SPILL_VXR: 380, SPILL_VY0: -560, SPILL_VYS: 80,
-    SCORE: { SNACK: 3, STAR: 15, BOING: 10, PERFECT: 2, LETTER: 30, CLEAN: 25, FINISH: 250, HEART: 50, SPILL: 3, MAX: 5000 },
+    SCORE: { SNACK: 3, STAR: 15, BOING: 10, PERFECT: 2, LETTER: 30, CLEAN: 25, FINISH: 250, HEART: 50, SPILL: 0, MAX: 5000 },   /* SPILL: points a spilled snack costs (0 since D-GAMES 2; was 3) */
     MEDAL: { SILVER: 2000, GOLD: 2800 },
     TAIL_BEATS: 2, ENC_BEATS: 16, ENC_V: 350, FINISH_HOLD: 2.0, CURTAIN_T: 2.0, FINISH_STOP: 0.6,
     /* take-off windows in ms (lo-hi lead from take-off / slide start until the pet's front
@@ -92,18 +94,21 @@
     bar:    { w: 52, h: 100, gap: 40, board: 60, post: 220 }   /* LED gate: underside 40 px up */
   };
 
-  /* ---------------- the song: 6 sections on the beat grid ---------------- */
+  /* ---------------- the song: 6 sections on the beat grid ----------------
+     D-GAMES 2 (James, 25 Oct 2026: plainer words): what a child reads in the run is the part, never the
+     song's section — name is the Stage Door's LED board ('PART 2 OF 6'), pop the banner as the child runs
+     through it ('Part 2 of 6', as the results say 'You reached part 2 of 6'). The ids stay the song's. */
   var SECTIONS = [
-    { id: 'rehearsal', name: 'REHEARSAL', pop: 'REHEARSAL', beats: 16, v: 290, first: 5, gaps: [4, 4], pool: ['low', 'low', 'log', 'puddle'], stars: 0, letter: 'E', shields: 0 },
-    { id: 'verse', name: 'VERSE', pop: 'VERSE', beats: 32, v: 310, first: 2, gaps: [4, 4, 4, 4, 3, 3, 4], pool: ['low', 'low', 'log', 'puddle', 'hedge'], stars: 1, letter: 'N', shields: 1 },
-    { id: 'prechorus', name: 'PRE-CHORUS', pop: 'PRE-CHORUS', beats: 16, v: 330, first: 2, gaps: [3, 3, 3, 3], pool: ['low', 'log', 'hedge', 'bar', 'puddle'], stars: 1, letter: 'C', shields: 0 },
-    { id: 'chorus', name: 'CHORUS', pop: 'CHORUS!', beats: 32, v: 350, first: 2, gaps: [4, 3, 3, 2, 2, 4, 3, 3, 2, 2], pool: ['low', 'log', 'hedge', 'stack', 'bar', 'puddle'], stars: 2, letter: 'O', shields: 1 },
-    { id: 'bridge', name: 'BOUNCE BRIDGE', pop: 'BOUNCE BRIDGE', beats: 16, v: 330, first: 2, gaps: [4, 4, 4], pool: ['stack'], stars: 3, letter: 'R', shields: 0 },
-    { id: 'final', name: 'FINAL CHORUS', pop: 'FINAL CHORUS', beats: 32, v: 380, first: 2, gaps: [2, 2, 4, 2, 2, 4, 2, 2, 4, 2, 2], pool: ['low', 'log', 'hedge', 'stack', 'bar'], stars: 3, letter: 'E', shields: 0 }
+    { id: 'rehearsal', name: 'PART 1 OF 6', pop: 'Part 1 of 6', beats: 16, v: 290, first: 5, gaps: [4, 4], pool: ['low', 'low', 'log', 'puddle'], stars: 0, letter: 'E', shields: 0 },
+    { id: 'verse', name: 'PART 2 OF 6', pop: 'Part 2 of 6', beats: 32, v: 310, first: 2, gaps: [4, 4, 4, 4, 3, 3, 4], pool: ['low', 'low', 'log', 'puddle', 'hedge'], stars: 1, letter: 'N', shields: 1 },
+    { id: 'prechorus', name: 'PART 3 OF 6', pop: 'Part 3 of 6', beats: 16, v: 330, first: 2, gaps: [3, 3, 3, 3], pool: ['low', 'log', 'hedge', 'bar', 'puddle'], stars: 1, letter: 'C', shields: 0 },
+    { id: 'chorus', name: 'PART 4 OF 6', pop: 'Part 4 of 6', beats: 32, v: 350, first: 2, gaps: [4, 3, 3, 2, 2, 4, 3, 3, 2, 2], pool: ['low', 'log', 'hedge', 'stack', 'bar', 'puddle'], stars: 2, letter: 'O', shields: 1 },
+    { id: 'bridge', name: 'PART 5 OF 6', pop: 'Part 5 of 6', beats: 16, v: 330, first: 2, gaps: [4, 4, 4], pool: ['stack'], stars: 3, letter: 'R', shields: 0 },
+    { id: 'final', name: 'PART 6 OF 6', pop: 'Part 6 of 6', beats: 32, v: 380, first: 2, gaps: [2, 2, 4, 2, 2, 4, 2, 2, 4, 2, 2], pool: ['low', 'log', 'hedge', 'stack', 'bar'], stars: 3, letter: 'E', shields: 0 }
   ];
   var LETTERS = 'ENCORE';
   /* where each letter waits, in plain words (QA 25 Oct #11: the results say 'part 2 of 6', never the
-     song's sections: VERSE, PRE-CHORUS… stay on the door signs in the run) */
+     song's sections; since D-GAMES 2 the door signs and banners in the run say the part too) */
   var LETTER_HINT = ['in part 1, at the top of a jump', 'in part 2, up high with a double jump', 'in part 3, sliding under an LED gate',
     'in part 4, on top of a pink cushion', 'in part 5, bounce then double jump', 'in part 6, up high with a double jump'];
 
@@ -480,6 +485,10 @@
     stack: 'Pink cushions: land on top to bounce over them.',
     bar: 'LED gates: hold ⬇ SLIDE as you reach them.'
   };
+  /* all 3 hearts gone: the title, the banner and what a screen reader hears (D-GAMES 2: was 'CURTAIN CALL!',
+     which read like a win). Two no-break spaces (\u00a0) keep 'hearts —' and 'good try!' together, so a narrow
+     screen breaks it after the dash and never leaves 'try!' on a line of its own */
+  var OUT_OF_HEARTS = 'Out of hearts\u00a0— good\u00a0try!';
   /* after a curtain call, with Timing rings off: one tap to try the same stage with them (DR-3) */
   var RINGS_TRY = { label: '🎯 Try with Timing rings', note: 'Glow rings show the best spot to jump. Turn them off in the menu any time.' };
 
@@ -610,7 +619,7 @@
     function spillTreats(cap) {
       var n = Math.min(cap, s.treats);
       if (n <= 0) return;
-      s.treats -= n; s.score -= SC.SPILL * n; s.spilled += n;
+      s.treats -= n; s.spilled += n;                 /* snacks only: the points they gave are kept (D-GAMES 2) */
       var cx = s.dist + PET_CX, cy = GROUND + s.y - T.PET_H / 2;
       for (var i = 0; i < n; i++) {
         var q = s.spill[s.spillNext]; s.spillNext = (s.spillNext + 1) % T.SPILL_POOL;   /* a new spill overwrites the oldest */
@@ -727,7 +736,7 @@
           if (q.vy > 0 && q.y >= floor) { q.y = floor; q.landed = true; q.landT = 0; }
         } else { q.landT += dt; if (q.landT >= T.SPILL_SIT) { q.on = false; continue; } }
         if (canGrab && q.age >= T.SPILL_GRAB && Math.abs(q.x - cx) < hx && Math.abs(q.y - cy) < hy) {
-          q.on = false; s.treats++; s.regrabs++; s.score += SC.SNACK;     /* win it back (+3 at x1) */
+          q.on = false; s.treats++; s.regrabs++;                        /* the snack back (its points were never taken) */
           snd('coin'); emit('regrab', 'x', q.x, 'y', q.y);
         }
       }
@@ -918,6 +927,11 @@
       clock: function () { return s.t; },
       medal: curMedal,
       forceEnd: function () { if (!s.finished) s.timeUp = true; s.phase = 'done'; round.done = true; },
+      /* the shell's Exit check: past the finish (its dance) or out of hearts (the curtain) the result is
+         final, so 🏝️ Exit shows the results at once (endNow: the rest of that show skipped, the result
+         and the title unchanged — never 'Time's up!') */
+      ended: function () { return !round.done && (s.phase === 'finish' || s.phase === 'curtain'); },
+      endNow: function () { if (round.done || (s.phase !== 'finish' && s.phase !== 'curtain')) return false; end(); return true; },
       hud: function () {
         var hs = ''; for (var i = 0; i < s.maxHearts; i++) hs += i < s.hearts ? '❤' : '🤍';
         return hs + ' · ' + round.treatIcon + ' ' + s.treats + ' · ✦ ' + s.stars + ' · ' + (s.fever ? 'FEVER x4' : 'HYPE x' + s.mult);
@@ -928,7 +942,7 @@
       },
       summaryTitle: function () {
         if (s.timeUp) return 'Time’s up!';
-        if (s.curtain) return 'CURTAIN CALL!';
+        if (s.curtain) return OUT_OF_HEARTS;
         return s.encoreCleared ? 'ENCORE!' : 'SHOW COMPLETE!';
       },
       /* 'score', never 'pts' — arcade scores must not look like reward points */
@@ -1150,7 +1164,7 @@
     var baseD = GPw && GPw.TRAIL ? GPw.TRAIL.delay : 0.35, sideD = baseD, sideT = s.t;
     if (trail2) trail2.reset(s.t, s.dist, 0, speedNow(s));
 
-    function popText(txt, color) { if (!hudLive && pop) pop.show(txt, { color: color || STAR_GOLD, life: 1.0, size: 58 }); }
+    function popText(txt, color) { if (!hudLive && pop) pop.show(txt, { color: color || STAR_GOLD, life: 1.0, size: txt.length > 16 ? 40 : 58 }); }
     function confetti(x, y, n, spread, angle) {
       if (!fx) return;
       fx.burst(x, y, { n: Math.round(n * 0.6), colors: [ucol], speed: 380, life: 1.1, gravity: 700, size: 6, shape: 'square', spread: spread, angle: angle });
@@ -1203,7 +1217,7 @@
           case 'finish': confetti(s.dist + 40, 40, 60, 1.2, -0.4); confetti(s.dist + LW - 40, 40, 60, 1.2, Math.PI + 0.4); popText('SHOW COMPLETE!', STAR_GOLD); break;
           case 'encoreStart': popText('ENCORE!', HOLO[0]); break;
           case 'encoreEnd': confetti(px, GROUND - 200, 80, 2.4, -Math.PI / 2); break;
-          case 'curtain': popText('CURTAIN CALL!', HOLO[0]); break;
+          case 'curtain': popText(OUT_OF_HEARTS, HOLO[0]); break;
         }
       }
       if (cfg.demo) ev.length = 0;            /* no shell drains the demo's events */
@@ -1869,7 +1883,7 @@
     SECTIONS: SECTIONS, KINDS: KINDS, BEAT: BEAT, RUN_T: RUN_T, TUNING: TUNING, WIN: WIN, THEMES: THEMES, PATH: PATH, LETTERS: LETTERS,
     decodeExtra: decodeExtra, encodeExtra: encodeExtra, medal: medal, MEDALS: MEDALS, autopilotWants: autopilotWants,
     tierOf: tierOf, tumbleL: tumbleL, speedNow: speedNow, ringsFor: ringsFor, ringsByDefault: ringsByDefault, RINGS_KEY: PREF_KEY, def: def, FIG2D: FIG2D, titleFor: titleFor,
-    COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES,
+    COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES, OUT_OF_HEARTS: OUT_OF_HEARTS,
     _session: sess                                     /* test seam: this child's session memory (migrated on read) */
   };
   if (HAS_WIN) window.SLCourse = API;

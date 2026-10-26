@@ -598,6 +598,8 @@
       if (nm) return 'Only ' + fmt(nm.score - top) + ' more for a Perfect Show!';
       return '';
     }
+    /* kick 8 has landed and nothing follows it (no deciders to wait for): the round's score is final */
+    function lastKickLanded() { return s.phase === 'result' && !s.decider && s.shot >= SHOTS - 1 && !(duel && duel.deciders); }
     /* QA2C-2: every kick of the round went with no tap: nothing to save, no medal */
     function allAuto() { return s.autoKicks >= SHOTS; }
     function kickLine() { return s.decider ? COPY.deciderChip + ' ' + s.decider : s.waitDecide ? COPY.allKicks : s.final ? 'FINAL KICK' : 'kick ' + Math.min(SHOTS, s.shot + 1) + ' of ' + SHOTS; }
@@ -691,6 +693,10 @@
         return true;
       },
       forceEnd: function () { round.done = true; },
+      /* the shell's Exit check: the last kick of a round with no deciders has landed, so the score is
+         final and 🏝️ Exit shows the results at once (endNow: that kick's replay skipped, as a tap does) */
+      ended: function () { return !round.done && lastKickLanded(); },
+      endNow: function () { if (round.done || !lastKickLanded()) return false; endKick(); return round.done; },
       pauseReset: function () { s.needSync = true; },
       padState: function (id) {
         if (id !== 'kick' || round.done) return '';

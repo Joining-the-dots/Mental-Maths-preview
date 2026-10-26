@@ -1105,6 +1105,17 @@
     color: var(--ink);
     margin-bottom: 8px;
   }
+  /* [D-INDEX-FIN] a learning round's coins for the island (Today's 10, Lightning, the Daily 30's end) */
+  .sl-fin-coins {
+    display: inline-block;
+    margin: 4px 0 2px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: #fff4d6;
+    color: #7a4b00;
+    font-weight: 800;
+    font-size: 15px;
+  }
 
   /* ========= Trick Master ========= */
   .btn-tm {
@@ -1880,6 +1891,46 @@
     font-weight: 700;
     font-size: 15px;
     box-shadow: 0 3px 10px rgba(246, 194, 68, 0.4);
+  }
+
+  /* [D-INDEX] the slim phone header (James, 25 Oct: "slim it down"). Up to 600px wide the sticky header is ONE
+     row: the app icon, the player and the ⭐ points (the session timer beside them while it runs). The title and
+     the version label stand aside, and so does the player's Golden Run ⭐ badge (so a long name keeps its room);
+     mastered, accuracy, streak, that badge, who is online, the bonus drops and the version open from the ⭐ points
+     in a small panel with ✕ (#slHdrMore, filled by the [D-INDEX-HDR] script). iPads and
+     computers keep the header as it was: every rule here is inside the phone query, and the panel never shows
+     wider than that. */
+  .sl-hdr-more { display: none; }
+  @media (max-width: 600px) {
+    header.topbar { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; }
+    header.topbar .brand { flex: none; gap: 0; font-size: 0; letter-spacing: 0; }
+    header.topbar .brand > span:not(.logo) { display: none; }
+    header.topbar .brand .logo { width: 34px; height: 34px; border-radius: 11px; font-size: 17px; }
+    header.topbar .user-pill { flex: 0 1 auto; min-width: 0; gap: 6px; padding: 3px 10px 3px 3px; }
+    header.topbar .user-pill .avatar { flex: none; width: 30px; height: 30px; font-size: 17px; }
+    header.topbar .user-pill .star-badge { display: none !important; }
+    #userName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    header.topbar .stats { flex: none; flex-wrap: nowrap; gap: 6px; }
+    header.topbar .stats > .stat, header.topbar #liveUsersPill, header.topbar #slBonusChip { display: none !important; }
+    header.topbar .lab-timer-pill { padding: 5px 9px; }
+    #pointsPill { cursor: pointer; padding: 6px 10px 6px 12px; -webkit-tap-highlight-color: transparent; }
+    #pointsPill::after { content: '▾'; font-size: 12px; opacity: 0.75; }
+    #pointsPill:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
+    #slHdrMore:not([hidden]) { display: flex; flex-direction: column; gap: 8px; position: absolute; top: calc(100% + 6px);
+      right: 10px; z-index: 41; width: 236px; max-width: calc(100vw - 20px); box-sizing: border-box; padding: 10px 12px 12px;
+      background: #fff; border: 2px solid rgba(108, 92, 231, 0.18); border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(40, 25, 90, 0.22); font-family: 'Fredoka', sans-serif; color: var(--ink); }
+    #slHdrMore .sl-hm-top { display: flex; align-items: flex-start; gap: 8px; }
+    #slHdrMore .sl-hm-pts { flex: 1; min-width: 0; font-weight: 700; font-size: 14.5px; line-height: 1.3; padding-top: 6px; }
+    #slHdrMore .sl-hm-x { flex: none; width: 36px; height: 36px; border: none; border-radius: 50%; background: var(--neutral);
+      color: var(--ink); font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; }
+    #slHdrMore .sl-hm-x:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
+    #slHdrMore .sl-hm-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+    #slHdrMore .stat { font-size: 13px; padding: 4px 10px; }
+    #slHdrMore .star-badge { align-self: center; margin-left: 0; }
+    #slHdrMore .sl-hm-line { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+    #slHdrMore .lu-pill { align-self: flex-start; }
+    #slHdrMore .sl-hm-ver { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
   }
 
   /* V31: Problems tab */
@@ -3398,6 +3449,8 @@ function slLcMissing(code, where) {
     <div class="stat" title="Accuracy this session"><b id="stAcc">—</b>accuracy</div>
     <div class="stat" title="Current streak of correct answers"><b id="stStreak">0</b>streak</div>
   </div>
+  <!-- [D-INDEX] phones: the numbers behind the ⭐ points (filled when it opens; never shown wider than 600px) -->
+  <div class="sl-hdr-more" id="slHdrMore" role="dialog" aria-label="Your numbers" hidden></div>
 </header>
 
 <!-- [W3-NAV] the four places (wave 3, WAVE3-PLAN §1). Under the header, not sticky. Learn opens the last
@@ -4062,7 +4115,7 @@ function slLcMissing(code, where) {
     </div>
   </div>
   <p style="color: var(--ink-soft); font-size: 14px; margin: 0 0 10px;">
-    Earn ⭐ in any game → save up → tap <b>Get it now!</b> and show a grown-up. Every prize is REAL.
+    Earn ⭐ by learning → save up → tap <b>Get it now!</b> and show a grown-up. Every prize is REAL.
     Tap the ☆ on a prize to make it your <b>savings goal</b> — or 💌 request something new!
   </p>
   <div id="shopGoal"></div>
@@ -5370,6 +5423,64 @@ function updatePointsDisplay() {
   try { if (typeof window.slBonusChipSync === 'function') window.slBonusChipSync(); } catch (e) {}
 }
 
+/* [D-INDEX-FIN] A learning round's finish card (Today's 10, Lightning and the Daily 30's end; James, 25 Oct): a line
+   '+N 🪙 for your island' and a 🏝️ My Island button. N is the coins the round earned, the same as its ⭐: every
+   award comes through the base awardPoints above, which pays the same n 🪙 through [KU-COINS] (slEarnCoins →
+   SLWorldCore.earnCoins). Nothing here pays, owes or writes coins: a round's N is the change in the save's lifetime
+   ⭐ (pointsEarned, which only learning raises) from its start to its finish. No line when N is 0, or when the
+   island core with its coin wallet isn't loaded (nothing could have paid them yet). The words go through
+   SLWorldCopy.t when the island's copy is in, with the same text as the fallback.
+   SHELL-ONLY COPY KEYS (not in the copy contract; listed for the lead, 25 Oct): 'finish.coins' = '+{n} 🪙 for your
+   island' and 'finish.island' = '🏝️ My Island'. world/world-copy.js (chunk d-island) does not have them yet, so
+   today the fallback here IS the text; if the lead adds them there, it must be with exactly these words (a test
+   in tests/d-index.test.js checks that).
+     slCoinCore()              the island core with its coin wallet is loaded
+     slRoundMark()              the lifetime ⭐ now (a round's start)
+     slRoundCoins(mark)         N for a round that started at mark (0 without the core or a mark)
+     slRoundCoinsNode(n)        the line, <div class="sl-fin-coins"> (null for 0)
+     slRoundIslandBtn(close, cls)  the 🏝️ My Island button: close() the card, then My Island
+     slOpenIsland()             My Island: SLWorld.go('island'), else (no island yet, or it said no) setActiveApp('world') */
+function slFinWord(key, fallback, vars) {
+  var s = fallback;
+  try { if (window.SLWorldCopy && typeof window.SLWorldCopy.t === 'function') s = window.SLWorldCopy.t(key, vars || null, fallback); } catch (e) { s = fallback; }
+  if (typeof s !== 'string' || !s) s = fallback;
+  return s.replace(/\{(\w+)\}/g, function (m, k) { return vars && vars[k] != null ? String(vars[k]) : m; });
+}
+function slCoinCore() {
+  var C = window.SLWorldCore;
+  return !!(C && typeof C.earnCoins === 'function' && typeof C.coinBalance === 'function');
+}
+function slRoundMark() {
+  try { var u = ensureUser(); return u && typeof u.pointsEarned === 'number' && isFinite(u.pointsEarned) ? u.pointsEarned : 0; } catch (e) { return 0; }
+}
+function slRoundCoins(mark) {
+  if (!slCoinCore() || typeof mark !== 'number' || !isFinite(mark)) return 0;
+  var n = Math.floor(slRoundMark() - mark);
+  return n > 0 ? n : 0;
+}
+function slRoundCoinsNode(n) {
+  if (!(typeof n === 'number' && n > 0)) return null;
+  var d = document.createElement('div');
+  d.className = 'sl-fin-coins';
+  d.textContent = slFinWord('finish.coins', '+{n} 🪙 for your island', { n: n });
+  return d;
+}
+function slOpenIsland() {
+  var W = window.SLWorld, r = false;
+  try { if (W && typeof W.go === 'function') r = W.go('island'); } catch (e) { r = false; }
+  if (r === false) { try { setActiveApp('world'); } catch (e) {} }
+  return r;
+}
+function slRoundIslandBtn(close, cls) {
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.className = cls || 'btn btn-primary';
+  b.textContent = slFinWord('finish.island', '🏝️ My Island');
+  b.addEventListener('click', function () { try { if (typeof close === 'function') close(); } catch (e) {} slOpenIsland(); });
+  return b;
+}
+/* [/D-INDEX-FIN] */
+
 /* Record that a trick has been seen. Returns true if this is the first time
    (so the caller can fire a "Wild X appeared!" celebration). */
 function unlockTrick(trickId) {
@@ -5854,6 +5965,7 @@ function startLightning() {
     current: null,
     bandReached: 'Easy',
     startedAt: now,
+    mark: slRoundMark(),             // [D-INDEX-FIN] the lifetime ⭐ at the start: the finish card's coins
   };
   document.getElementById('lrScore').textContent = '0';
   document.getElementById('lrBest').textContent = LR_BAND_LABELS.beginner;
@@ -5990,6 +6102,11 @@ function finishLightning() {
     </div>
   `;
 
+  /* [D-INDEX-FIN] '+N 🪙 for your island' under the score (not when N is 0 or the island core isn't loaded) */
+  const coinLine = slRoundCoinsNode(slRoundCoins(lr.mark));
+  const celeEl = document.querySelector('#lrFeedback .golden-celebration');
+  if (coinLine && celeEl) celeEl.appendChild(coinLine);
+
   const actions = document.getElementById('lrActions');
   actions.innerHTML = `
     <button class="btn btn-ghost" id="lrClose">Close</button>
@@ -6000,6 +6117,7 @@ function finishLightning() {
     closeLightning();
     openLightningSetup();
   });
+  actions.appendChild(slRoundIslandBtn(closeLightning, 'btn btn-ghost'));   /* [D-INDEX-FIN] 🏝️ My Island */
 }
 
 function onLrForfeit() {
@@ -9267,6 +9385,10 @@ function finishDailyDrill() {
       ${streakLine}
     </div>
   `;
+  /* [D-INDEX-FIN] '+N 🪙 for your island' under the score (not when N is 0 or the island core isn't loaded) */
+  const coinLine = slRoundCoinsNode(slRoundCoins(dd.mark));
+  const sumEl = document.querySelector('#ddFeedback .dd-summary');
+  if (coinLine && sumEl) sumEl.appendChild(coinLine);
   if (score === total && !alreadyDone) popConfetti();
   if (score >= 7) playSfx('fanfare');
 
@@ -9276,6 +9398,7 @@ function finishDailyDrill() {
     <button class="btn btn-ghost" id="ddDoneClose">Close</button>
   `;
   document.getElementById('ddDoneClose').addEventListener('click', closeDailyDrill);
+  actions.appendChild(slRoundIslandBtn(closeDailyDrill));   /* [D-INDEX-FIN] 🏝️ My Island */
   updateDailyStreakBadge();
 }
 
@@ -9288,6 +9411,7 @@ function openDailyDrill() {
     finished: false,
     correct: 0,
     results: [],          // per-question true/false
+    mark: slRoundMark(),  // [D-INDEX-FIN] the lifetime ⭐ at the start: the finish card's coins
   };
   document.getElementById('ddAnswerRow').style.display = '';
   document.getElementById('ddActions').innerHTML =
@@ -9631,6 +9755,109 @@ document.querySelectorAll('#slNav .sl-nav-btn').forEach(function (b) {
 });
 slNavSync(getActiveApp());   /* the first paint already shows the right place (setActiveApp runs a moment later) */
 /* [/W3-NAV] */
+/* [D-INDEX-HDR] The slim phone header (James, 25 Oct). Up to 600px wide the header is one row (the stylesheet's
+   [D-INDEX] rules) and the ⭐ points pill is a button: it opens #slHdrMore, a small panel under the header with the
+   points, mastered, accuracy, streak, the Golden Run ⭐ badge, who is online (that pill's own button), the bonus
+   drops and the version, and ✕. Its numbers are read from the header's own, which stay where they were (hidden on phones), so everything that
+   writes them is unchanged. Tap outside, ✕ or Escape closes it; so does the screen growing past 600px, where the
+   pill is a plain label again (no role, no tab stop) and the panel never shows. Nothing here writes the save.
+     window.slHdrMore.open() / close() / isOpen() / phone() */
+(function () {
+  'use strict';
+  var pill = document.getElementById('pointsPill'), panel = document.getElementById('slHdrMore');
+  if (!pill || !panel) return;
+  var mq = null;
+  try { mq = window.matchMedia ? window.matchMedia('(max-width: 600px)') : null; } catch (e) { mq = null; }
+  function phone() { return !!(mq && mq.matches); }
+  function isOpen() { return !panel.hidden; }
+  function txt(id) { var e = document.getElementById(id); return e ? String(e.textContent || '').trim() : ''; }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function fill() {
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    var top = el('div', 'sl-hm-top'), n = txt('pointsCount') || '0';
+    top.appendChild(el('div', 'sl-hm-pts', '⭐ ' + n + (n === '1' ? ' point' : ' points') + ' to spend in My rewards'));
+    var x = el('button', 'sl-hm-x', '✕');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    x.addEventListener('click', function () { close(true); });
+    top.appendChild(x);
+    panel.appendChild(top);
+    var stats = el('div', 'sl-hm-stats');
+    [['stMastered', 'mastered'], ['stAcc', 'accuracy'], ['stStreak', 'streak']].forEach(function (s) {
+      var d = el('div', 'stat');
+      d.appendChild(el('b', null, txt(s[0]) || '—'));
+      d.appendChild(document.createTextNode(s[1]));
+      stats.appendChild(d);
+    });
+    /* the player's Golden Run ⭐ badge, as the player button shows it wider than a phone */
+    var gs = document.getElementById('userStars');
+    if (gs && gs.style.display !== 'none' && +txt('userStarCount') > 0) stats.appendChild(el('span', 'star-badge', '⭐' + txt('userStarCount')));
+    panel.appendChild(stats);
+    var lu = document.getElementById('liveUsersPill');
+    if (lu && lu.style.display !== 'none' && txt('liveUsersPill')) {
+      var b = el('button', 'lu-pill');
+      b.type = 'button';
+      b.appendChild(el('span', 'lu-dot'));
+      b.appendChild(el('span', null, txt('liveUsersPill')));
+      if (lu.getAttribute('aria-label')) b.setAttribute('aria-label', lu.getAttribute('aria-label'));
+      b.addEventListener('click', function () { close(); lu.click(); });
+      panel.appendChild(b);
+    }
+    if (txt('slBonusChip')) panel.appendChild(el('div', 'sl-hm-line', txt('slBonusChip')));
+    var brand = document.querySelector('header.topbar .brand'), ver = '';
+    if (brand) [].forEach.call(brand.children, function (c) { if (!c.classList.contains('logo') && !ver) ver = String(c.textContent || '').trim(); });
+    if (ver) panel.appendChild(el('div', 'sl-hm-ver', ver));
+  }
+  function open(byKey) {
+    if (!phone()) return false;
+    fill();
+    panel.hidden = false;
+    pill.setAttribute('aria-expanded', 'true');
+    if (byKey) { var x = panel.querySelector('.sl-hm-x'); if (x) x.focus(); }
+    return true;
+  }
+  function close(back) {
+    if (panel.hidden) return;
+    panel.hidden = true;
+    if (pill.hasAttribute('aria-expanded')) pill.setAttribute('aria-expanded', 'false');
+    if (back && phone()) try { pill.focus(); } catch (e) {}
+  }
+  function sync() {
+    if (phone()) {
+      pill.setAttribute('role', 'button');
+      pill.setAttribute('tabindex', '0');
+      pill.setAttribute('aria-controls', 'slHdrMore');
+      pill.setAttribute('aria-expanded', isOpen() ? 'true' : 'false');
+    } else {
+      close();
+      ['role', 'tabindex', 'aria-controls', 'aria-expanded'].forEach(function (a) { pill.removeAttribute(a); });
+    }
+  }
+  pill.addEventListener('click', function () { if (!phone()) return; if (isOpen()) close(); else open(false); });
+  pill.addEventListener('keydown', function (e) {
+    if (!phone() || (e.key !== 'Enter' && e.key !== ' ')) return;
+    if (e.preventDefault) e.preventDefault();
+    if (isOpen()) close(true); else open(true);
+  });
+  document.addEventListener('click', function (e) {
+    var t = e && e.target;
+    if (!isOpen() || (t && (panel.contains(t) || pill.contains(t)))) return;
+    close();
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e && e.key === 'Escape' && isOpen()) close(true); });
+  try {
+    if (mq && mq.addEventListener) mq.addEventListener('change', sync);
+    else if (mq && mq.addListener) mq.addListener(sync);
+  } catch (e) {}
+  sync();
+  window.slHdrMore = { open: function () { return open(false); }, close: function () { close(); }, isOpen: isOpen, phone: phone };
+})();
+/* [/D-INDEX-HDR] */
 
 /* Migration: ensure u.flags exists */
 function ensureFlagsState(u) {
@@ -33076,7 +33303,8 @@ window.SL_WORLD_TRIAL = true;
 /* [W3-LEARN] The learning screens' quiet line (wave 3, WAVE3-PLAN §2 and contract 1). One line under the
    subject row (under the hungry-pet reminder when that shows) while a learn-and-come-back trip runs
    (window.slLearnTrip, through window.slLearnTripNow: this player's, under 3 hours) or a savings goal is set:
-     saving   'Saving for {item}: {n} more {sym} to go.' and a thin bar ('{item}: {have} of {price} coins');
+     saving   'Saving for {item}. Need {n} more {sym}.' and a thin bar ('{item}: {have} of {price} coins'); the
+              shortfall is the island's one wording, 'Need N more 🪙' (James, 25 Oct 2026; it was '{n} more {sym} to go.')
               on a trip the button '🏝️ Back to my island' (the island brings the item's sheet back itself)
      enough   '{item}: you have enough {sym} now.' and '🏝️ Get it' → that item's sheet on My Island
    ✕ 'Not now' hides it for this app session (a trip started after that shows again) and ends the trip.
@@ -33093,7 +33321,7 @@ window.SL_WORLD_TRIAL = true;
 (function () {
   'use strict';
   var TEXT = Object.freeze({
-    saving: 'Saving for {item}: {n} more {sym} to go.',
+    saving: 'Saving for {item}. Need {n} more {sym}.',
     enough: '{item}: you have enough {sym} now.',
     back: '🏝️ Back to my island',
     getIt: '🏝️ Get it',
@@ -35732,7 +35960,9 @@ window.SL_WORLD_TRIAL = true;
       });
       document.body.appendChild(chip);
     }
-    chip.textContent = text;
+    /* [D-INDEX] perf-2: written only when it changes. The idle 'Start your Daily 30!' was rewritten every second,
+       and each rewrite laid the whole Learn page out again (a 100-190 ms pause a second on a slow iPad) */
+    if (chip.textContent !== text) chip.textContent = text;
     chip.classList.toggle('idle', mode === 'idle');
     coverChip();
   }
@@ -35991,6 +36221,19 @@ window.SL_WORLD_TRIAL = true;
           (doneList.length ? '<br>Quests smashed: ' + doneList.map(function (q) { return q.icon; }).join(' ') + ' (' + doneList.length + ')' : '')
         : 'No points this time — tomorrow’s 30 minutes are waiting for you! 🚀';
       btn.style.visibility = '';
+      /* [D-INDEX-FIN] the Daily 30's coins for the island (the ⭐ it banked in total: each one paid the same 🪙
+         through awardPoints; no line for none or without the island core) and 🏝️ My Island beside its button */
+      try {
+        if (typeof slRoundCoinsNode === 'function') {
+          var coinLine = slRoundCoinsNode(slCoinCore() ? earned : 0);
+          if (coinLine) { coinLine.style.marginTop = '8px'; xtraEl.appendChild(document.createElement('br')); xtraEl.appendChild(coinLine); }
+          if (!el.querySelector('.sl-fin-island')) {
+            var isl = slRoundIslandBtn(function () { try { el.remove(); } catch (e) {} }, 'btn btn-ghost sl-fin-island');
+            isl.style.cssText = 'margin:8px 0 0 8px;padding:12px 20px;';
+            btn.parentNode.insertBefore(isl, btn.nextSibling);
+          }
+        }
+      } catch (e) {}
       if (bonus > 0) {
         payChord();
         try { if (typeof popConfetti === 'function') { popConfetti(); setTimeout(popConfetti, 400); } } catch (e) {}
@@ -36122,12 +36365,15 @@ window.SL_WORLD_TRIAL = true;
      Pure overrides: appended last so the cascade wins; remove this
      block and everything falls back to the old look.
      ================================================================ */
+  /* [D-INDEX] perf-2 (RELEASE-FIXES): the page's background no longer drifts. Moving a background-position
+     repaints the whole page every frame (the Learn screen never idled: 2-7 fps on a slow iPad); it rests where
+     the drift began (0% 50%), the same colours, while the two soft blobs below keep their slow float (they move
+     by transform, which the graphics chip does alone) */
   body {
     background: linear-gradient(120deg, #ffeef5, #eef3ff 30%, #eafaf3 60%, #fff6e6 90%, #ffeef5);
     background-size: 300% 300%;
-    animation: slBgDrift 36s ease-in-out infinite;
+    background-position: 0% 50%;
   }
-  @keyframes slBgDrift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
   body::before, body::after {
     content: ""; position: fixed; z-index: 0; pointer-events: none;
     width: 46vmin; height: 46vmin; border-radius: 50%; filter: blur(70px); opacity: 0.5;
@@ -36189,9 +36435,15 @@ window.SL_WORLD_TRIAL = true;
   /* (1) the board is territory: untried cells get a whisper of colour,
      and the FRONTIER — the next cells to conquer — invites with a pulse */
   .cell:not(.mastered):not(.correct):not(.wrong):not(.tried) { background: #f2effb; color: #c3bbe4; }
-  @keyframes slFrontier { 0%,100% { box-shadow: 0 0 0 0 rgba(168,111,240,0.0); background: #efe8ff; }
-    50% { box-shadow: 0 0 10px 2px rgba(168,111,240,0.45); background: #e6dbff; } }
-  .cell.frontier { animation: slFrontier 2.2s ease-in-out infinite; color: #8a6ce0; font-weight: 800; }
+  /* [D-INDEX] perf-2: the pulse is a glow layer under the cell's number that fades in and out (opacity only, so
+     the graphics chip runs it alone), not a box-shadow and background change that repainted the whole 100 × 100
+     board every frame. The same colours: the cell rests at #efe8ff and the glow brings #e6dbff and the purple halo */
+  .cell.frontier { position: relative; isolation: isolate; color: #8a6ce0; font-weight: 800; }
+  #grid .cell.frontier { background: #efe8ff; }
+  .cell.frontier::before { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: -1;
+    border-radius: inherit; pointer-events: none; background: #e6dbff; box-shadow: 0 0 10px 2px rgba(168,111,240,0.45);
+    opacity: 0; animation: slFrontierGlow 2.2s ease-in-out infinite; }
+  @keyframes slFrontierGlow { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
   /* (2) the board sits centred — no dead gutter at small ranges (safe:
      falls back to normal left-aligned scrolling when the board is wider) */
   .grid-frame { display: grid; justify-content: safe center; }
@@ -36250,12 +36502,14 @@ window.SL_WORLD_TRIAL = true;
      emojis, the blinking dots and timers, the bonus plane). Everything still shows; it just does not
      move. The Rush and Sprint chips and the 1% winner line set theirs in script, which checks the same */
   @media (prefers-reduced-motion: reduce) {
-    body, body::before, body::after, h1, .d30-title, .d30-chip.idle, .cell.frontier,
+    body, body::before, body::after, h1, .d30-title, .d30-chip.idle, .cell.frontier, .cell.frontier::before,
     .family-trophy, .creature-card.stage-0 .creature-emoji, .wild-emoji, .shop-item-buy.can,
     .lab-timer-pill.low, .wb-recdot::before, .db-timer.low, .op-timerbar.low, .op-life.urgent,
     .op-intro-stage, .op-home::before, .op-home::after, .op-home-title, .op-cta, .op-hrung.club.lit,
     .fl-timerbar.low > div, .sp-intro-wand, .sp-intro-spark, .wbt-line .cursor, .lu-dot,
     #slBonusPlane, #slChallengeBanner { animation: none; }
+    /* [D-INDEX] the next cells to conquer keep a still, soft glow */
+    .cell.frontier::before { opacity: 0.6; }
   }
 </style>
 <style>

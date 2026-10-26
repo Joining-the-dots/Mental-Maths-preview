@@ -408,7 +408,7 @@
       /* wave 3: '📚 Learn' beside the need line when the host can start a learn-and-come-back trip (contract 5) */
       var learn = ctx && typeof ctx.learnFor === 'function' && c.need > 0 ? btn('learn', tx('learn.go'), { v: c.id, cls: 'slw-btn slw-learnbtn', label: c.name + ' · ' + tx('learn.go') }) : '';
       act = '<p class="slp-need">' + esc(tx(needKey(), { n: fmt(c.need) })) + '</p>' + (learn ? '<div class="slp-shortbtns">' + learn : '') +
-        btn('goal', tx('char.cast.save'), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') }) + (learn ? '</div>' : '');
+        btn('goal', tx('char.cast.save') + (c.goal ? ' ✓' : ''), { v: c.id, pressed: c.goal, cls: 'slw-goalbtn' + (c.goal ? ' on' : '') }) + (learn ? '</div>' : '');   /* '🎯 My goal ✓' while it is the goal, as on every island goal button (dec-int, James's one goal wording) */
     }
     return '<li class="slp-cast' + (c.active ? ' active' : '') + '" data-id="' + c.id + '"><div class="slp-castpic">' + picHtml(c.id, ctx) + '</div>' +
       '<h3>' + esc(c.name) + '</h3><p class="slp-theme">' + esc(c.theme) + '</p><p class="slp-chips">' + chip + '</p>' +

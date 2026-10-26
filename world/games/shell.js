@@ -146,6 +146,32 @@
     ].join('\n');
     document.head.appendChild(c);
   }
+  /* the Exit check (James, 25 Oct 2026: "Add a check"): its own small sheet, added only when it is
+     first asked, so every other sheet keeps its V4.54 / API 3 styles. A card over the whole game
+     (the top bar too); it only fades in, and not at all under reduced motion */
+  var ASK = {
+    race: { title: 'Leave the race?', text: 'Your time won’t count.' },
+    game: { title: 'Leave the game?', text: 'This round won’t count.' },
+    stay: 'Keep playing', leave: 'Leave'
+  };
+  function injectCssAsk() {
+    if (document.getElementById('slgCssAsk')) return;
+    var c = document.createElement('style'); c.id = 'slgCssAsk';
+    c.textContent = [
+      '.slg:focus{outline:none;}',
+      '.slg-ask{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(11,10,31,.62);touch-action:manipulation;}',
+      '.slg-ask-card{width:min(420px,100%);max-height:100%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:20px 18px 18px;border-radius:20px;',
+      '  background:#1d1542;border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 48px rgba(0,0,0,.5);animation:slgAskIn .18s ease-out;}',
+      '.slg-ask-card h2{margin:0;font-family:var(--sle-display,inherit);font-weight:800;font-size:clamp(22px,4.6vw,30px);line-height:1.15;color:#fff;}',
+      '.slg-ask-card p{margin:0;font-family:var(--sle-body,system-ui,sans-serif);font-weight:600;font-size:17px;color:#e6e1f7;}',
+      '.slg-ask-card .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px;}',
+      '@keyframes slgAskIn{from{opacity:0;}to{opacity:1;}}',
+      '.slg-ask.rm .slg-ask-card{animation:none;}',
+      '@media (prefers-reduced-motion: reduce){.slg-ask-card{animation:none;}}',
+      '@media (max-height: 520px){.slg-ask-card{padding:12px 14px;gap:6px;}}'
+    ].join('\n');
+    document.head.appendChild(c);
+  }
 
   /* ---------- sound helpers (respect the app's mute) ---------- */
   /* Sound names games can use (api.sound(name, vol, step)):
@@ -284,6 +310,26 @@
        the shell itself            a modal dialog: aria-modal, the page behind it inert, Tab
                                    kept inside, focus handed back on exit; def.preload has
                                    PRELOAD_MS (10 s), then 'Couldn’t start' · Try again · Back
+     The Exit check (James, 25 Oct 2026; no hook, every game gets it):
+       🏝️ Exit (the top bar's, and the pause sheet's) during a count, a round or the pause sheet
+                                   asks first (#slgAsk, an alertdialog): 'Leave the race? Your
+                                   time won’t count.' for the kart (def.key 'kart'), 'Leave the
+                                   game? This round won’t count.' for the rest (SLGameShell.ASK).
+                                   Keep playing (focused; Esc too) goes back, with the shell's
+                                   usual count-in; Leave is exit(). A round on the shell's clock
+                                   is paused while it asks (no Paused sheet shows under it); a live
+                                   round runs on with its keys and pads let go. Tab stays in the
+                                   card and the focus goes back after. On the menu, the tutorial,
+                                   the results and every other sheet, Exit leaves at once
+       round.ended(), round.endNow()  (optional, both or neither) ended(): the result is final and
+                                   only the round's closing show plays on (the Debut Run's finish
+                                   dance or out-of-hearts curtain, the kart's coast past the line,
+                                   the Shootout's last kick landing); endNow() skips the rest of
+                                   it (round.done, the result unchanged). Then 🏝️ Exit asks
+                                   nothing: the results come up at once, the result saved as at
+                                   the end of the show (🏝️ Back to my island is one tap more);
+                                   Resume after a pause there has no count-in; a live round that
+                                   ends under the card shows its results at once
      The shell also owns, for every 3D view: the stage's 2D verdict (no 3D view —
      so no WebGL context — once SLIsland3D.failed() or .remembered() says 2D), a
      ~60 fps draw cap (logic still steps every frame), ~30 fps menus/results, and a
@@ -361,6 +407,17 @@
       return 'remembered:' + (rec.why || '2d');
     } catch (e) {}
     return null;
+  }
+  /* compat-1 (RELEASE-FIXES, 25 Oct 2026): Safari 15.0-16.3 has WebGL2 but no import maps, so `three`
+     can never load there. A browser that says it has none (no HTMLScriptElement.supports, or it answers
+     false for 'importmap') plays in 2D at once; one that cannot be asked at all (no HTMLScriptElement:
+     not a browser) is left to the loader as before */
+  function importMaps(w) {
+    try {
+      var S = (w || {}).HTMLScriptElement;
+      if (typeof S === 'undefined') return true;
+      return typeof S.supports === 'function' && S.supports('importmap') === true;
+    } catch (e) { return true; }
   }
   /* a list of short phrases read as sentences by a screen reader */
   function sentences(parts) {
@@ -502,6 +559,8 @@
       }
       var screen = null, banner = null;
       var held = {};
+      /* the Exit check: its card, the focus it took, what it made inert; pausedFrom: the phase a pause left */
+      var askEl = null, askFocus = null, askShut = [], askHid = null, pausedFrom = null;
 
       /* QA2C-14: ⏸ only while there is something to pause (a count, a round, the pause sheet).
          Every phase change draws a sheet (setScreen) or starts the loop (startLoop); both ask */
@@ -511,6 +570,7 @@
       }
       /* noFocus: the caller focuses later (results wake their buttons after a guard) */
       function setScreen(html, noFocus) {
+        if (askEl) closeAsk(false);                   /* a new sheet (results of a live race, a menu): the question is over */
         if (screen) screen.remove();
         screen = null;
         syncPause();
@@ -860,25 +920,97 @@
         if (def.menuVariants) { try { return (def.menuVariants(cfg) || []).filter(function (v) { return !v.locked; }).length; } catch (e) { return 0; } }
         return (cfg.ownedVariants || []).length;
       }
-      function pause() {
-        if (phase !== 'playing' && phase !== 'countdown') return;
-        if (live) return;            /* a live round runs on real time: time away goes on its clock */
+      /* quiet === true: paused with no Paused sheet (the Exit check puts up its own card) → true when it paused */
+      function pause(quiet) {
+        if (phase !== 'playing' && phase !== 'countdown') return false;
+        if (live) return false;      /* a live round runs on real time: time away goes on its clock */
         goAt = null;                 /* a count that was paused goes on frame by frame */
         if (round && round.pauseReset) { try { round.pauseReset(); } catch (e) {} }
         mus('pause', 200);
-        var was = phase; phase = 'paused'; stopLoop(); held = {}; renderTouchHeld();
+        pausedFrom = phase; phase = 'paused'; stopLoop(); held = {}; renderTouchHeld();
+        if (quiet === true) { syncPause(); return true; }
         var sc = setScreen(ROT_HTML + '<div class="slg-emo">⏸</div><h2>Paused</h2><p>Take your time.</p><div class="row"><button class="slg-b go" type="button" id="slgResume">▶ Resume</button><button class="slg-b" type="button" id="slgRestart">↻ Restart</button><button class="slg-b alt" type="button" id="slgQuit">🏝️ Exit</button></div>');
-        sc.querySelector('#slgResume').addEventListener('click', function () {
-          setScreen(null);
-          countIsStart = false;
-          if (was === 'playing') { phase = 'countdown'; countT = def.countIn ? countTotal() : Math.max(countT, 2); } else phase = was;
-          mus('resume', 300);
-          startLoop();
-        });
+        sc.querySelector('#slgResume').addEventListener('click', resume);
         sc.querySelector('#slgRestart').addEventListener('click', replay);
-        sc.querySelector('#slgQuit').addEventListener('click', exit);
+        sc.querySelector('#slgQuit').addEventListener('click', askLeave);
+        return true;
+      }
+      /* back from a pause: a round that was playing counts in again first */
+      function resume() {
+        if (phase !== 'paused') return;
+        var was = pausedFrom || 'playing'; pausedFrom = null;
+        setScreen(null);
+        countIsStart = false;
+        /* a round whose result is final has nothing to get ready for: its closing show goes on, no count-in */
+        if (was === 'playing' && !roundEnded()) { phase = 'countdown'; countT = def.countIn ? countTotal() : Math.max(countT, 2); } else phase = was;
+        mus('resume', 300);
+        startLoop();
+      }
+      /* ---------- the Exit check (see OPTIONAL HOOKS) ---------- */
+      function inRound() { return !!round && (phase === 'countdown' || phase === 'playing' || phase === 'paused'); }
+      /* the round's result is final and only its closing show plays on (round.ended + round.endNow) */
+      function roundEnded() {
+        if (!round || round.done || typeof round.ended !== 'function' || typeof round.endNow !== 'function') return false;
+        try { return !!round.ended(); } catch (e) { return false; }
+      }
+      /* skip that closing show: the results come up now, the result saved as at its end → true when they did */
+      function resultsNow() {
+        var was = phase;
+        try { round.endNow(); } catch (e) {}
+        if (!round.done) return false;
+        if (was === 'paused') { pausedFrom = null; mus('resume', 0); }   /* the results' music, as after the show */
+        finishRound();
+        return true;
+      }
+      /* a live round runs on under the card: whatever was held down is let go, so it does not drive on */
+      function letGo() {
+        Object.keys(held).forEach(function (id) { if (held[id]) { held[id] = false; if (round && round.input) { try { round.input(id, false); } catch (e) {} } } });
+        renderTouchHeld();
+      }
+      function askLeave() {
+        if (exited || askEl) return;
+        if (!inRound()) { exit(); return; }
+        /* after the finish line or the last heart nothing is left to lose: no question, the results */
+        if (roundEnded() && resultsNow()) return;
+        try { askFocus = document.activeElement; } catch (e) { askFocus = null; }
+        if (live) letGo(); else if (phase !== 'paused') pause(true);
+        injectCssAsk();
+        var w = ASK[def.key === 'kart' ? 'race' : 'game'];
+        var a = askEl = el('div', 'slg-ask' + (reduced ? ' rm' : ''));
+        a.id = 'slgAsk';
+        a.innerHTML = '<div class="slg-ask-card" role="alertdialog" aria-modal="true" aria-labelledby="slgAskT" aria-describedby="slgAskP">' +
+          '<h2 id="slgAskT">' + esc(w.title) + '</h2><p id="slgAskP">' + esc(w.text) + '</p>' +
+          '<div class="row"><button class="slg-b go" type="button" id="slgStay">' + esc(ASK.stay) + '</button>' +
+          '<button class="slg-b" type="button" id="slgLeave">' + esc(ASK.leave) + '</button></div></div>';
+        root.appendChild(a);
+        askShut = shutBehind(a);                         /* the top bar and the stage: no taps, no Tab stops */
+        /* asked from the Paused sheet: that sheet steps aside, so the card reads alone over the stage */
+        if (screen && phase === 'paused') { askHid = screen; screen.style.visibility = 'hidden'; }
+        a.querySelector('#slgStay').addEventListener('click', keepPlaying);
+        a.querySelector('#slgLeave').addEventListener('click', function () { closeAsk(false); exit(); });
+        try { a.querySelector('#slgStay').focus({ preventScroll: true }); } catch (e) {}
+      }
+      function closeAsk() {
+        if (!askEl) return;
+        var a = askEl; askEl = null; askFocus = null;
+        openBehind(askShut); askShut = [];
+        if (askHid) { try { askHid.style.visibility = ''; } catch (e) {} askHid = null; }
+        a.remove();
+      }
+      /* Keep playing (or Esc): the card goes, a paused round resumes, and the focus goes back where it was
+         (the dialog itself when that button has gone with the pause sheet) */
+      function keepPlaying() {
+        if (!askEl) return;
+        var f = askFocus;
+        closeAsk();
+        if (phase === 'paused') resume();
+        try {
+          if (f && f !== root && root.contains(f) && f.isConnected !== false && !f.disabled) f.focus({ preventScroll: true });
+          else root.focus({ preventScroll: true });
+        } catch (e) {}
       }
       pauseBtn.addEventListener('click', function () {
+        if (askEl) return;
         /* a live round has no pause: the round says so (round.onPause) and runs on */
         if (live && (phase === 'playing' || phase === 'countdown')) { if (round && round.onPause) { try { round.onPause(ctl); } catch (e) {} } return; }
         if (phase === 'paused') { var r = screen && screen.querySelector('#slgResume'); if (r) r.click(); } else pause();
@@ -982,6 +1114,8 @@
             if (st.usedSec >= ceiling) { round.forceEnd(); }
           }
         }
+        /* a live round that crossed the line while the Exit check asks: its results now (the card goes with them) */
+        if (askEl && roundEnded()) { try { round.endNow(); } catch (e) {} }
         if (round.done) finishRound();
       }
 
@@ -1068,6 +1202,13 @@
       /* ---------- input ---------- */
       var keyMap = def.keys || {};
       window.addEventListener('keydown', function (e) {
+        /* the Exit check is up: Esc keeps playing, Tab stays in the card, Enter / Space press its
+           focused button, and the round hears nothing */
+        if (askEl) {
+          if (e.key === 'Tab') keepTab(e);
+          else if (e.key === 'Escape') { e.preventDefault(); keepPlaying(); }
+          return;
+        }
         if (e.key === 'Tab') { keepTab(e); return; }
         if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') { if (phase === 'playing' || phase === 'countdown') { e.preventDefault(); pause(); } return; }
         var id = keyMap[e.key];
@@ -1084,7 +1225,8 @@
       /* E5: Tab and Shift+Tab go round the game's own buttons and never out to the page */
       function keepTab(e) {
         if (exited) return;
-        var list = tabStops(root), a = document.activeElement, inside = !!a && a !== root && root.contains(a);
+        var box = askEl || root;                          /* the Exit check's card while it is up */
+        var list = tabStops(box), a = document.activeElement, inside = !!a && a !== box && box.contains(a);
         if (!list.length) { e.preventDefault(); try { root.focus({ preventScroll: true }); } catch (x) {} return; }
         var first = list[0], last = list[list.length - 1];
         if (!inside || (e.shiftKey ? a === first : a === last)) {
@@ -1132,6 +1274,7 @@
       var exited = false;
       function exit() {
         if (exited) return; exited = true;
+        askEl = null; askFocus = null; askShut = []; askHid = null;   /* the card goes with the game */
         stopLoop(); stopIdle(); unwatchQuality(); clearTimeout(liveTimer); liveTimer = 0;
         if (v3) { try { v3.dispose(); } catch (e) {} if (v3.canvas && v3.canvas.parentNode) v3.canvas.parentNode.removeChild(v3.canvas); v3 = null; }
         if (hudObj) { try { hudObj.dispose(); } catch (e) {} hudObj = null; }
@@ -1153,7 +1296,8 @@
         if (cfg.arcade) cfg.arcade.flush();
         if (cfg.onExit) cfg.onExit();
       }
-      root.querySelector('#slgExit').addEventListener('click', exit, sig);
+      /* during a round 🏝️ Exit asks first (the Exit check); anywhere else it leaves at once */
+      root.querySelector('#slgExit').addEventListener('click', askLeave, sig);
 
       var api = { sound: sound, reduced: reduced, LW: def.LW, LH: def.LH };
       api.music = (window.SLMusic && typeof SLMusic.channel === 'function') ? (function () { try { return SLMusic.channel({ muted: cfg.muted }); } catch (e) { return null; } })() : null;
@@ -1179,6 +1323,7 @@
         /* the stage already judged this device 2D (too slow, lost contexts, no 3D):
            don't open a second WebGL context the island just gave up on */
         if (verdict2d(window)) return false;
+        if (!importMaps(window)) return false;           /* compat-1: no import maps, no three */
         return typeof WebGL2RenderingContext !== 'undefined' && typeof window.slLoad3D === 'function';
       }
       function load3d() {
@@ -1286,7 +1431,7 @@
       /* QA hook (inert unless localStorage.slQaMode === '1') */
       try {
         if (localStorage.getItem('slQaMode') === '1') {
-          window._slGame = { phase: function () { return phase; }, round: function () { return round; }, advance: function (sec) { var n = Math.round(sec / 0.05); for (var i = 0; i < n; i++) advance(0.05); draw(); }, beginRound: beginRound, pause: pause, exit: exit, variant: function () { return variant; }, view: function () { return v3 ? '3d' : '2d'; }, v3: function () { return v3; }, force2d: function () { fail3d('qa'); }, hud: function () { return hudObj; }, watch: function () { return watch.stats(); } };
+          window._slGame = { phase: function () { return phase; }, round: function () { return round; }, advance: function (sec) { var n = Math.round(sec / 0.05); for (var i = 0; i < n; i++) advance(0.05); draw(); }, beginRound: beginRound, pause: pause, exit: exit, variant: function () { return variant; }, view: function () { return v3 ? '3d' : '2d'; }, v3: function () { return v3; }, force2d: function () { fail3d('qa'); }, hud: function () { return hudObj; }, watch: function () { return watch.stats(); }, asking: function () { return !!askEl; }, askLeave: askLeave, ended: roundEnded };
           /* always the live held-input object (beginRound replaces it) */
           Object.defineProperty(window._slGame, 'held', { get: function () { return held; } });
         }
@@ -1350,5 +1495,5 @@
 
   /* API 2: the boards slot, menu buttons, ctl and live rounds; API 3: nextStep / Details,
      nextVariant, hud3d and the modal shell (see OPTIONAL HOOKS). Games test API >= n. */
-  window.SLGameShell = { API: 3, define: define, rng: rng, svgImage: svgImage, STEP: STEP, makePacer: makePacer, makeFrameWatch: makeFrameWatch, verdict2d: verdict2d, REMEMBER_DAYS: REMEMBER_DAYS, BEAT_PULSE_HZ: BEAT_PULSE_HZ, PRELOAD_MS: PRELOAD_MS, GUARD_MS: GUARD_MS };
+  window.SLGameShell = { API: 3, define: define, rng: rng, svgImage: svgImage, STEP: STEP, makePacer: makePacer, makeFrameWatch: makeFrameWatch, verdict2d: verdict2d, REMEMBER_DAYS: REMEMBER_DAYS, importMaps: importMaps, BEAT_PULSE_HZ: BEAT_PULSE_HZ, PRELOAD_MS: PRELOAD_MS, GUARD_MS: GUARD_MS, ASK: ASK };
 })();

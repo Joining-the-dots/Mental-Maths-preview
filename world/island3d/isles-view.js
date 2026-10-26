@@ -700,11 +700,16 @@
     return out;
   }
 
-  /* the keyboard list's labels (= island3d's itemLabel / petLabel: today's aria-labels) */
-  function itemLabel(it, mode, selected) {
+  /* the keyboard list's labels (= island3d's itemLabel / petLabel: today's aria-labels). A game says its ▶ sign's
+     words too, without the ▶ (d-3d, label in name: 'Penalty Pitch — tap to play Shootout'; play.sign.<game> through t,
+     rewards-world's fallbacks word for word) */
+  var PLAY_SIGN = { course: ['play.sign.course', '▶ Debut Run'], penalty: ['play.sign.penalty', '▶ Shootout'], kart: ['play.sign.kart', '▶ Kart'] };
+  function itemLabel(it, mode, selected, t) {
     if (!it) return '';
     if (normMode(mode) !== 'play') return it.name + (selected ? ' (selected)' : '') + ' — select to move it';
-    return it.name + (it.act === 'launch' ? ' — tap to play' : it.act ? ' — tap to play with it' : '');
+    if (it.act !== 'launch') return it.name + (it.act ? ' — tap to play with it' : '');
+    var s = own(PLAY_SIGN, it.game) ? PLAY_SIGN[it.game] : null, w = s ? tr(t, s[0], null, s[1]).replace(/^\s*▶\s*/, '') : '';
+    return it.name + ' — tap to play' + (w && w !== it.name ? ' ' + w : '');
   }
   function tr(t, key, vars, fallback) {
     var f = typeof t === 'function' ? t : (t && typeof t.t === 'function' ? t.t : null);
@@ -728,7 +733,7 @@
         seen[p.uid] = 1;
         return mode !== 'play' || !!it.act;
       }).sort(function (a, b) { return (a.y | 0) - (b.y | 0) || (a.x | 0) - (b.x | 0); }).forEach(function (p) {
-        out.push({ key: 'u:' + p.uid, label: itemLabel(C.item(p.id), mode, p.uid === view.selectedUid), action: { kind: 'item', uid: p.uid } });
+        out.push({ key: 'u:' + p.uid, label: itemLabel(C.item(p.id), mode, p.uid === view.selectedUid, t), action: { kind: 'item', uid: p.uid } });
       });
       if (mode === 'play') {
         (Array.isArray(view.pets) ? view.pets : []).forEach(function (p) {

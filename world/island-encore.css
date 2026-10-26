@@ -1049,7 +1049,7 @@ html body .slw-grid > .slw-card.shine-1 {
 html body .slw-grid > .slw-card.shine-2 {
   border: 2px solid transparent;
   padding: 7px 7px 9px;
-  background: linear-gradient(var(--sle-card), var(--sle-card)) padding-box, conic-gradient(from var(--sle-foil), #FF7AD9, #7AD7FF, #9DFFCF, #FFE27A, #FF7AD9) border-box;
+  background: linear-gradient(var(--sle-card), var(--sle-card)) padding-box, conic-gradient(from var(--sle-foil, 0deg), #FF7AD9, #7AD7FF, #9DFFCF, #FFE27A, #FF7AD9) border-box;
   box-shadow: 0 0 14px rgba(255, 122, 217, 0.22), 0 10px 24px rgba(0, 0, 0, 0.35);
   animation: sleFoil 8s linear infinite;
 }

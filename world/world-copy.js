@@ -302,10 +302,46 @@
     'shop.door.petShopLine': 'Adopt a pet or get pet food.',
     'shop.filter.afford': 'I can buy',
     'shop.filter.none': 'Nothing here you can buy yet.',
-    'shop.filter.next': '{item} is next: {n} more 🪙.',
+    /* d-island (James, 25 Oct 2026: 'Need N more 🪙' for every shortfall) */
+    'shop.filter.next': 'Next up: {item}. Need {n} more 🪙.',
     'shop.back': 'Back to the shop',
     /* R2 (QA2D-4): a folded shelf's way to the rest of it */
     'shop.seeAll': 'See all {n}',
+
+    /* ---- d-island (James's answers, 25 Oct 2026 afternoon; chatgpt-feedback/DECISIONS-FOR-JAMES.md ✅) ----
+       One goal wording everywhere: the goal button is '🎯 My goal' (the host adds ' ✓' while it is the goal) and every
+       shortfall reads 'Need N more 🪙'. Other chunks read these through SLWorldCopy.t(key) with the same text as their
+       fallback: the ▶ PLAY signs name their game, and the Pet Shop's Jump to chips name its shelves */
+    'goal.my': '🎯 My goal',
+    'need.coins': 'Need {n} more 🪙',
+    'play.sign.course': '▶ Debut Run',
+    'play.sign.penalty': '▶ Shootout',
+    'play.sign.kart': '▶ Kart',
+    'care.shop.jump.animals': 'Animals',
+    'care.shop.jump.food': 'Food',
+    'care.shop.jump.clothes': 'Clothes',
+    /* the Next step card's changing island ideas (James: 'everything related to islands, free play, whatever interests
+       them'): after a hungry pet, a pet at the Pet Rescue and 'you have enough', the card takes turns between a visit to
+       another land, a ride or landmark, the bag or the shop, a game, and how the goal is going. Never pushy: a
+       suggestion, a question, or the goal's own words */
+    'next.visit': 'Pay a visit to {island}.',
+    'next.flyThere': 'Fly there',
+    'next.ride': 'Have a go on the {item}.',
+    'next.rideBtn': '✋ Have a go',
+    'next.bag': 'Your bag has {n} things to put out.',
+    'next.bag.one': 'Your bag has 1 thing to put out.',
+    'next.bagBtn': 'Open my bag',
+    'next.add': 'Add something to {island}.',
+    /* the kart Remix names its track (James: 'name the track in the Remix suggestion'); next.remix stays for older references */
+    'next.remixTrack': 'Try the {item} Remix: more obstacles!',
+    'next.again.course': 'Fancy another Debut Run?',
+    'next.again.penalty': 'Fancy another Encore Shootout?',
+    'next.again.kart': 'Fancy another Neon Grand Prix?',
+    /* time estimates on about an hour of learning a day: minutes up to an hour, then days, one day said as one */
+    'next.learnDays.one': '{item}: about 1 more day of learning.',
+    'learn.aboutDays.one': 'That’s about 1 day of learning.',
+    /* the Games sheet when a grown-up has set no daily game time (was 'Island games have no daily time limit on this account.') */
+    'games.noLimit': 'There’s no daily game time limit for you.',
     /* the intro slides (slide 1 used to promise the city across the bay) */
     'intro.1.title': 'Your island in the sky',
     'intro.1.body': 'A home, your first pet and the Debut Run. Five more islands float nearby, waiting to be opened.',
@@ -458,7 +494,10 @@
     'care.welcome.shop': 'Visit the Pet Shop',
     /* a new player: the intro's care slide, and its last button */
     'care.intro': 'Pets need a meal on the days you visit My Island.',
-    'care.adoptFriend': 'Adopt a friend for {name}',
+    /* d-island (James's QA-round-2 question): the new player's offer says whose friend it is without a name nobody has
+       introduced yet (was 'Adopt a friend for {name}'; the caller still passes {name}, which is now unused). Only a new
+       player sees it, right after the welcome, when the starter puppy is their one pet */
+    'care.adoptFriend': 'Adopt a friend for your puppy',
     /* who lives at home (the picker) */
     'care.pick.title': 'Who lives at home?',
     'care.pick.sub': 'Pick up to 3 pets. The others stay at the Pet Hotel. You can swap whenever you like.',
@@ -480,7 +519,8 @@
     'care.warn': '{name} is very hungry. If {name} isn’t fed in the next 2 island days, the keepers at the Pet Rescue will look after them.',
     /* the kind 'last day' line (James, 24 Oct 2026: no 'Last chance!'; FIX-LIST section 2) */
     'care.last': 'Feed {name} today and they’ll be fine. If not, the kind keepers at the Pet Rescue will look after {name}.',
-    'care.noPoints': 'Earn {n} ⭐ in any learning game to buy {food}.',
+    /* d-island: every shortfall reads 'Need N more …' (was 'Earn {n} ⭐ in any learning game to buy {food}.') */
+    'care.noPoints': 'Need {n} more ⭐ for {food}.',
     'care.goLearn': 'Go and learn',
     /* the Pet Corner: feeding, pats and play */
     'care.feed': 'Feed',
@@ -586,8 +626,9 @@
     'care.memory.see': 'See the Memory Book',
     /* the creator's Clothes panel, and a cast card when ⭐ are short (characters.json uiFlows.child) */
     'char.moreWardrobe': 'More in the Wardrobe',
-    'char.cast.need': 'You need {n} more ⭐',
-    'char.cast.save': 'Save up for it',
+    /* d-island (James: one goal wording) — were 'You need {n} more ⭐' and 'Save up for it' */
+    'char.cast.need': 'Need {n} more ⭐',
+    'char.cast.save': '🎯 My goal',
 
     /* ---------------- two wallets (F-KU5; James, 24 Oct 2026; docs/island3d/v3/kids-update/wallets.md) ----------------
        Learning earns ⭐ for 🎁 My rewards and the same number of 🪙 coins for My Island, which pays only in 🪙. The
@@ -595,8 +636,8 @@
        stays for a core that pays in stars. care.basic.* are F-KU4's free basic meal (wallets.md, word for word).
        The island calls the ⭐ 'points', as 🎁 My rewards and the app's top bar do (F-KU5 review): in the learning
        screens 'stars' are mastery stars, and on the island the pets' memory stars. */
-    'char.cast.needCoins': 'You need {n} more 🪙',
-    'care.noCoins': 'Earn {n} 🪙 in any learning game to buy {food}.',
+    'char.cast.needCoins': 'Need {n} more 🪙',
+    'care.noCoins': 'Need {n} more 🪙 for {food}.',
     'care.basic.button': 'Free basic meal',          /* the Pet Corner draws the 🥣 in front, as the paw on My pets */
     'care.basic.line': 'Out of food? {name} can have a free basic meal today.',
     'care.basic.done': '{name} enjoyed a basic meal. Their favourite food is in the Pet Shop.',

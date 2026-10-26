@@ -886,6 +886,16 @@
     /* ---------------- loading ---------------- */
     var loadP = null, permanent = null, sessionFail = null, injected = {};
     function setPermanent(why) { if (!permanent) { permanent = why; log('3D unavailable: ' + why); } }
+    /* compat-1 (RELEASE-FIXES): 'three' loads through the page's import map, so a browser without import maps (Safari
+       15.0-16.3: WebGL2, but no import maps) can never draw 3D. Asked before any script group is fetched, so such an
+       iPad no longer downloads the 3D scripts for nothing on every My Island open. Safari 16.0-16.3 has
+       HTMLScriptElement.supports() but answers false; 15.x has no supports() at all */
+    function importMaps() {
+      try {
+        var S = root.HTMLScriptElement;
+        return typeof S !== 'undefined' && !!S && typeof S.supports === 'function' && S.supports('importmap') === true;
+      } catch (e) { return false; }
+    }
     var dynImport = (function () {
       try { var f = new Function('u', 'return import(u)'); return function (u) { try { return f(u); } catch (e) { return Promise.reject(e); } }; }
       catch (e) { return function () { return Promise.reject(new Error('dynamic import unavailable')); }; }
@@ -942,6 +952,7 @@
       if (ls('get', 'slNo3D') === '1') { setPermanent('slNo3D'); return Promise.resolve(false); }
       if (typeof root.slLoad3D !== 'function') { setPermanent('no slLoad3D'); return Promise.resolve(false); }
       if (typeof root.WebGL2RenderingContext === 'undefined') { setPermanent('no WebGL2'); return Promise.resolve(false); }
+      if (!importMaps()) { setPermanent('no import maps'); return Promise.resolve(false); }   /* compat-1: no groups, no probe */
       var gl = probeGL();
       if (!gl.webgl2) { setPermanent('no WebGL2 context'); return Promise.resolve(false); }
       var tP = Promise.resolve().then(function () { return root.slLoad3D(); }).catch(function () { return null; });

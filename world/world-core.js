@@ -58,9 +58,11 @@
     confirmAt: 300,           /* purchases at/above this ask "are you sure?" (in the wallet's own money) */
     ledgerCloudCap: 1000,
     trialMaxCopies: 0,        /* free test mode: no cap on copies (0 = unlimited; the cloud copy keeps the last 1,000 ledger rows) */
-    /* F-KU4: a learning day ≈ one Daily 30, which pays about two sessions' worth (§3: a
-       Daily-30 session pays 2-2.5×). Every coin price is set from sessionPts and this. */
-    daySessions: 2,
+    /* a learning day ≈ about one hour of learning (James, 25 Oct 2026: "base them on about 1 hour
+       of learning a day"): 60 minutes of ~25-minute sessions, 60 / 25 = 2.4 sessions, so 288 a
+       day. It was 2 (one Daily 30, 240 a day: F-KU4). Every coin price is set from sessionPts and
+       this (coinPrice); the Next step card's "about N days" reads it too (next-step.js). */
+    daySessions: 2.4,
     /* what island things are paid with: 'stars' (u.points, V4.57 and before) | 'coins' (w.coins).
        A call's opts.wallet overrides it. 'coins' since F-KU5 (James, 24 Oct 2026: island money and
        real-reward ⭐ are separate wallets), now that every island screen shows 🪙. */
@@ -1254,10 +1256,12 @@
 
      Prices (coinPrice), one rule from the catalogue's ⭐ price, calibrated on sessionPts (James,
      24 Oct 2026: a small item ≈ one session, the first paid game ≈ 2-3 days, the first new
-     land ≈ a week; a day = sessionPts × daySessions coins):
+     land ≈ a week; a day = sessionPts × daySessions coins, about one hour of learning since
+     James's 25 Oct answer: 288):
        COIN.days     the anchors, in learning days: the two paid games and the seven lands
        game things   a game's courses, tracks, balls, stadiums and karts keep their old share of
-                     their game: the Penalty Pitch's coins per ⭐ (a half)
+                     their game: the Penalty Pitch's coins per ⭐ (0.6 with a 288 day; a half
+                     with the old 240 day)
        everything    sessionPts / COIN.smallTop coins per ⭐ (three quarters): the old Small tier
        else          (up to 160 ⭐) costs at most one session
      Rounded to 5 under 1,000 and to 50 from 1,000; free stays free; anything paid costs ≥ 5. */
