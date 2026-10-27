@@ -627,7 +627,7 @@
       line(m, root, m.note, 'sld-note');
     });
   }
-  /* ⚔️ Rematch (the host): a new stage or new keeper moves, any course or rival, the same word and
+  /* ⚔️ Rematch (the host): a new stage or new marker starts, any course or rival, the same word and
      group; Start sets it up and starts as soon as a friend is ready */
   function picker(m) {
     var T = D(m).T, ses = m.ses, v = ses && ses.room, list = choices(m);
@@ -665,7 +665,8 @@
   /* ---------- GO: one round, handed to the game ---------- */
   function startRound(m, go) {
     var cfg = m.cfg, cr = { seed: go.seed, variant: go.variant }, ok = false;
-    if (m.game === 'penalty') cr.duel = { dives: D(m).dives(go.seed, D(m).DIVE_KICKS), hold: true, deciders: true };
+    /* the Shootout's keeper reacts to the ball (PENALTY_RULES 3): there are no keeper moves to hand over */
+    if (m.game === 'penalty') cr.duel = { hold: true, deciders: true };
     if (m.autoStart) { m.E.timers.clearTimeout(m.autoStart); m.autoStart = 0; }
     m.live = { r: go.r, seat: go.seat, players: go.players, tries: go.tries, round: null, rows: null, rv: {}, mine: {}, end: null, closed: '', left: {},
       atK: -1, lastK: -1, decN: 0, held: false, logN: 0, fin: false, said: false, steps: 0, seenSteps: 0, stale: 0, block: null, nextT: 0, lastSt: '', paused: false, status: '', offer: true, dirty: true, sig: '' };

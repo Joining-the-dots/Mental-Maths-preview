@@ -8,7 +8,7 @@
                  stays an empty outline to the end of the show (B8, 25 Oct 2026: they
                  were ✦-headed Spark Sticks, and ✦ is the glow sparks' sign)
      top-centre  HYPE bar (notches x2 / x3 / FEVER) + E N C O R E slots
-     top-right   snacks · ✦ glow sparks · score
+     top-right   snacks · ✦ glow sparks · 'Score 490' (counterText: the score says it is one)
      bottom      mini runway: 5 Stage Door dots, pet marker, finish flag
      centre      one pop at a time ('Part 2 of 6' at each Stage Door, FEVER!, BOUNCE!…)
    ENCORE CITY skin (v2): night-glass panels (rgba(22,18,40,.72), a 1px
@@ -53,6 +53,8 @@
       '.slc-letters{gap:2px;}',
       '.slc-l{width:16px;height:18px;font-size:11px;border-radius:5px;}',
       '.slc-cnt{left:' + px(C.x) + ';right:auto;top:' + px(C.cnt.top) + ';height:' + px(C.cnt.h) + ';max-width:' + px(C.w) + ';padding:4px 10px;font-size:13px;line-height:1.2;white-space:normal;display:flex;align-items:center;}',
+      /* crit-games #3: in the column the score takes the second line ('🦴 14 · ✦ 0' / 'Score 78'), never a stray '·' */
+      '.slc-cnt{flex-direction:column;align-items:flex-start;justify-content:center;}.slc-cnt .slc-sep{display:none;}.slc-cnt .slc-c1,.slc-cnt .slc-sc{white-space:nowrap;}',
       '.slc-tip{left:' + px(C.x) + ';transform:none;bottom:auto;top:' + px(C.tip.top) + ';max-width:' + px(C.w) + ';padding:5px 10px;border-width:2px;border-radius:12px;font-size:15px;line-height:1.2;white-space:normal;}',
       '.slc-tip.big{font-size:16px;}',
       '.slc-prog{bottom:' + px(C.prog.bottom) + ';width:min(420px,calc(100% - ' + px(2 * C.prog.side) + '));}'
@@ -63,8 +65,25 @@
     ].join('') + '}';
   }
   function compactNow() { try { return !!(window.matchMedia && window.matchMedia(COMPACT.mq).matches); } catch (e) { return false; } }
+  /* the counter (crit-games #3, 27 Oct 2026): it read '🦴 75 · ✦ 0 · 490', and nothing said the last number was the
+     score. It is the snacks (the course's treat: 🦴 / 🐟 / 🍬), the glow sparks (✦, as Details names them) and
+     'Score 490' (the results' own word; a no-break space keeps 'Score' with its number when the short-landscape
+     column wraps it). Upright at 360 px it stays on one line beside the hearts. The hearts have their own panel. */
+  function fmtN(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  /* [the snacks and sparks, the score]: the HUD shows them as two spans with a ' · ' between (the sideways column
+     drops the ' · ' and gives the score its own line) */
+  function counterParts(icon, treats, stars, score) {
+    return [(icon || '🦴') + ' ' + treats + ' · ✦ ' + stars, 'Score\u00a0' + fmtN(Math.max(0, Math.round(score)))];
+  }
+  function counterText(icon, treats, stars, score) { return counterParts(icon, treats, stars, score).join(' · '); }
+  /* the same in words, for a screen reader visiting the counter (it is never announced). The counter is role="img"
+     so its label is read: a label on a plain div is not (crit-games review). The glow sparks keep their ✦ alone on
+     screen: a word would not fit the sideways column (132 px) or 360 px upright beside the hearts. */
+  function counterWords(treats, stars, score) {
+    return treats + (treats === 1 ? ' snack' : ' snacks') + ', ' + stars + (stars === 1 ? ' glow spark' : ' glow sparks') + ', score ' + fmtN(Math.max(0, Math.round(score)));
+  }
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    if (typeof module === 'object' && module.exports) module.exports = { COMPACT: COMPACT, compactCss: compactCss };
+    if (typeof module === 'object' && module.exports) module.exports = { COMPACT: COMPACT, compactCss: compactCss, counterText: counterText, counterParts: counterParts, counterWords: counterWords };
     return;
   }
 
@@ -156,7 +175,6 @@
     document.head.appendChild(c);
   }
   function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
-  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function safeCol(c) { return /^#[0-9a-f]{6}$/i.test(c || '') ? c : '#8A5CFF'; }
   /* a heart: filled in the child's colour with a white edge and a small shine; a lost heart is an
      empty outline (never a colour alone: the shape changes too) */
@@ -179,7 +197,7 @@
       '<div class="slc-p slc-hearts"></div>' +
       '<div class="slc-p slc-mid"><div class="slc-hype"><div class="slc-fill"></div><i class="slc-notch" style="left:25%"></i><i class="slc-notch" style="left:62.5%"></i></div>' +
       '<div class="slc-hl">HYPE x1</div><div class="slc-letters"></div></div>' +
-      '<div class="slc-p slc-cnt"></div>' +
+      '<div class="slc-p slc-cnt" role="img" aria-label="Snacks, glow sparks and score"><span class="slc-c1"></span><span class="slc-sep"> · </span><span class="slc-sc"></span></div>' +
       '<div class="slc-prog"><div class="slc-track"><div class="slc-pf"></div></div><span class="slc-flag">🏁</span><span class="slc-pet"></span></div>' +
       '<div class="slc-pop"></div><div class="slc-tip"></div><span class="slc-sr" aria-live="polite"></span>';
     mid.appendChild(root);
@@ -187,7 +205,7 @@
     var heartsEl = $('.slc-hearts'), hypeEl = $('.slc-hype'), fillEl = $('.slc-fill'), hlEl = $('.slc-hl'), lettersEl = $('.slc-letters');
     var cntEl = $('.slc-cnt'), progEl = $('.slc-prog'), pfEl = $('.slc-pf'), petEl = $('.slc-pet'), popEl = $('.slc-pop'), tipEl = $('.slc-tip'), srEl = $('.slc-sr');
     for (var i = 0; i < 6; i++) { var l = el('b', 'slc-l'); l.textContent = 'ENCORE'[i]; lettersEl.appendChild(l); }
-    var letterEls = lettersEl.children;
+    var letterEls = lettersEl.children, cntA = cntEl.querySelector('.slc-c1'), cntB = cntEl.querySelector('.slc-sc');
 
     var last = { round: null, hearts: -1, max: -1, hype: -1, fever: null, mult: -1, letters: -1, cnt: '', prog: -1, show: null, sec: -1 };
     var popQ = [], popUntil = 0, popLv = 0, tipUntil = 0, tipText = '', lastBonk = -1e9;
@@ -208,7 +226,9 @@
       var w = mid.clientWidth || 0, h = mid.clientHeight || 0, top = '', flat = !mid.querySelector('.slg-gl');
       if (popEl.classList.contains('flat') !== flat) popEl.classList.toggle('flat', flat);
       if (w > 0 && h > 0 && flat) {
-        var sh = STAGE_H * Math.min(w / STAGE_W, h / STAGE_H), oy = (h - sh) / 2;
+        /* an upright phone frames the stage bigger (SLCourse.fit2d, crit-games #5): the pop follows it */
+        var C = window.SLCourse, F = C && typeof C.fit2d === 'function' ? C.fit2d(w, h) : null;
+        var sh = STAGE_H * (F ? F.scale : Math.min(w / STAGE_W, h / STAGE_H)), oy = F ? F.oy : (h - sh) / 2;
         if (oy > 1) top = Math.round(oy + Math.max(24, sh * 0.32)) + 'px';
       }
       if (popEl.style.top !== top) popEl.style.top = top;
@@ -316,8 +336,8 @@
         for (var k = 0; k < 6; k++) letterEls[k].classList.toggle('got', !!(s.lettersMask & (1 << k)));
         last.letters = s.lettersMask;
       }
-      var cnt = (round.treatIcon || '🦴') + ' ' + s.treats + ' · ✦ ' + s.stars + ' · ' + fmt(Math.max(0, Math.round(s.score)));
-      if (cnt !== last.cnt) { cntEl.textContent = cnt; last.cnt = cnt; }
+      var cp = counterParts(round.treatIcon, s.treats, s.stars, s.score), cnt = cp.join(' · ');
+      if (cnt !== last.cnt) { cntA.textContent = cp[0]; cntB.textContent = cp[1]; cntEl.setAttribute('aria-label', counterWords(s.treats, s.stars, s.score)); last.cnt = cnt; }
       var pg = Math.round(s.progress * 400) / 4;
       if (pg !== last.prog) { pfEl.style.width = pg + '%'; petEl.style.left = pg + '%'; last.prog = pg; }
       if (s.section !== last.sec) {
@@ -331,6 +351,6 @@
     return { update: update, dispose: dispose };
   }
 
-  window.SLCourseHUD = { mount: mount, COMPACT: COMPACT };
-  if (typeof module === 'object' && module.exports) module.exports = { mount: mount, COMPACT: COMPACT, compactCss: compactCss };
+  window.SLCourseHUD = { mount: mount, COMPACT: COMPACT, counterText: counterText, counterWords: counterWords };
+  if (typeof module === 'object' && module.exports) module.exports = { mount: mount, COMPACT: COMPACT, compactCss: compactCss, counterText: counterText, counterWords: counterWords };
 })();

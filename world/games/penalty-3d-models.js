@@ -637,8 +637,9 @@ export function buildCones(A, cap) {
 /* ================================================================
    KEEPER — one rigid-skinned goalie-blob (torso, 2 arms, 2 puff gloves,
    2 stubby legs) in ONE SkinnedMesh (+ hull on MID/HIGH); a 4-state face
-   atlas; per-rival skins: Mochi's coral sweatband, Bop's headphones,
-   Glowy's neon glove cores, Flip's chrome visor and ⇄ chip
+   atlas; per-rival skins (his look only, the same before every kick):
+   Mochi's coral sweatband, Bop's headphones, Glowy's neon glove cores, Flip's
+   chrome visor
    ================================================================ */
 const KB = { torso: 0, armL: 1, armR: 2, gloveL: 3, gloveR: 4, legL: 5, legR: 6 };
 const SHOULDER = [0.34, 0.2, 0.06], GLOVE = [0.62, 0.10, 0.15], HIP = [0.16, -0.62, 0];
@@ -681,9 +682,9 @@ function keeperGeo(A, rival) {
     const leg = G.paint(G.t(G.bean(0.12, 0.08), { p: [sd * HIP[0], HIP[1] - 0.12, 0.04] }), A.tone(jersey, -0.18));
     parts.push({ geo: leg, bone: sd < 0 ? KB.legL : KB.legR });
   });
-  if (rival.tell === 'lean') {
+  if (rival.style === 'band') {
     parts.push({ geo: paint(A, G.t(G.ring(0.402, 0.05), { r: [90, 0, 0], p: [0, 0.44, 0] }), rival.trim || '#FF6B6B'), bone: KB.torso });
-  } else if (rival.tell === 'beat') {
+  } else if (rival.style === 'phones') {
     const band = G.normalise(new THREE.TorusGeometry(0.47, 0.035, 6, 14, Math.PI));
     parts.push({ geo: paint(A, G.t(band, { p: [0, 0.31, 0] }), '#FFFFFF'), bone: KB.torso });
     [-1, 1].forEach((sd) => {
@@ -731,14 +732,6 @@ function faceAtlas(A) {
   t.repeat.set(0.25, 1);
   return t;
 }
-function chipTexture(A) {
-  const c = A.canvas(64, 64), x = c.getContext('2d');
-  x.fillStyle = '#FFFFFF'; x.strokeStyle = INK; x.lineWidth = 4;
-  x.beginPath(); x.arc(32, 32, 27, 0, TAU); x.fill(); x.stroke();
-  x.fillStyle = '#FF4FB8'; x.font = '800 34px "Baloo 2", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText('⇄', 32, 34);
-  return A.canvasTex(c);
-}
 export function buildKeeper(A, o) {
   const root = new THREE.Group(), squash = new THREE.Group(), body = new THREE.Group();
   root.name = 'keeper'; root.add(squash); squash.add(body);
@@ -773,7 +766,7 @@ export function buildKeeper(A, o) {
   const face = new THREE.Mesh(faceGeo, faceMat);
   face.position.set(0, 0.2, 0); face.renderOrder = 2; face.name = 'face';
   torso.add(face);
-  /* Glowy's glove cores (unlit spheres, lit only by the tell) */
+  /* Glowy's glove cores (unlit spheres: a soft glow on both, the saving glove lit bright) */
   const coreGeo = A.own(A.G.puff(0.12, { sphere: true }));
   const cores = [KB.gloveL, KB.gloveR].map((bi) => {
     const m = new THREE.Mesh(coreGeo, A.own(new THREE.MeshBasicMaterial({ color: 0x7fb8c8, vertexColors: true, toneMapped: false })));
@@ -792,13 +785,8 @@ export function buildKeeper(A, o) {
   const visor = new THREE.Mesh(visorGeo, A.K.mat('chrome'));
   visor.visible = false; visor.name = 'visor';
   visorPivot.add(visor);
-  /* the ⇄ chip, 0.4 u above his head */
-  const chipMat = A.own(new THREE.SpriteMaterial({ map: chipTexture(A), depthTest: true, toneMapped: false }));
-  const chip = new THREE.Sprite(chipMat);
-  chip.scale.set(0.36, 0.36, 1); chip.visible = false; chip.name = 'chip';
-  root.add(chip);
   const inv = new THREE.Matrix4(), v = new THREE.Vector3(), dir = new THREE.Vector3(), q = new THREE.Quaternion();
-  let cell = 0, tell = 'lean';
+  let cell = 0, style = 'band';
   function arm(bi, gi) {
     const a = bones[bi], g = bones[gi];
     dir.subVectors(g.position, a.position);
@@ -809,15 +797,15 @@ export function buildKeeper(A, o) {
   }
   function setRival(id) {
     const rv = rivals.find((r) => r.id === id) || rivals[0];
-    rivalId = rv.id; tell = rv.tell;
+    rivalId = rv.id; style = rv.style;
     mesh.geometry = geoFor(rivalId);
     if (hull) hull.geometry = mesh.geometry;
-    cores.forEach((c) => { c.visible = tell === 'glove'; });
-    visor.visible = tell === 'mirror';
+    cores.forEach((c) => { c.visible = style === 'glow'; });
+    visor.visible = style === 'visor';
   }
   setRival(rivalId);
   return {
-    root, body, mesh, hull, bones, face, chip, cores,
+    root, body, mesh, hull, bones, face, cores,
     get rival() { return rivalId; },
     setRival,
     setOutlines(on) { if (hull) hull.visible = !!on; },
@@ -837,13 +825,11 @@ export function buildKeeper(A, o) {
       bones[KB.legL].rotation.x = p.legs; bones[KB.legR].rotation.x = p.legs * 0.85;
       if (p.face !== cell) { cell = p.face; faceTex.offset.x = cell * 0.25; }
       face.rotation.y = p.eye * 0.14;
-      if (tell === 'glove') {
+      if (style === 'glow') {
         cores[0].material.color.copy(dim).lerp(lit, p.glowL); cores[1].material.color.copy(dim).lerp(lit, p.glowR);
         cores[0].scale.setScalar(1 + 0.25 * p.glowL); cores[1].scale.setScalar(1 + 0.25 * p.glowR);
       }
-      if (tell === 'mirror') visorPivot.rotation.x = -0.9 * p.visor;
-      chip.visible = !!p.chip && tell === 'mirror';
-      if (chip.visible) chip.position.set(p.cx, p.cy + 0.73 * p.by + 0.45, p.cz);
+      if (style === 'visor') visorPivot.rotation.x = -0.9 * p.visor;
     },
     /* world positions of the head top and the two gloves (after apply) */
     headWorld(out) { return body.localToWorld(out.set(0, 0.78, 0)); },
@@ -997,26 +983,41 @@ export function buildAim(A, o) {
     m.position.set((z.x0 + z.x1) / 2, (z.y0 + z.y1) / 2, 0.015);
     return m;
   });
-  /* the help zone / teaching flash: a pink quad exactly over REACH[dive] (unit plane, scaled) */
-  const helpGeo = A.own(new THREE.PlaneGeometry(1, 1));
-  helpGeo.translate(0.5, 0.5, 0);
-  const help = top(new THREE.Mesh(helpGeo, M(o.glove, 0)));
-  help.renderOrder = 9;
+  /* the glove zone / teaching fade: one pink shape exactly over the rival's REACH (his dive box with
+     his jump box on top: the same on both sides, every kick), built once per rival */
+  const zoneFor = new Map(), reachU = o.reachU, helpMat = M(o.glove, 0);
+  /* its own group (the view adds it to the scene): the teaching fade shows after the kick, when the
+     aim group is hidden */
+  const help = new THREE.Group(); help.name = 'gloveZones';
+  function zone(id) {
+    if (zoneFor.has(id)) return zoneFor.get(id);
+    const R = reachU(id), d = R.dive, j = R.jump, sh = new THREE.Shape();
+    sh.moveTo(d.x0, 0); sh.lineTo(d.x0, d.y1); sh.lineTo(j.x0, d.y1); sh.lineTo(j.x0, j.y1); sh.lineTo(j.x1, j.y1);
+    sh.lineTo(j.x1, d.y1); sh.lineTo(d.x1, d.y1); sh.lineTo(d.x1, 0); sh.lineTo(d.x0, 0);
+    const m = new THREE.Mesh(A.own(new THREE.ShapeGeometry(sh)), helpMat);
+    m.position.set(0, 0, 0.03); m.renderOrder = 9; m.frustumCulled = false; m.visible = false; m.name = 'gloveZone';
+    help.add(m);
+    zoneFor.set(id, m);
+    return m;
+  }
   return {
     group, railX, pin, column, railY, reticle, zones, zoneMat: zm, fills: fillMeshes, help,
-    setHelp(box, a) {
-      help.visible = a > 0.004;
-      if (!help.visible) return;
-      help.position.set(box.x0, 0, 0.03);
-      help.scale.set(box.x1 - box.x0, box.y1, 1);
-      help.material.opacity = a;
+    /* the zone on show (null when hidden) */
+    zoneShown() { let on = null; zoneFor.forEach((m) => { if (m.visible) on = m; }); return on; },
+    /* id: the rival whose reach to show (null hides it); a: its opacity */
+    setHelp(id, a) {
+      const show = !!id && a > 0.004 && typeof reachU === 'function';
+      zoneFor.forEach((m, k) => { m.visible = show && k === id; });
+      if (!show) return;
+      zone(id).visible = true;
+      helpMat.opacity = a;
     }
   };
 }
 
 /* ================================================================
-   FOLLOW-SPOT — an additive ground disc that keeps the keeper's tell
-   readable at dusk (show level > 0.5)
+   FOLLOW-SPOT — an additive ground disc that keeps the keeper readable at
+   dusk (show level > 0.5)
    ================================================================ */
 export function buildFollowSpot(A) {
   const g = A.own(new THREE.CircleGeometry(0.9, 28));
@@ -1028,12 +1029,12 @@ export function buildFollowSpot(A) {
 }
 
 /* ================================================================
-   QA overlay (?qa=1 / slQaMode): REACH boxes and corner zones as wireframes
+   QA overlay (slQaMode): the rival's reach boxes and the corner zones as wireframes
    ================================================================ */
 export function buildQa(A, reachU, cornerU) {
   const v = [];
   const rect = (x0, y0, x1, y1, z) => { v.push(x0, y0, z, x1, y0, z, x1, y0, z, x1, y1, z, x1, y1, z, x0, y1, z, x0, y1, z, x0, y0, z); };
-  ['stay', 'left', 'right'].forEach((k) => { const b = reachU[k]; rect(b.x0, 0, b.x1, b.y1, 0.36); });
+  ['dive', 'jump'].forEach((k) => { const b = reachU[k]; rect(b.x0, 0, b.x1, b.y1, 0.36); });
   [cornerU.left, cornerU.right].forEach((z) => rect(z.x0, z.y0, z.x1, z.y1, 0.03));
   const g = A.own(new THREE.BufferGeometry());
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));

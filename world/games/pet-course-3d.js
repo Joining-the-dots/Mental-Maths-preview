@@ -380,6 +380,9 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
   const flier = !!(people && pet && GP.flies(pet.id));
   const guard = M.newGuard();
   let sidekickOn = !!(people && pet), petAirT = -9, petWasAir = false, lastSampleAt = 0, sideX = 0, sideZ = P.petZ, sideMoving = false, sideDelay = BASE_DELAY;
+  /* how closely it follows on this screen: closer on an upright phone (M.sidekickFollow, crit-games #5) */
+  const follow = {};
+  function followNow() { return M.sidekickFollow(camera.aspect || 16 / 9, BASE_DELAY, follow); }
   const sparkOut = {}, SPARK_INT = M.hexInt(M.COL.STAR_GOLD);
   const QA = { runner: [0, 0], runClip: '', sidekick: [0, 0, 0], sideClip: '' };   /* info(): where the two are (lab, tests) */
 
@@ -403,7 +406,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
   let petDispX = 0, petDispH = 0, holdX = 0, holdH = 0, holdClock = 0, holding = false, offX = 0, offH = 0;
   let trailAcc = 0, feverTrailAcc = 0, capeTrail = 0, confettiAcc = 0, heartAcc = 0, feverLeft = 0, feverAcc = 0, prevInv = 0;
   const stageRange = [-99, -98];
-  const L = {}, camOff = {}, camPos = new THREE.Vector3(), camTgt = new THREE.Vector3(), lastCamPos = new THREE.Vector3(), lastCamTgt = new THREE.Vector3();
+  const L = {}, camOff = {}, upFrame = {}, camPos = new THREE.Vector3(), camTgt = new THREE.Vector3(), lastCamPos = new THREE.Vector3(), lastCamTgt = new THREE.Vector3();
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), tmpC = new THREE.Color(), petTarget = new THREE.Vector3();
   const coneOpts = { alpha: 0, t: 0, lock: 0, target: petTarget, on: [1, 1, 1], reduced: reduced, dt: 0 };
   const zips = []; for (let i = 0; i < 10; i++) zips.push({ on: false, type: '', t: 0, dur: 0.35, x: 0, y: 0, z: 0, li: 0, nx: 0, ny: 0 });
@@ -423,7 +426,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     if (avatar) avatar.root.visible = false;
     /* the sidekick starts on a straight run-in 0.35 s behind, on the runner's line (logic px: x = dist, y up) */
     if (trail) trail.reset(s.t, s.dist, 0, speedNow(s));
-    petWasAir = false; petAirT = -9; sideMoving = false; sideDelay = BASE_DELAY;
+    petWasAir = false; petAirT = -9; sideMoving = false; sideDelay = followNow().delay;
   }
 
   /* ---------------- quality steps (adaptive ladder, never back up) ---------------- */
@@ -619,7 +622,8 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     for (let i = 0; i < course.doors.length; i++) if (course.doors[i].sec === sec) return course.doors[i].x / M.PX;
     return null;
   }
-  function halfWidth() { return M.CAM.z * Math.tan(camera.fov * DEG / 2) * camera.aspect; }
+  /* the half-width the camera sees at the runway; an upright phone's camera stands further back (crit-games #5) */
+  function halfWidth() { return Math.max(M.CAM.z, camera.position.z) * Math.tan(camera.fov * DEG / 2) * camera.aspect; }
 
   /* ================================================================
      PER-FRAME UPDATE
@@ -737,8 +741,9 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     graceMesh.visible = !!(s && !menu && s.inv > 0 && !s.shield && (s.phase === 'run' || s.phase === 'encore'));
     if (graceMesh.visible) { S.setInst(graceMesh, 0, x, cy, 0.05, 0, 0, 0, 0.95 * size, size, size); graceMesh.instanceMatrix.needsUpdate = true; }
   }
-  /* the pet follows the runner's own recorded path 0.35 s behind (game-people petTrail, fed with the logic's
-     own numbers once a frame): it clears what the runner cleared, never collides, never touches a heart.
+  /* the pet follows the runner's own recorded path 0.35 s behind (0.25 s on an upright phone, M.sidekickFollow;
+     game-people petTrail, fed with the logic's own numbers once a frame): it clears what the runner cleared, never
+     collides, never touches a heart.
      When it would close in on the runner (a tumble's knock-back, a slip) it waits on its own point of the
      path, hopping, then hurries back along the same path (M.sidekickDelay); it runs a little upstage
      (M.sidekickZ), so the two never merge on screen. Once the show is over it stands beside the runner. */
@@ -748,6 +753,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     petRoot.visible = sidekickOn;
     if (!sidekickOn) return;
     let x, y = 0, clip, t = vt, spd = 0, face = 0, slide = false;
+    const fol = followNow();
     if (menu || ready || !s) {                           /* the start line: beside the runner, bouncing to the band */
       sideOpts.clock = vt; M.petVisual(null, J, sideOpts, V);
       x = petDispX - P.endGap; clip = V.clip; t = V.t; sideMoving = false;
@@ -756,7 +762,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
       trail.read(TR, sideDelay);
       const was = sideDelay;
       /* close: measured against the logic's runner (not its display, which a hit-stop holds still) */
-      sideDelay = M.sidekickDelay(sideDelay, dt, !RV.end && TR.x > s.dist - P.sepGap * M.PX, !TR.airborne, BASE_DELAY);
+      sideDelay = M.sidekickDelay(sideDelay, dt, !RV.end && TR.x > s.dist - fol.gap * M.PX, !TR.airborne, fol.delay);
       if (sideDelay !== was) trail.read(TR, sideDelay);
       const waiting = sideDelay > was, hurrying = sideDelay < was;
       x = M.sidekickX(M.petX(TR.x), petDispX, RV.end, s.curtain ? P.curtainGap : P.endGap);
@@ -775,7 +781,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
       else if (RV.end && !sideMoving) { t = RV.t; face = RV.faceCam; }
     }
     sideX = x;
-    sideZ = menu || ready || !s || firstFrame || reduced ? M.sidekickZ(x, petDispX) : M.approach(sideZ, M.sidekickZ(x, petDispX), dt, 8);
+    sideZ = menu || ready || !s || firstFrame || reduced ? M.sidekickZ(x, petDispX, fol.gap) : M.approach(sideZ, M.sidekickZ(x, petDispX, fol.gap), dt, 8);
     clipOpts.speed = spd; clipOpts.intensity = 1; clipOpts.rate = 1; clipOpts.height = 0;
     if (PP && PP.sample) PP.sample(clip, t, pose, clipOpts);
     else if (rig.play) { const p = rig.play(clip, t, clipOpts); if (p) for (const k in p) pose[k] = p[k]; }
@@ -883,7 +889,12 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
       camPos.set(px + Math.sin(a) * 5.2, 1.6 + 0.3 * h, Math.cos(a) * 5.2);
     } else {
       hSm = reduced || firstFrame ? h : M.approach(hSm, h, dt, M.CAM.smooth);
-      M.followCam(px, hSm, camOff, people ? P.camLift : 0, M.halfWidthAt(aspect, fov, M.CAM.z));   /* QA2C-3: the runner 20% in from the left on an upright phone */
+      /* QA2C-3 capped the look-ahead; crit-games #5: an upright phone's view widens a little (the runner at least 60%
+         of its old size), with its sidekick (closer, M.sidekickFollow) whole behind it and 1.3-1.7× the runway ahead
+         (M.uprightFrame; landscape and iPads: as before) */
+      M.uprightFrame(aspect, fov, upFrame);
+      fov = upFrame.fov;
+      M.followCam(px, hSm, camOff, people ? P.camLift : 0, M.halfWidthAt(aspect, fov, M.CAM.z), upFrame);
       camPos.set(camOff.x, camOff.y, camOff.z); camTgt.set(camOff.tx, camOff.ty, camOff.tz);
       feverK = reduced ? (s && s.fever ? 1 : 0) : M.approach(feverK, s && s.fever ? 1 : 0, dt, 1 / M.CAM.feverT * 3);
       fov += M.CAM.feverFov * feverK;
@@ -900,7 +911,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
         }
       } else if (s && s.curtain) {                         /* the curtain call: dolly in, the pet (the pair) centred between the curtains */
         const k = M.moveK(J.sinceCurtain, M.CAM.curtain.dur, reduced);
-        camPos.z = M.lerp(M.CAM.z, people ? P.curtainZ : M.CAM.curtain.z, k);
+        camPos.z = M.lerp(camOff.z, people ? P.curtainZ : M.CAM.curtain.z, k);         /* from where the follow camera stands */
         const cx = people ? px - (sidekickOn && rig ? P.curtainGap * 0.4 : 0) : duoX + 0.15;
         camPos.x = M.lerp(camPos.x, cx, k); camTgt.x = M.lerp(camTgt.x, cx, k);
         camTgt.y = M.lerp(camTgt.y, 0.55 + lift, k);
@@ -1065,7 +1076,7 @@ function makeView(mid, opts, M, S, SL3D, K, hub, tier, budget, fail, built, peop
     const stageXlogic = !menu && s && (s.phase === 'encore' || s.encoreCleared) ? encEnd : finishX;
     if (menu) { stageRange[0] = -99; stageRange[1] = -98; }
     else { stageRange[0] = finishX / M.PX - 1.0; stageRange[1] = (encoreOn ? encEnd : finishX) / M.PX + 7; }
-    theme.runway.update(camX, BRIDGE, stageRange);
+    theme.runway.update(camX, BRIDGE, stageRange, hw);         /* hw: the tiles reach the picture's left edge (crit-games) */
     if (encoreOn && !menu) {                              /* the Encore catwalk's path chase-light (≤ 2 Hz) */
       const a = Math.max(finishX / M.PX, x0), b = Math.min(encEnd / M.PX + 4, x1);
       for (let x = Math.ceil(a / 0.8) * 0.8; x < b; x += 0.8) {

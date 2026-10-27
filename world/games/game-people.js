@@ -393,13 +393,13 @@
               finish: 'cheer', encore: 'sig', curtain: 'sigBow', wave: 'wave' },
     /* Encore Shootout (design.games.encoreShootout, KU gameEvents): petStage's names, then the results */
     kicker: { idle: 'idle', walk: 'walk', kick: 'shoot', cheer: 'cheer', goal: 'cheer', starGoal: 'sig', save: 'shrug', thumbs: 'oops',
-              miss: 'oops', rushed: 'shrug', decider: 'ready', wave: 'wave', clap: 'clap' },
+              miss: 'oops', decider: 'ready', wave: 'wave', clap: 'clap' },
     /* Neon Grand Prix (design.games.neonGrandPrix): drive on the seat; standing and waving on the riser and podium */
     driver: { idle: 'idle', drive: 'drive', riser: 'wave', podium: 'wave', menu: 'wave', wave: 'wave', finish: 'cheer', win: 'cheer', celebrate: 'sig' },
     /* the pet (its own clip layer): a worried hop when the leader tumbles, never 'sad' */
     sidekick: { idle: 'idle', run: 'run', land: 'run', takeoff: 'jump', jump: 'jump', dj: 'jump', fall: 'fall', slide: 'slide',
                 bump: 'hop', tumble: 'hop', dizzy: 'hop', slip: 'hop', splash: 'hop', finish: 'cheer', encore: 'dance', curtain: 'sit',
-                goal: 'hop', starGoal: 'dance', encoreMode: 'dance', save: 'sit', miss: 'sit', rushed: 'idle', decider: 'idle',
+                goal: 'hop', starGoal: 'dance', encoreMode: 'dance', save: 'sit', miss: 'sit', decider: 'idle',
                 drive: 'ride', ride: 'ride', riser: 'cheer', podium: 'cheer', win: 'cheer', walk: 'walk', cheer: 'cheer' }
   };
   function clipFor(role, gameClip, o) {

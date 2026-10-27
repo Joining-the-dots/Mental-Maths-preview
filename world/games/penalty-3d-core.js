@@ -9,8 +9,10 @@
      cameraShot(v, out)       the camera for any moment (kicker, intro orbit, flight
                               follow, slow-mo push-in, goal punch, replay, results crane,
                               menu orbit) — the view only blends between shot keys
-     keeperPose(inp, out)     the goalie-blob: tells, the REACH-true dive, the save glove
-                              on the ball, belly-flop, dizzy, wave, the ready pop-up
+     keeperPose(inp, out)     the goalie-blob: the same set pose before every kick, then the dive
+                              he makes AFTER the strike to the glove spot penalty.js worked out
+                              from the ball (on it for a save, short of it for a goal), belly-flop,
+                              dizzy, wave, the ready pop-up
      ballPose(v, out)         the ball: drop-in, flight (exact endpoint), net, hug,
                               post/bar rebound, the lob to a catching fan
      netBulge(...)            the net's ripple at the hit point (6 Hz spring, 0.6 s)
@@ -19,7 +21,7 @@
      petStage / avatarStage   which clip the kicker pet / touchline avatar plays
      kickerMoment / sidekickMoment   the same moments when the child's figure kicks and the
                               pet cheers (kids update KU-CH19a)
-     keeperDance, ledPips, coneAim, menuTell, tweens, easings, colour maths
+     keeperDance, ledPips, coneAim, tweens, easings, colour maths
    World units: goal plane z = 0, +z toward the camera, posts at x ±3,
    bar at y 2.478 (penalty.js MAP). Angles in radians unless named *Deg.
    Spec: docs/island3d/spec-penalty.json → threeDScene / juiceAndAudio.
@@ -56,17 +58,12 @@
   /* ---------------- shared numbers (mirrors penalty.js; a test keeps them equal) ---------------- */
   var T = {
     READY: 0.9, INTRO: 2.0, INTRO_SKIP: 0.6, GUARD: 0.15, NUDGE: 4.0, AUTOLOCK: 6.0,
-    WINDUP: 0.25, HITSTOP: 0.07, FLIGHT: 0.62, DIVE: 0.5, SLOW_F0: 0.60, SLOW_F1: 0.88, SLOW: 0.3,
-    RESULT: 2.0, RESULT_REPLAY: 2.4, SKIP_AFTER: 0.8, LEAN_RATE: 1.2, BEAT: 60 / 112
+    WINDUP: 0.25, HITSTOP: 0.07, FLIGHT: 0.62, SLOW_F0: 0.60, SLOW_F1: 0.88, SLOW: 0.3,
+    RESULT: 2.0, RESULT_REPLAY: 2.4, SKIP_AFTER: 0.8, HELP_IN: 1.2, BEAT: 60 / 112
   };
   var U = 230 / 3, MID = 480, LINE = 340;
   function lx2u(x) { return (x - MID) / U; }
   function ly2u(y) { return (LINE - y) / U; }
-  var REACH_U = {
-    stay: { x0: lx2u(MID - 88), x1: lx2u(MID + 88), y1: ly2u(172) },
-    left: { x0: lx2u(268), x1: lx2u(MID - 40), y1: ly2u(206) },
-    right: { x0: lx2u(MID + 40), x1: lx2u(692), y1: ly2u(206) }
-  };
   var GEO = {
     POST: 3.0, BAR: ly2u(150), POST_R: 0.07, BALL_R: 0.11,
     NET_DEPTH: 1.2, NET_TOP: 2.2, KEEPER_Z: 0.35,
@@ -94,7 +91,12 @@
     REPLAY_AT: 0.45, REPLAY_RATE: 0.6, REPLAY_FOV: 38,
     RESULTS_POS: [0, 1.9, 9.5], RESULTS_LOOK: [0, 0.9, 2.5], RESULTS_OFFSET: 0.22,
     MENU_LOOK: [0, 0.95, 0.35], MENU_OFFSET: [0, 0.85, 7.4], MENU_YAW_DEG: 14, MENU_HZ: 0.035,
-    PORTRAIT_HALF_W: 3.7, PORTRAIT_DIST: 16
+    PORTRAIT_HALF_W: 3.7, PORTRAIT_DIST: 16,
+    /* the whole goal stays in frame, FIT_MARGIN u clear of its posts and crossbar (fitGoal below), on a stage
+       that is upright or nearly square (aspect < FIT_ASPECT: a phone or an iPad held upright) or short (under
+       FIT_SHORT CSS px tall: a phone held sideways). An iPad held sideways (its stage 1.41-1.9 wide to 1 and
+       at least about 570 px tall) and a big window frame as before */
+    FIT_ASPECT: 1.35, FIT_SHORT: 480, FIT_MARGIN: 0.15
   };
   CAM.REPLAY_DUR = T.FLIGHT / CAM.REPLAY_RATE;
   /* presentation rates — every periodic light change stays at or under 2 Hz */
@@ -109,7 +111,7 @@
   /* ================================================================
      CAMERA — cameraShot(v, out)
      v: {mode: 'play'|'menu'|'results'|'demo', lp, shot, intro, phaseT, flight, close,
-         resT, replay, res, ex, ey, prevEx, aspect, reduced, t, offY}
+         resT, replay, res, ex, ey, prevEx, aspect, h (the stage's height in CSS px), reduced, t, offY}
      out: {px,py,pz, lx,ly,lz, fov, key, blend, offY, replayF}
      Shot keys: the view blends (blend s) when the key changes, and cuts into and
      out of 'replay'. Inside one key the shot is continuous by construction.
@@ -169,7 +171,7 @@
         out.lx = sg * 1.0; out.ly = 1.2; out.lz = 0.2;
         out.fov = Math.max(CAM.REPLAY_FOV, base);
         out.key = 'replay'; out.blend = 0; out.replayF = clamp01(rp);
-        return out;
+        return fitReplay(out, v.aspect, v.h);
       }
     }
     var fx = 0, fz = CAM.KICK_POS[2];
@@ -191,23 +193,82 @@
     }
     out.fov = base - base * ((CAM.FOV - CAM.SLOW_FOV) / CAM.FOV) * w;
     if (lp === 'result' && v.res === 'goal' && resT < CAM.PUNCH_SEC) out.fov += CAM.PUNCH * Math.sin(PI * clamp01(resT / CAM.PUNCH_SEC));
+    return fitGoal(out, v.aspect, v.h);
+  }
+
+  /* ---------------- the whole goal in frame on a phone (QA 27 Oct) ----------------
+     Upright, the portrait FOV leaves only about ±3.7 u at the kicker cam, so the kick's follow, its dolly-in
+     and the slow-mo push-in cut a post off (half the goal on a 390 × 844 phone); sideways, the replay's
+     close-up cuts the crossbar and the near post. On those stages (fitted() below: v.aspect and v.h, the
+     stage's height in CSS px) the camera keeps both posts and the crossbar, FIT_MARGIN u clear, in frame
+     through the aim, the kick, the flight, the result and the ease back: the follow is held to the room
+     beside the goal, then the push-in stops where the goal still fits; the replay steps back along its own
+     line until it fits. Each is a continuous function of the shot, so the camera never jumps. An iPad held
+     sideways and a big window frame exactly as before. goalFit(shot, aspect) → the largest of
+     |x| / (d · tan half-FOV) over the goal's four outer corners in view space (≤ 1: the whole goal is in
+     frame; Infinity: a corner behind the camera) */
+  function goalFit(o, aspect) {
+    var fx = o.lx - o.px, fy = o.ly - o.py, fz = o.lz - o.pz, L = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
+    fx /= L; fy /= L; fz /= L;
+    var rx = -fz, rz = fx, rl = Math.sqrt(rx * rx + rz * rz) || 1;      /* right = forward × up (the camera never rolls) */
+    rx /= rl; rz /= rl;
+    var ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;           /* up = right × forward */
+    var tv = Math.tan(num(o.fov, CAM.FOV) / 2 * DEG), th = tv * (aspect > 0 ? aspect : 16 / 9);
+    var X = GEO.POST + GEO.POST_R + CAM.FIT_MARGIN, tops = [GEO.BAR + GEO.POST_R + CAM.FIT_MARGIN, 0], worst = 0;
+    for (var i = 0; i < 4; i++) {
+      var dx = (i & 1 ? X : -X) - o.px, dy = tops[i >> 1] - o.py, dz = -o.pz;
+      var d = dx * fx + dy * fy + dz * fz;
+      if (!(d > 1e-6)) return Infinity;
+      worst = Math.max(worst, Math.abs(dx * rx + dz * rz) / (d * th), Math.abs(dx * ux + dy * uy + dz * uz) / (d * tv));
+    }
+    return worst;
+  }
+  /* upright or nearly square, or short (a phone held sideways: h, the stage's CSS height, under FIT_SHORT) */
+  function fitted(aspect, h) { return aspect > 0 && (aspect < CAM.FIT_ASPECT || (h > 0 && h < CAM.FIT_SHORT)); }
+  /* the kicker cam: the follow first (scaled towards the middle), then the push-in (the FOV widened) */
+  function fitGoal(out, aspect, h) {
+    if (!fitted(aspect, h) || goalFit(out, aspect) <= 1) return out;
+    var px = out.px, lx = out.lx, lo = 0, hi = 1, i;
+    out.px = 0; out.lx = 0;
+    if (goalFit(out, aspect) <= 1) {
+      for (i = 0; i < 40; i++) { var k = (lo + hi) / 2; out.px = px * k; out.lx = lx * k; if (goalFit(out, aspect) <= 1) lo = k; else hi = k; }
+      out.px = px * lo; out.lx = lx * lo;
+      return out;
+    }
+    lo = out.fov; hi = 150;
+    for (i = 0; i < 50; i++) { var f = (lo + hi) / 2; out.fov = f; if (goalFit(out, aspect) <= 1) hi = f; else lo = f; }
+    out.fov = hi;
+    return out;
+  }
+  /* the replay: the same angle from further back along its own line */
+  function fitReplay(out, aspect, h) {
+    if (!fitted(aspect, h) || goalFit(out, aspect) <= 1) return out;
+    var ox = out.px - out.lx, oy = out.py - out.ly, oz = out.pz - out.lz, lo = 1, hi = 1, i;
+    function at(k) { out.px = out.lx + ox * k; out.py = out.ly + oy * k; out.pz = out.lz + oz * k; return goalFit(out, aspect) <= 1; }
+    for (i = 0; i < 12 && !at(hi); i++) { lo = hi; hi *= 1.5; }
+    for (i = 0; i < 40; i++) { var k = (lo + hi) / 2; if (at(k)) hi = k; else lo = k; }
+    at(hi);
     return out;
   }
 
   /* ================================================================
      KEEPER — keeperPose(inp, out)
-     inp: {lp ('ready'|'aimX'|'aimY'|'windup'|'strike'|'flight'|'result'|'menu'), tellType,
-           tell {lean, crouch, step, hop, gloveL, gloveR, mirror}, dive, clock, phaseT,
-           keeperT, resT, res, ex, ey, worried, reduced, bop, intro, shot,
-           hasPrev, prevDive, prevRes, prevEx, prevEy}
+     inp: {lp ('ready'|'aimX'|'aimY'|'windup'|'strike'|'flight'|'result'|'menu'), style
+           ('band'|'phones'|'glow'|'visor'), dive, gx, gy (the glove spot in units, set by
+           penalty.js at the strike; NaN before it), clock, phaseT, keeperT, resT, res, ex, ey,
+           worried, reduced, bop, intro, shot, hasPrev, prevDive, prevRes, prevEx, prevEy, prevGx, prevGy}
+     Before the strike the pose is the same for every kick (a ready bounce, a slight crouch while
+     the child aims, Bop's bop, Glowy's soft glow on BOTH gloves): nothing in it depends on a move,
+     because he has none until the ball is struck.
      out (world units; the view converts gloves into the rig): cx cy cz (body centre),
-       roll (+ = top toward −x), bx by (body scale: xz, y), qx qy (squash about the ground),
+       roll (+ = top toward -x), bx by (body scale: xz, y), qx qy (squash about the ground),
        gLx gLy gLz gRx gRy gRz (glove centres), gLs gRs (glove scale), legs (rad),
-       face 0 calm | 1 confident | 2 worried | 3 dizzy, eye −1..1, glowL glowR 0..1,
-       dizzy 0..1, hugX hugY hugZ, visor 0..1, chip (bool), lead 'L'|'R'|'', landed (bool), wave 0..1
+       face 0 calm | 1 confident | 2 worried | 3 dizzy, eye -1..1, glowL glowR 0..1,
+       dizzy 0..1, hugX hugY hugZ, visor 0..1, chip (always false: Flip's old chip is gone),
+       lead 'L'|'R'|'', landed (bool), wave 0..1
      ================================================================ */
   var KZ = GEO.KEEPER_Z;
-  var ZERO_TELL = { lean: 0, crouch: 0, step: 0, hop: 0, gloveL: 0, gloveR: 0, mirror: false };
+  var SET_CROUCH = 0.35, GLOW_SET = 0.45;
   function resetPose(o) {
     o.cx = 0; o.cy = KEEPER.CY; o.cz = KZ; o.roll = 0; o.bx = 1; o.by = 1; o.qx = 1; o.qy = 1;
     o.gLx = -KEEPER.GLOVE_REST[0]; o.gLy = KEEPER.CY + KEEPER.GLOVE_REST[1]; o.gLz = KZ + KEEPER.GLOVE_REST[2];
@@ -219,37 +280,29 @@
   /* body-local (relative to the centre, before roll and scale) → world */
   function toWorldX(o, lx, ly) { var c = Math.cos(o.roll), sn = Math.sin(o.roll); return o.cx + (lx * o.bx) * c - (ly * o.by) * sn; }
   function toWorldY(o, lx, ly) { var c = Math.cos(o.roll), sn = Math.sin(o.roll); return o.cy + (lx * o.bx) * sn + (ly * o.by) * c; }
-  /* the standing pose with the rival's tell (aim phases, ready, menu) */
+  /* the set pose (ready, aiming, the menu): the same for every kick, mirror-symmetric */
   function standing(inp, o) {
     resetPose(o);
-    var t = inp.tell || ZERO_TELL, red = !!inp.reduced, clock = num(inp.clock, 0);
-    var lean = clamp(num(t.lean, 0), -1, 1), cr = clamp01(num(t.crouch, 0));
+    var red = !!inp.reduced, clock = num(inp.clock, 0), lp = inp.lp;
+    /* the set crouch from the first aim until he moves (the dive blends out of it, so no pop at the strike) */
+    var cr = (lp === 'aimX' || lp === 'aimY' || lp === 'windup' || lp === 'strike' || lp === 'flight' || lp === 'result') ? SET_CROUCH : 0;
     var beatF = frac(clock / T.BEAT);
-    var hopY = num(t.hop, 0) * 0.12 * Math.abs(Math.sin(PI * beatF));
-    var bounce = (inp.lp === 'ready' && !inp.intro && !red) ? 0.04 * Math.abs(Math.sin(TAU * clock)) : 0;
+    var bounce = ((lp === 'ready' && !inp.intro) || lp === 'menu') && !red ? 0.04 * Math.abs(Math.sin(TAU * clock)) : 0;
     var bop = inp.bop && !red ? 0.035 * (1 - beatF) * (1 - beatF) : 0;     /* Bop bops to the 112 BPM beat */
     o.by = (1 - 0.1 * cr) * (1 - bop); o.bx = 1 + 0.08 * cr + bop * 0.5;
-    o.cx = num(t.step, 0) + 0.12 * lean;
-    o.cy = KEEPER.FOOT + KEEPER.HALF_H * o.by + hopY + bounce;
-    o.roll = -lean * 15 * DEG;
-    var gl0 = -KEEPER.GLOVE_REST[0], gr0 = KEEPER.GLOVE_REST[0], gy = KEEPER.GLOVE_REST[1], gz = KEEPER.GLOVE_REST[2];
-    var lx = gl0, ly = gy, lz = gz, rx = gr0, ry = gy, rz = gz;
-    if (lean) {                                            /* the arm on the lean side lifts (~60°) */
-      var a = Math.abs(lean);
-      if (lean < 0) { lx = -lerp(0.62, 0.66, a); ly = lerp(gy, 0.52, a); } else { rx = lerp(0.62, 0.66, a); ry = lerp(gy, 0.52, a); }
-    }
-    if (cr) {                                              /* crouch: both gloves forward */
-      lx = -lerp(Math.abs(lx), 0.44, cr); rx = lerp(rx, 0.44, cr);
-      ly = lerp(ly, -0.08, cr); ry = lerp(ry, -0.08, cr); lz = lerp(lz, 0.42, cr); rz = lerp(rz, 0.42, cr);
-    }
-    ly += 0.3 * num(t.gloveL, 0); ry += 0.3 * num(t.gloveR, 0);
+    o.cx = 0;
+    o.cy = KEEPER.FOOT + KEEPER.HALF_H * o.by + bounce;
+    var gy = KEEPER.GLOVE_REST[1], gz = KEEPER.GLOVE_REST[2];
+    /* the set crouch: both gloves forward and low */
+    var lx = -lerp(KEEPER.GLOVE_REST[0], 0.44, cr), rx = lerp(KEEPER.GLOVE_REST[0], 0.44, cr);
+    var ly = lerp(gy, -0.08, cr), lz = lerp(gz, 0.42, cr);
     o.gLx = toWorldX(o, lx, ly); o.gLy = toWorldY(o, lx, ly); o.gLz = KZ + lz * o.bx;
-    o.gRx = toWorldX(o, rx, ry); o.gRy = toWorldY(o, rx, ry); o.gRz = KZ + rz * o.bx;
-    o.glowL = clamp01(num(t.gloveL, 0)); o.glowR = clamp01(num(t.gloveR, 0));
+    o.gRx = toWorldX(o, rx, ly); o.gRy = toWorldY(o, rx, ly); o.gRz = KZ + lz * o.bx;
+    o.glowL = o.glowR = inp.style === 'glow' ? GLOW_SET : 0;
     o.gLs = 1 + 0.1 * o.glowL; o.gRs = 1 + 0.1 * o.glowR;
-    o.eye = lean;
+    o.eye = 0;
     o.face = inp.worried ? 2 : 0;
-    o.chip = inp.tellType === 'mirror';
+    o.chip = false;
     o.hugX = o.cx; o.hugY = o.cy + 0.05; o.hugZ = KZ + 0.45;
     return o;
   }
@@ -262,24 +315,24 @@
     _gap.x = bx + dx / d * KEEPER.GAP; _gap.y = by + dy / d * KEEPER.GAP;
     return _gap;
   }
-  /* the dive's end pose (keeperT = 1), built from REACH: what you see is what counts */
-  function diveEnd(dive, res, ex, ey, o) {
+  /* the end of his move (keeperT = 1). (gx, gy): the glove spot penalty.js worked out from the ball
+     (on the ball for a save, the edge of his reach for a goal or a miss); without one (the menu, a
+     test) the plain dive. What you see is what counts: a saved ball is in his glove, a goal passes
+     at least KEEPER.GAP from it */
+  function diveEnd(dive, res, ex, ey, o, gx, gy) {
     resetPose(o);
     var dir = dive === 'left' ? -1 : dive === 'right' ? 1 : 0, has = isFinite(ex) && isFinite(ey);
+    var spot = isFinite(gx) && isFinite(gy), save = res === 'save';
     o.legs = dir ? 0.5 : 0.35;
     if (dir) {
-      var box = REACH_U[dive], lead = dir < 0 ? 'L' : 'R';
+      var lead = dir < 0 ? 'L' : 'R';
       var roll = -dir * KEEPER.DIVE_ROLL_DEG * DEG, cx = dir * KEEPER.DIVE_CX, cy = KEEPER.DIVE_CY;
       var lgx = dir * 2.57, lgy = 1.55, lgz = KZ + 0.1, ogx = dir * 2.42, ogy = 1.27, ogz = KZ + 0.05;
       var rx = null, ry = 0;
-      var inner = dir < 0 ? box.x1 : box.x0, outer = dir < 0 ? box.x0 : box.x1;
-      if (has && res === 'save') { rx = ex; ry = ey; }
-      else if (has && res === 'goal' && dir * ex >= Math.abs(inner)) {
-        /* the ball beat him on his side (over or beyond his reach): stop at the REACH extreme, never touching it */
-        rx = clamp(ex, Math.min(outer - dir * 0.08, inner), Math.max(outer - dir * 0.08, inner));
-        ry = Math.min(ey, box.y1 - 0.06);
-        var g = keepGap(rx, ry, ex, ey, -dir, -1);
-        rx = g.x; ry = g.y;
+      if (has && save) { rx = ex; ry = ey; }
+      else if (spot) {
+        rx = gx; ry = gy;
+        if (has) { var g = keepGap(rx, ry, ex, ey, -dir, -1); rx = g.x; ry = g.y; }
       }
       if (rx !== null) {
         var mag = lerp(95, 72, clamp01((ry - 0.1) / 1.6)) * DEG;
@@ -296,20 +349,20 @@
       o.cx = 0; o.cy = KEEPER.DIVE_CY; o.roll = 0;
       o.gLx = -0.75; o.gLy = KEEPER.STAY_GLOVE_Y; o.gLz = KZ + 0.1;
       o.gRx = 0.75; o.gRy = KEEPER.STAY_GLOVE_Y; o.gRz = KZ + 0.1;
-      var sb = REACH_U.stay;
-      if (has && res === 'save') {
+      if (has && save) {
         var sg = ex < 0 ? -1 : 1;
         o.lead = sg < 0 ? 'L' : 'R';
         o.cx = clamp(ex * 0.45, -0.5, 0.5); o.cy = clamp(ey - 0.75, KEEPER.CY, 1.25);
         var oX = o.cx - sg * 0.5, oY = clamp(ey + 0.05, 0.5, 2.0);
         if (sg < 0) { o.gLx = ex; o.gLy = ey; o.gLz = KZ; o.gRx = oX; o.gRy = oY; o.gRz = KZ + 0.05; }
         else { o.gRx = ex; o.gRy = ey; o.gRz = KZ; o.gLx = oX; o.gLy = oY; o.gLz = KZ + 0.05; }
-      } else if (has && res === 'goal' && Math.abs(ex) <= sb.x1 + 0.25 && ey > sb.y1) {
-        /* over his head: fingertips stretch up but stay short of it */
-        var sg2 = ex < 0 ? -1 : 1, gx = clamp(ex, sb.x0, sb.x1), gy = Math.min(KEEPER.STAY_GLOVE_Y, ey - KEEPER.GAP - 0.01);
-        var g2 = keepGap(gx, gy, ex, ey, 0, -1);
+      } else if (spot) {
+        /* over his head: fingertips stretch to the top of his reach, short of the ball */
+        var sg2 = (has ? ex : gx) < 0 ? -1 : 1, g2 = has ? keepGap(gx, gy, ex, ey, 0, -1) : { x: gx, y: gy };
         o.lead = sg2 < 0 ? 'L' : 'R';
-        if (sg2 < 0) { o.gLx = g2.x; o.gLy = g2.y; } else { o.gRx = g2.x; o.gRy = g2.y; }
+        o.cx = clamp(g2.x * 0.3, -0.35, 0.35); o.cy = clamp(g2.y - 0.95, KEEPER.CY, 1.35);
+        if (sg2 < 0) { o.gLx = g2.x; o.gLy = g2.y; o.gLz = KZ; o.gRx = o.cx + 0.45; o.gRy = g2.y - 0.15; }
+        else { o.gRx = g2.x; o.gRy = g2.y; o.gRz = KZ; o.gLx = o.cx - 0.45; o.gLy = g2.y - 0.15; }
       }
     }
     return o;
@@ -395,7 +448,7 @@
         if (leadL) { o.gRy = lerp(o.gRy, Math.max(o.gRy, o.cy + 0.6), wk); o.gRx += wx * wk; }
         else { o.gLy = lerp(o.gLy, Math.max(o.gLy, o.cy + 0.6), wk); o.gLx += wx * wk; }
       }
-      if (inp.tellType === 'mirror') o.visor = Math.sin(PI * clamp01((t - 0.8) / 0.5));
+      if (inp.style === 'visor') o.visor = Math.sin(PI * clamp01((t - 0.8) / 0.5));
     } else {
       o.face = inp.res === 'goal' && t < 1.2 ? 2 : 0;
     }
@@ -407,14 +460,17 @@
     standing(inp, o);
     if (lp === 'flight' || lp === 'result') {
       var A = copyPose(o, _tmp);
-      diveEnd(inp.dive, inp.res, num(inp.ex, NaN), num(inp.ey, NaN), _end);
+      diveEnd(inp.dive, inp.res, num(inp.ex, NaN), num(inp.ey, NaN), _end, num(inp.gx, NaN), num(inp.gy, NaN));
       if (lp === 'result') { afterDive(inp, _end, o); o.chip = false; return o; }
       var k = outQuad(num(inp.keeperT, 0)), dir = inp.dive === 'stay' ? 0 : 1;
       mixPoses(A, _end, k, o);
       o.cy += (dir ? 0.18 : 0.1) * Math.sin(PI * k);
       o.gLy += (dir ? 0.18 : 0.1) * Math.sin(PI * k); o.gRy += (dir ? 0.18 : 0.1) * Math.sin(PI * k);
       o.lead = _end.lead; o.legs = _end.legs * k;
-      o.eye = 0; o.glowL = A.glowL * (1 - k); o.glowR = A.glowR * (1 - k); o.chip = false;
+      o.eye = 0; o.chip = false;
+      /* Glowy's gloves: the soft set glow fades, and the saving glove lights up as it meets the ball */
+      o.glowL = A.glowL * (1 - k); o.glowR = A.glowR * (1 - k);
+      if (inp.style === 'glow' && inp.res === 'save') { if (_end.lead === 'L') o.glowL = Math.max(o.glowL, k); else o.glowR = Math.max(o.glowR, k); }
       o.face = inp.res === 'save' && k > 0.6 ? 1 : 0;
       if (inp.res === 'save') {
         var near = smooth(0.85, 1, num(inp.flight, 0));
@@ -426,8 +482,8 @@
     /* the next READY: pop up from the last kick's landing pose */
     if (lp === 'ready' && inp.hasPrev && num(inp.shot, 0) > 0 && !inp.reduced && num(inp.phaseT, 0) < 0.35) {
       _prevInp.lp = 'result'; _prevInp.dive = inp.prevDive; _prevInp.res = inp.prevRes; _prevInp.ex = inp.prevEx; _prevInp.ey = inp.prevEy;
-      _prevInp.resT = T.RESULT; _prevInp.reduced = false; _prevInp.tell = ZERO_TELL; _prevInp.tellType = inp.tellType; _prevInp.clock = 0;
-      diveEnd(inp.prevDive || 'stay', inp.prevRes, num(inp.prevEx, NaN), num(inp.prevEy, NaN), _end);
+      _prevInp.resT = T.RESULT; _prevInp.reduced = false; _prevInp.style = inp.style; _prevInp.clock = 0;
+      diveEnd(inp.prevDive || 'stay', inp.prevRes, num(inp.prevEx, NaN), num(inp.prevEy, NaN), _end, num(inp.prevGx, NaN), num(inp.prevGy, NaN));
       afterDive(_prevInp, _end, _prev);
       var kk = inOutSine(num(inp.phaseT, 0) / 0.35);
       var A2 = copyPose(o, _tmp);
@@ -866,13 +922,13 @@
      else the classic avatar) and the pet cheers on the touchline (the old avatar's spot); petStage
      still places and times the kicker, unchanged. The views map the moments below to clips with
      SLGamePeople.clipFor, so the figure never changes a rule, a timing or a hitbox.
-     kickerMoment(v, ps, out)   v {lp, phaseT, resT, res, rushed, decider}; ps = petStage(v)'s out
+     kickerMoment(v, ps, out)   v {lp, phaseT, resT, res, decider}; ps = petStage(v)'s out
        → out {moment, ct, sy}: the game moment for clipFor('kicker', moment, {res, star, sig}) and its
        clip time. petStage's names pass through (idle, walk, kick → shoot, its strike on the same
        0.32 s); a goal's reaction (dance → cheer, or the signature move on a Star Strike or in Encore
        Mode) and a miss's oops run from their own start to the next kick; a save shrugs, then gives the
-       thumbs-up (oops from 0.8 s, its end pose); a rushed kick (the 'rushed' event) shrugs while the
-       height is picked; a decider kick (the 'decider' event) stands ready once back on its spot.
+       thumbs-up (oops from 0.8 s, its end pose); a decider kick (the 'decider' event) stands ready
+       once back on its spot.
        sy: petStage's squash and stretch at 40% (a person is not a bean).
      sidekickMoment(v, out)     v {lp, res, resT, encore, star, clock} → out {moment, ct} for
        clipFor('sidekick', moment): hops on a goal (dances on a Star Strike), sits after a save or a
@@ -894,8 +950,7 @@
         if (v.res === 'save' && k >= KICKER.SHRUG) { out.moment = 'thumbs'; out.ct = KICKER.THUMBS + (k - KICKER.SHRUG); }
         else { out.moment = 'sad'; out.ct = k; }
       }
-    } else if (lp === 'aimY' && v.rushed) { out.moment = 'rushed'; out.ct = num(v.phaseT, 0); }
-    else if (lp === 'ready' && v.decider && clip !== 'walk') { out.moment = 'decider'; out.ct = num(v.phaseT, 0); }
+    } else if (lp === 'ready' && v.decider && clip !== 'walk') { out.moment = 'decider'; out.ct = num(v.phaseT, 0); }
     return out;
   }
   function sidekickMoment(v, out) {
@@ -932,15 +987,6 @@
     if (kind === 'show') return 'WHAT A SHOW!';
     return 'ENCORE SHOOTOUT';
   }
-  /* the menu attract loop: fake dives alternating left / right every 2.5 s */
-  function menuTell(t, out) {
-    out = out || {};
-    var seg = Math.floor(Math.max(0, t) / 2.5);
-    out.dive = seg % 2 ? 'right' : 'left';
-    out.aimT = Math.max(0, t) - seg * 2.5;
-    out.clock = t;
-    return out;
-  }
   function promptFor(lp) {
     if (lp === 'aimX') return 'Tap to pick the SIDE';
     if (lp === 'aimY') return 'Tap to pick the HEIGHT';
@@ -967,7 +1013,7 @@
   }
 
   return {
-    VERSION: VERSION, T: T, U: U, GEO: GEO, KEEPER: KEEPER, CAM: CAM, RATES: RATES, REACH_U: REACH_U, DANCE_BPM: DANCE_BPM,
+    VERSION: VERSION, T: T, U: U, GEO: GEO, KEEPER: KEEPER, CAM: CAM, RATES: RATES, DANCE_BPM: DANCE_BPM,
     FAN_BODY: FAN_BODY, WAND_COLS: WAND_COLS, WANDS_LIT: WANDS_LIT, SHOW_LEVEL: SHOW_LEVEL, CONES_LIT: CONES_LIT,
     STADIUM_LOOK: STADIUM_LOOK, BALL_LOOK: BALL_LOOK, HOLO: HOLO, NEON: NEON, COPY: COPY, NET_HIT: NET_HIT,
     /* maths */
@@ -975,7 +1021,7 @@
     inQuad: inQuad, outBack: outBack, outElastic: outElastic, arc: arc, sign: sign, lx2u: lx2u, ly2u: ly2u,
     tri: tri, markerX: markerX, markerY: markerY, mix01: mix01,
     /* camera */
-    portraitFov: portraitFov, cameraShot: cameraShot, replayProgress: replayProgress, ballX: ballX,
+    portraitFov: portraitFov, cameraShot: cameraShot, goalFit: goalFit, replayProgress: replayProgress, ballX: ballX,
     /* keeper */
     keeperPose: keeperPose, diveEnd: diveEnd, keeperDance: keeperDance, danceCount: danceCount, resetPose: resetPose,
     /* ball + net */
@@ -987,7 +1033,7 @@
     hexRgb: hexRgb, rgbHex: rgbHex, mixRgb: mixRgb, mixHex: mixHex, normHex: normHex,
     stadiumLook: stadiumLook, presetMix: presetMix, makePreset: makePreset, ballLook: ballLook, coneAim: coneAim,
     /* staging + copy */
-    petStage: petStage, avatarClip: avatarClip, ledPips: ledPips, ledText: ledText, menuTell: menuTell,
+    petStage: petStage, avatarClip: avatarClip, ledPips: ledPips, ledText: ledText,
     promptFor: promptFor, bannerFor: bannerFor,
     /* kids update: the child's figure kicks, the pet cheers */
     KICKER: KICKER, SIDEKICK: SIDEKICK, kickerMoment: kickerMoment, sidekickMoment: sidekickMoment

@@ -1329,7 +1329,7 @@
     if (t > 0.8) out.y = 0.02 * arc(seg(t, 0.8, 1));
     return out;
   };
-  /* shrug (0.9 s): the keeper guessed right — arms out low, palms up, a rise and a head tilt, held, then
+  /* shrug (0.9 s): the keeper got to the ball — arms out low, palms up, a rise and a head tilt, held, then
      eased a little. Reduced: the shrug. */
   function shrugPose(out, k, still) {
     out.armL = out.armR = 8 + 37 * k; out.armLf = out.armRf = 30 * k; out.y = still ? 0 : 0.025 * k;

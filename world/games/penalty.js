@@ -4,25 +4,30 @@
    and the 3D LED all say "Encore Shootout"; only the catalogue item keeps
    its own name, "Penalty Pitch".
    8 kicks against one of 4 original goalie-blob rivals. Tap once to lock the
-   SIDE (cyan marker), tap again to lock the HEIGHT (pink reticle). Each rival
-   gives his dive away with ONE learnable tell: Mochi LEANS, Bop dance-steps on
-   the beat, Glowy's glove LIGHTS UP, Flip leans the WRONG way on purpose.
+   SIDE (cyan marker), tap again to lock the HEIGHT (pink reticle).
+   The keeper REACTS (PENALTY_RULES 3, James 27 Oct 2026): nothing about him
+   gives a dive away before the kick, because there is no dive to give away. He
+   waits his reaction time once the ball is struck, then dives to the ball, and
+   saves it only if it is inside his REACH by the time it arrives. Later rivals
+   react sooner and reach further: that is the difficulty curve. The skill is the
+   two taps: aim into the corners and high, without hitting the post or the bar.
    Goals in a row fill 4 HYPE wands; at 4 the stadium flips to ENCORE MODE and
    every goal is a 150-point STAR STRIKE. A post/bar ping costs one wand; a save
    or a wide/over shot resets the show.
-   Fair by construction (unchanged rules, ONE reach table for every rival):
-     • top corners are out of the keeper's reach → always a goal if on target
-     • a ball inside the keeper's reach is saved only if he went that way
+   Fair by construction (no chance anywhere in a save):
+     • a save is a fixed function of where the ball goes and who is in goal
+     • top corners are out of every keeper's reach → always a goal if on target
      • aim outside the posts or over the bar = miss (your timing)
+     • the markers start at a different place each kick (from the round's number, shared in a
+       challenge), so a child has to watch them: a fixed rhythm of taps never finds the corners
+     • a height left to the clock is a soft kick he gathers, as a kick with no tap at all is
    This file holds every rule, timing, sound and music call (pure, Node-testable,
    no DOM, no 3D library) plus the 2D canvas renderer used whenever the 3D view
    isn't running. The 3D view only READS round.state and the s.ev queue.
-   Kids update (PENALTY_RULES 2, plan-ku KG4 / games.json ES-1, ES-2):
-     • a rushed kick — the SIDE tapped in under TIMING.RUSH_T (0.30 s) of aiming,
-       before any tell can be read — is read by the keeper ('rushed' event)
-     • duel mode for challenges (cfg.challengeRound.duel): pre-rolled keeper
-       moves, a hold gate the challenge opens kick by kick, decider kicks that
-       never touch the round's score ('decider' event)
+   Kids update (plan-ku KG4 / games.json ES-2):
+     • duel mode for challenges (cfg.challengeRound.duel): a hold gate the
+       challenge opens kick by kick, decider kicks that never touch the round's
+       score ('decider' event); both children face the same keeper by construction
      • ⚔️ Challenge / 🔑 Join with a code in the menu, only when cfg.duels
    Spec: docs/island3d/spec-penalty.json · shell hooks: docs/island3d/CONTRACTS.md §2
    ================================================================ */
@@ -41,66 +46,125 @@
   /* even-speed back-and-forth (a sine wave lingers at its ends, which are misses) */
   function tri(ph) { var f = ((ph / TAU) % 1 + 1) % 1; return f < 0.5 ? f * 4 - 1 : 3 - f * 4; }
 
-  /* ---------------- the fair core (unchanged byte for byte in behaviour) ---------------- */
-  var REACH = deepFreeze({
-    stay:  { x0: MID - 88, x1: MID + 88, y0: 172 },
-    left:  { x0: 268, x1: MID - 40, y0: 206 },
-    right: { x0: MID + 40, x1: 692, y0: 206 }
-  });
-  function outcome(x, y, dive) {
-    if (x <= POST_L + 6 || x >= POST_R - 6 || y <= BAR + 6) return 'miss';
-    if (y > LINE) return 'miss';
-    var r = REACH[dive];
-    if (x >= r.x0 && x <= r.x1 && y >= r.y0) return 'save';
-    return 'goal';
+  /* ---------------- the fair core: a keeper who reacts to the ball ----------------
+     A rival's REACH is where his gloves can get to by the time the ball arrives, measured from the
+     middle of his line (dx = |x − MID|) and up from it (dh = LINE − y), in logic px. It is two boxes:
+       • his DIVE: dx ≤ side and dh ≤ high (he flies sideways, low and middle height)
+       • his JUMP: dx ≤ BODY and dh ≤ jump (straight up, over the middle of the goal)
+     A ball on target inside either box is saved; outside both it is a goal. Nothing else counts:
+     no draw, no guess, no memory of earlier kicks. The top corners (dh > TOP_DH outside ±BODY) are
+     out of every rival's reach (a test checks high ≤ TOP_DH for all four). */
+  var BODY = 88, TOP_DH = LINE - 206;                         /* 134: the top corners start at y 206 */
+  function onTarget(x, y) { return !(x <= POST_L + 6 || x >= POST_R - 6 || y <= BAR + 6 || y > LINE); }
+  function reachOf(rv) {
+    var r = rv && rv.reach ? rv : rivalById(rv);
+    return r.reach;
   }
-  function isTopCorner(x, y) { return y < REACH.left.y0 && Math.abs(x - MID) > 88; }
+  function inReach(x, y, rv) {
+    var R = reachOf(rv), dx = Math.abs(x - MID), dh = LINE - y;
+    return (dx <= R.side && dh <= R.high) || (dx <= BODY && dh <= R.jump);
+  }
+  /* 'goal' | 'save' | 'miss' for a ball that ends at (x, y) against this rival (an id or a RIVALS row) */
+  function outcome(x, y, rv) {
+    if (!onTarget(x, y)) return 'miss';
+    return inReach(x, y, rv) ? 'save' : 'goal';
+  }
+  function isTopCorner(x, y) { return y < LINE - TOP_DH && Math.abs(x - MID) > BODY; }
+  /* which way he goes once the ball is struck (worked out AFTER the kick, from the ball): straight up
+     for a ball over his middle, else the ball's side */
+  function diveFor(x, y, rv) {
+    var R = reachOf(rv), dx = Math.abs(x - MID), dh = LINE - y;
+    if (dx <= 40 || (dx <= BODY && dh > R.high)) return 'stay';
+    return x < MID ? 'left' : 'right';
+  }
+  /* where his leading glove ends up (logic px): on the ball when he saves it, else the nearest point
+     of his reach to it (so a goal visibly goes past his fingertips) */
+  function gloveFor(x, y, rv) {
+    var R = reachOf(rv), sg = x < MID ? -1 : 1, dx = Math.abs(x - MID), dh = LINE - y;
+    if (inReach(x, y, rv)) return { x: x, y: y, reached: true };
+    var ax = Math.min(dx, R.side), ah = Math.max(0, Math.min(dh, R.high));
+    var bx = Math.min(dx, BODY), bh = Math.max(0, Math.min(dh, R.jump));
+    var da = (dx - ax) * (dx - ax) + (dh - ah) * (dh - ah), db = (dx - bx) * (dx - bx) + (dh - bh) * (dh - bh);
+    var px = da <= db ? ax : bx, ph = da <= db ? ah : bh;
+    return { x: MID + sg * px, y: LINE - ph, reached: false };
+  }
+  /* the outline of his reach (logic px, clockwise from the bottom left): the wide dive box with the
+     tall jump box on top of it, for the glove zone in 2D and 3D */
+  function reachOutline(rv) {
+    var R = reachOf(rv), yl = LINE - R.high, yj = LINE - R.jump;
+    return [[MID - R.side, LINE], [MID - R.side, yl], [MID - BODY, yl], [MID - BODY, yj], [MID + BODY, yj],
+      [MID + BODY, yl], [MID + R.side, yl], [MID + R.side, LINE]];
+  }
+  /* how far through his dive he is, f of the way through the ball's flight: still for his reaction
+     time, then all the way to the glove spot just as the ball arrives (slow motion scales both) */
+  function keeperAt(f, rv) {
+    var rt = Math.max(0, Math.min(0.9, rivalById(rv && rv.id ? rv.id : rv).react / T.FLIGHT));
+    return Math.max(0, Math.min(1, ((+f || 0) - rt) / (1 - rt)));
+  }
 
   /* ---------------- constants ---------------- */
   var AIM = deepFreeze({ x0: AIM_X0, x1: AIM_X1, y0: AIM_Y0, y1: AIM_Y1 });
-  var TIMING = (function () {
-    var t = {
-      READY: 0.9, INTRO: 2.0, INTRO_SKIP: 0.6, GUARD: 0.15, NUDGE: 4.0, AUTOLOCK: 6.0,
-      WINDUP: 0.25, HITSTOP: 0.07, FLIGHT: 0.62, DIVE: 0.5, SLOW_F0: 0.60, SLOW_F1: 0.88, SLOW: 0.3,
-      RESULT: 2.0, RESULT_REPLAY: 2.4, SKIP_AFTER: 0.8, LEAN_RATE: 1.2, BEAT: 60 / 112
-    };
-    /* ES-1: a SIDE tapped before RUSH_T s of aiming is read by the keeper. Not enumerable on purpose:
-       penalty-3d-core.js mirrors the view's timings key for key (its T equals Object.assign({}, TIMING))
-       and the 3D view has no use for this rule. A view that ever mirrors it makes it enumerable here too. */
-    Object.defineProperty(t, 'RUSH_T', { value: 0.30, enumerable: false });
-    return deepFreeze(t);
-  })();
+  /* HELP_IN: the glove zone fades in over 1 / HELP_IN s of aiming (help kicks and the Cheer Boost) */
+  var TIMING = deepFreeze({
+    READY: 0.9, INTRO: 2.0, INTRO_SKIP: 0.6, GUARD: 0.15, NUDGE: 4.0, AUTOLOCK: 6.0,
+    WINDUP: 0.25, HITSTOP: 0.07, FLIGHT: 0.62, SLOW_F0: 0.60, SLOW_F1: 0.88, SLOW: 0.3,
+    RESULT: 2.0, RESULT_REPLAY: 2.4, SKIP_AFTER: 0.8, HELP_IN: 1.2, BEAT: 60 / 112
+  });
   var T = TIMING;
-  /* the rules number a challenge's hello carries, so two versions never meet in one challenge (was 1) */
-  var PENALTY_RULES = 2;
-  /* duel mode (ES-2): 13 pre-rolled keeper moves (8 kicks + up to 5 deciders); a retake (both missed,
-     a team try) replays the same decider, so up to 3 more kicks; the round's own fall-backs if the
-     challenge goes quiet: a kick opens itself after HOLD_MAX s at its gate, and the round ends itself
-     DECIDE_MAX s after kick 8 with no word on deciders; OPEN_BEAT: the ready beat after a gate opens */
-  var DUEL = deepFreeze({ DIVES: 13, MAX_DECIDERS: 5, MAX_DECIDER_KICKS: 8, HOLD_MAX: 12, DECIDE_MAX: 30, OPEN_BEAT: 0.5,
-    WEIGHTS: { left: 0.36, stay: 0.28, right: 0.36 } });
-  /* every new child-facing line of the kids update (copy-checked by tests/game-penalty-ku.test.js) */
+  /* the rules number a challenge's hello carries, so two versions never meet in one challenge
+     (1 → 2 for the kids update; 3: the keeper reacts to the ball, 27 Oct 2026) */
+  var PENALTY_RULES = 3;
+  /* duel mode (ES-2): KICKS = the kick numbers a challenge round can use (8 kicks + up to 5 deciders);
+     a retake (both missed, a team try) replays the same decider, so up to 3 more kicks; the round's
+     own fall-backs if the challenge goes quiet: a kick opens itself after HOLD_MAX s at its gate, and
+     the round ends itself DECIDE_MAX s after kick 8 with no word on deciders; OPEN_BEAT: the ready
+     beat after a gate opens */
+  var DUEL = deepFreeze({ KICKS: 13, MAX_DECIDERS: 5, MAX_DECIDER_KICKS: 8, HOLD_MAX: 12, DECIDE_MAX: 30, OPEN_BEAT: 0.5 });
+  /* every child-facing line that is new since the kids update (copy-checked by tests/game-penalty-ku.test.js) */
   var COPY = deepFreeze({
-    rushedSub: 'Quick kick! He saw it coming — wait for his tell.',
-    rushedSay: 'Quick kick! The keeper saw it coming. Wait for his tell.',
-    rushedCard: ['👀', 'Watch the keeper first: quick kicks are easier to save.'],
+    aimCard: ['🎯', 'Aim for the corners — the keeper can’t reach them!'],
+    jumpCard: ['🧤', 'He jumps as soon as you kick. Shots near the middle get saved.'],
+    savedMid: 'Too near the middle. Aim for a corner!',
+    savedMidSay: 'Saved! That was near the middle. Aim for a corner.',
+    savedReach: 'He just reached it! Go further into the corner.',
+    savedReachSay: 'Saved! He just reached it. Go further into the corner.',
+    softSub: 'Tap KICK again to pick the height!',
+    softSay: 'Saved. Tap kick again to pick the height.',
+    coach: 'Aim for the corners — the keeper can’t reach them!',
+    practice: 'Good practice! Aim for the corners!',
     deciderGoal: '⚡ Decider goal!', deciderSay: 'Decider goal!', deciderReady: '⚡ Decider kick — get ready…',
     deciderChip: '⚡ Decider kick', allKicks: 'all 8 kicks taken', getReady: 'Get ready…',
     challenge: '⚔️ Challenge', join: '🔑 Join with a code', offline: 'Challenges need the internet.'
   });
-  /* 4 original rivals: each id is its personal-best variant key ('penalty:<id>') */
+  /* 4 original rivals: each id is its personal-best variant key ('penalty:<id>'). react: seconds he
+     waits once the ball is struck; reach: what he can get to by the time it arrives (see inReach).
+     A quicker reaction leaves him more of the flight to dive in, so he reaches further: later rivals
+     react sooner AND reach further (side: roughly 64 px of arm + 270-320 px/s of dive over the flight
+     time he has left). Tuned by simulation against child-like aim (tests/fixtures/penalty-children.js,
+     tests/game-penalty-react.test.js); retuned 27 Oct 2026 for the markers' per-kick starts, so a child
+     who taps without watching still earns no medal in most rounds (KU42).
+     style: his look only (Mochi's headband, Bop's headphones, Glowy's
+     glowing gloves, Flip's visor); it never changes with the kick. base: the marker's base speed. */
   var RIVALS = deepFreeze([
-    { id: 'std', name: 'Mochi', icon: '🍡', tell: 'lean', base: 0.55, jersey: '#7BD88F', trim: '#FF6B6B',
-      tip: 'Mochi LEANS the way he’ll dive.', unlock: null },
-    { id: 'rival_bop', name: 'Bop', icon: '🎧', tell: 'beat', base: 0.60, jersey: '#C38BFF', trim: '#FF8FC8',
-      tip: 'Bop dance-steps toward his dive on the beat.', unlock: { after: 'std', score: 400 } },
-    { id: 'rival_glowy', name: 'Glowy', icon: '✨', tell: 'glove', base: 0.65, jersey: '#4FC3F7', trim: '#3DF2FF',
-      tip: 'Glowy’s glove lights up on his dive side.', unlock: { after: 'rival_bop', score: 400 } },
-    { id: 'rival_flip', name: 'Flip', icon: '🔄', tell: 'mirror', base: 0.70, jersey: '#FF8FC8', trim: '#DDE3F0',
-      tip: 'Flip leans the WRONG way: shoot where he leans!', unlock: { after: 'rival_glowy', score: 700 } }
+    { id: 'std', name: 'Mochi', icon: '🍡', style: 'band', base: 0.55, react: 0.30, reach: { side: 165, high: 115, jump: 150 },
+      jersey: '#7BD88F', trim: '#FF6B6B', tip: 'Mochi is a bit slow to jump. Aim for the corners!', unlock: null },
+    { id: 'rival_bop', name: 'Bop', icon: '🎧', style: 'phones', base: 0.60, react: 0.25, reach: { side: 173, high: 121, jump: 156 },
+      jersey: '#C38BFF', trim: '#FF8FC8', tip: 'Bop is quicker. Aim close to the posts!', unlock: { after: 'std', score: 400 } },
+    { id: 'rival_glowy', name: 'Glowy', icon: '✨', style: 'glow', base: 0.65, react: 0.20, reach: { side: 182, high: 127, jump: 162 },
+      jersey: '#4FC3F7', trim: '#3DF2FF', tip: 'Glowy has long arms. Go high into the corners!', unlock: { after: 'rival_bop', score: 400 } },
+    { id: 'rival_flip', name: 'Flip', icon: '🔄', style: 'visor', base: 0.70, react: 0.15, reach: { side: 192, high: 133, jump: 170 },
+      jersey: '#FF8FC8', trim: '#DDE3F0', tip: 'Flip is the quickest! Only the very corners get past him.', unlock: { after: 'rival_glowy', score: 700 } }
   ]);
   /* QA2C-2: where a kick with no tap goes — low in the middle, inside the keeper's own reach */
   var AUTO_SHOT = deepFreeze({ x: MID, y: 300 });
+  /* a SOFT kick: the side was tapped but the height locked itself (T.AUTOLOCK). The ball rolls gently
+     along the grass toward the side picked, at most SOFT_DX from the middle, so it stays inside every
+     keeper's dive and he gathers it (leaving the height to the clock never scores, skeptic 27 Oct 2026) */
+  var SOFT_DX = 110;
+  function softShot(lockX) {
+    var d = Math.max(-SOFT_DX, Math.min(SOFT_DX, (+lockX || MID) - MID));
+    return { x: Math.round(MID + d), y: AUTO_SHOT.y };
+  }
   /* the nudge after T.NUDGE s with no tap: the KICK button and the tap this step needs (the 2D
      bubble here, the 3D one from penalty-3d-core.js COPY, which says the same) */
   var NUDGE = deepFreeze({ x: 'Tap KICK to pick the side!', y: 'Tap KICK to pick the height!' });
@@ -125,7 +189,6 @@
   var STADIA = { stadium_day: ['#7ecbff', '#6ac46a'], stadium_night: ['#2b2a5e', '#3f9a4a'], stadium_beach: ['#ffe0a0', '#7fd0a0'], stadium_snow: ['#dfeeff', '#bfe6c8'] };
   var BALL_TRAIL = { ball_classic: '#ffffff', ball_planet: '#FFD23F', ball_gold: '#FFE89A' };
   var RAINBOW = ['#FF6B6B', '#FFA94D', '#FFD23F', '#7BD88F', '#4FC3F7', '#C38BFF'];
-  var FULL_TELL = 1;                                         /* an aimT at which every tell is at full strength */
 
   /* ---------------- pure rules (exported for the 3D view and the tests) ---------------- */
   /* why a miss missed (null when the shot isn't a miss); first matching band wins */
@@ -145,45 +208,26 @@
   }
   function rivalIndex(id) { for (var i = 0; i < RIVALS.length; i++) if (RIVALS[i].id === id) return i; return -1; }
   function rivalById(id) { return RIVALS[Math.max(0, rivalIndex(id))]; }
+  /* where the markers start: a different place each kick, worked out from the round's number and the
+     kick number (a pure hash: no draw, nothing kept between kicks; a challenge shares its number, so
+     both children get the same starts, and a retake keeps its kick number, so its starts too). This is
+     what makes the child WATCH the marker: with starts that were the same every round, a fixed double
+     tap that never looked at the marker found the corners and beat a child who aimed (skeptic, 27 Oct
+     2026). Where the ball goes is still all the child's taps, and a save is still a fixed function of
+     that spot and who is in goal (outcome). sweepStart: the side marker's phase; sweepStartY: the
+     height marker's, set when the side locks. */
+  function startHash(seed, kick, salt) {
+    var h = ((seed >>> 0) ^ Math.imul((kick | 0) + 1, 0x9E3779B1) ^ salt) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function sweepStart(kick, seed) { return TAU * startHash(seed, kick, 0x51DE5EED); }
+  function sweepStartY(kick, seed) { return TAU * startHash(seed, kick, 0x4E16A7E5); }
   /* marker speed in sweeps/s: rival base + 0.05 a kick + 0.03 a hype pip, capped; the Cheer Boost slows it */
   function sweepSpeed(rivalIdx, k, hype, boost) {
     var rv = RIVALS[Math.max(0, Math.min(RIVALS.length - 1, rivalIdx | 0))];
     return Math.min(1.15, rv.base + 0.05 * (k || 0) + 0.03 * (hype || 0)) * (boost ? 0.8 : 1);
-  }
-  /* the rival's ONE tell for a dive, aimT seconds into aiming (pass `out` to reuse an object) */
-  function tellAt(rivalId, dive, aimT, clock, out) {
-    var t = out || {};
-    t.lean = 0; t.crouch = 0; t.step = 0; t.hop = 0; t.gloveL = 0; t.gloveR = 0; t.mirror = false;
-    var ramp = Math.max(0, Math.min(1, (aimT || 0) * T.LEAN_RATE));
-    var dir = dive === 'left' ? -1 : dive === 'right' ? 1 : 0;
-    var tell = rivalById(rivalId).tell;
-    if (tell === 'beat') {
-      /* full lean on even beats of the logic clock, 0.3 in between (the music shares this clock) */
-      var env = ((Math.floor((clock || 0) / T.BEAT) % 2) + 2) % 2 === 0 ? 1 : 0, amp = env ? 1 : 0.3;
-      t.hop = env;
-      if (dir) { t.step = dir * 0.25 * ramp; t.lean = dir * ramp * amp; } else t.crouch = ramp * amp;
-    } else if (tell === 'glove') {
-      if (dir < 0) t.gloveL = ramp; else if (dir > 0) t.gloveR = ramp; else { t.gloveL = ramp; t.gloveR = ramp; }
-    } else if (tell === 'mirror') {
-      t.mirror = true;
-      if (dir) t.lean = -dir * ramp; else t.crouch = ramp;
-    } else {
-      if (dir) t.lean = dir * ramp; else t.crouch = ramp;
-    }
-    return t;
-  }
-  /* the honest reading of a tell: 'left' | 'stay' | 'right', or null while it is still too faint */
-  var TELL_TH = 0.25;
-  function readTell(rivalId, tell) {
-    if (!tell) return null;
-    var gl = tell.gloveL || 0, gr = tell.gloveR || 0;
-    if (gl >= TELL_TH && gr >= TELL_TH) return 'stay';
-    if (gl >= TELL_TH) return 'left';
-    if (gr >= TELL_TH) return 'right';
-    var lean = tell.lean || 0, mirror = !!tell.mirror || rivalId === 'rival_flip';
-    if (Math.abs(lean) >= TELL_TH) return (lean < 0) !== mirror ? 'left' : 'right';
-    if ((tell.crouch || 0) >= TELL_TH) return 'stay';
-    return null;
   }
   function medalFor(score) {
     var v = +score || 0;
@@ -203,11 +247,12 @@
     return !u || bestFor(pb, u.after) >= u.score;
   }
   /* banner copy shared by the 2D and 3D renderers (kind, never mocking). A decider kick (e.decider)
-     scores no points, so its goal banner names the decider instead; a rushed kick that was saved
-     (e.rushed) gets the one line that teaches the game: wait for the tell */
+     scores no points, so its goal banner names the decider instead; a save says the one thing that
+     teaches the game: near the middle he gets there, so aim further into a corner */
   function resultLabel(e) {
     e = e || {};
     if (e.auto) return { title: 'SAVED!', sub: 'Tap KICK to aim!', say: 'Saved. Tap kick to aim.' };
+    if (e.soft) return { title: 'SAVED!', sub: COPY.softSub, say: COPY.softSay };
     var res = e.res, kind = e.kind || (res === 'miss' ? missKind(e.x, e.y) : res), pts = e.pts != null ? e.pts : 0;
     if (res === 'goal') {
       if (e.decider) return { title: e.top ? 'TOP CORNER!' : 'GOAL!', sub: COPY.deciderGoal, say: COPY.deciderSay };
@@ -216,9 +261,8 @@
       return { title: 'GOAL!', sub: '+' + pts, say: 'Goal! ' + pts + ' points' };
     }
     if (res === 'save') {
-      if (e.rushed) return { title: 'SAVED!', sub: COPY.rushedSub, say: COPY.rushedSay };
-      var way = e.dive === 'left' ? 'LEFT' : e.dive === 'right' ? 'RIGHT' : '';
-      return { title: 'SAVED!', sub: way ? 'He dived ' + way + '!' : 'He stayed in the MIDDLE!', say: 'Saved! ' + (way ? 'He dived ' + way.toLowerCase() + '.' : 'He stayed in the middle.') };
+      if (e.dive === 'left' || e.dive === 'right') return { title: 'SAVED!', sub: COPY.savedReach, say: COPY.savedReachSay };
+      return { title: 'SAVED!', sub: COPY.savedMid, say: COPY.savedMidSay };
     }
     var hypeDown = (e.hypeBefore || 0) > 0 && !e.decider ? ' · Hype −1' : '';
     if (kind === 'post') return { title: 'SO CLOSE!', sub: 'Off the post!' + hypeDown, say: 'So close! Off the post.' };
@@ -232,6 +276,15 @@
   function lx2u(x) { return (x - MID) / U; }
   function ly2u(y) { return (LINE - y) / U; }
   function box(r) { return { x0: lx2u(r.x0), x1: lx2u(r.x1), y1: ly2u(r.y0) }; }
+  /* a rival's reach in 3D units: his dive box and his jump box (x0..x1 across, up to y1) */
+  var reachMemo = {};
+  function reachU(rv) {
+    var id = rivalById(rv && rv.id ? rv.id : rv).id, R = reachOf(id);
+    return reachMemo[id] || (reachMemo[id] = deepFreeze({
+      dive: box({ x0: MID - R.side, x1: MID + R.side, y0: LINE - R.high }),
+      jump: box({ x0: MID - BODY, x1: MID + BODY, y0: LINE - R.jump })
+    }));
+  }
   function ballAt(f, lx, ly, out) {
     /* the ball's flight solved from the frozen lock: spot → (x, y, 0) with a bend and an arc */
     var o = out || {}, ex = lx2u(lx), ey = ly2u(ly), sp = Math.sin(Math.max(0, Math.min(1, f)) * Math.PI);
@@ -241,15 +294,14 @@
     return o;
   }
   var MAP = deepFreeze({
-    U: U, lx2u: lx2u, ly2u: ly2u, box: box, ballAt: ballAt,
+    U: U, lx2u: lx2u, ly2u: ly2u, box: box, ballAt: ballAt, reachU: reachU,
     POST_U: lx2u(POST_R), BAR_U: ly2u(BAR),
     MISS_U: { x: lx2u(POST_R - 6), y: ly2u(BAR + 6) },
     AIM_U: { x0: lx2u(AIM_X0), x1: lx2u(AIM_X1), y0: ly2u(AIM_Y1), y1: ly2u(AIM_Y0) },
-    REACH_U: { stay: box(REACH.stay), left: box(REACH.left), right: box(REACH.right) },
     CORNER_U: {
-      xIn: lx2u(MID + 88), xOut: lx2u(POST_R - 6), y0: ly2u(REACH.left.y0), y1: ly2u(BAR + 6),
-      left: { x0: lx2u(POST_L + 6), x1: lx2u(MID - 88), y0: ly2u(REACH.left.y0), y1: ly2u(BAR + 6) },
-      right: { x0: lx2u(MID + 88), x1: lx2u(POST_R - 6), y0: ly2u(REACH.left.y0), y1: ly2u(BAR + 6) }
+      xIn: lx2u(MID + BODY), xOut: lx2u(POST_R - 6), y0: ly2u(LINE - TOP_DH), y1: ly2u(BAR + 6),
+      left: { x0: lx2u(POST_L + 6), x1: lx2u(MID - BODY), y0: ly2u(LINE - TOP_DH), y1: ly2u(BAR + 6) },
+      right: { x0: lx2u(MID + BODY), x1: lx2u(POST_R - 6), y0: ly2u(LINE - TOP_DH), y1: ly2u(BAR + 6) }
     },
     POS: { keeper: [0, 0, 0.35], ball: [0, 0.11, 7.5], kicker: [-0.55, 0, 8.1], runup: [-0.2, 0, 7.75], avatar: [-3.9, 0, 4.2] }
   });
@@ -259,10 +311,6 @@
   function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-  function mkRng(seed) {
-    var x = (seed >>> 0) || 1;
-    return function () { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
-  }
   function hex6(c) {
     if (typeof c !== 'string') return null;
     if (/^#[0-9a-f]{6}$/i.test(c)) return c;
@@ -284,16 +332,9 @@
   }
 
   /* ---------------- challenges: the round a lobby sets up (ES-2) ---------------- */
-  function isDive(d) { return d === 'left' || d === 'stay' || d === 'right'; }
-  /* 13 keeper moves; an unusable entry is null (that kick falls back to the seeded draw) */
-  function diveList(a) {
-    if (!Array.isArray(a)) return null;
-    var out = [], ok = 0;
-    for (var i = 0; i < DUEL.DIVES; i++) { var d = isDive(a[i]) ? a[i] : null; if (d) ok++; out.push(d); }
-    return ok ? out : null;
-  }
   /* cfg.challengeRound is set by a lobby for the next round only: read once here and cleared.
-     → null (a solo round) or {seed, variant, duel: null | {dives, hold, deciders}} */
+     → null (a solo round) or {seed, variant, duel: null | {hold, deciders}}. (An older lobby's list
+     of keeper moves, .duel.dives, is ignored: the keeper has no moves to hand over.) */
   function takeChallenge(cfg) {
     if (!cfg || cfg.challengeRound === undefined) return null;
     var c = cfg.challengeRound;
@@ -302,25 +343,20 @@
     var seed = Number(c.seed);
     if (!isFinite(seed)) return null;
     var out = { seed: (seed >>> 0) || 1, variant: typeof c.variant === 'string' ? c.variant : null, duel: null }, d = c.duel;
-    if (d && typeof d === 'object') {
-      var dives = diveList(d.dives);
-      if (!dives) {
-        /* no moves handed over: the same pre-roll the challenge core makes from the seed */
-        var DC = win() && window.SLDuelCore;
-        try { if (DC && typeof DC.dives === 'function') dives = diveList(DC.dives(out.seed, DUEL.DIVES)); } catch (e) { dives = null; }
-      }
-      out.duel = { dives: dives, hold: d.hold === true, deciders: d.deciders === true };
-    }
+    if (d && typeof d === 'object') out.duel = { hold: d.hold === true, deciders: d.deciders === true };
     return out;
   }
 
   /* ================================================================
      newRound(api, variant, cfg) — one 8-kick round against the rival `variant`.
-     cfg reads: rng, seed, pb, ball, stadium, member/user, challengeRound (once). api reads: sound, reduced, music.
-     A challenge round (cfg.challengeRound) plays from the challenge's seed, so both devices get the
-     same marker starts; in duel mode (its .duel) the keeper's moves are the pre-rolled dives (he does
-     not adapt), the round waits at each kick's ready beat while round.hold is on until the challenge
-     opens that kick (round.open(k)), and after kick 8 it waits for round.decide('end' | 'decider').
+     cfg reads: seed, pb, ball, stadium, member/user, challengeRound (once). api reads: sound, reduced, music.
+     Nothing about the keeper is drawn at all: he only reacts to the ball, so the same ball spot always
+     gives the same kick. The seed sets where each kick's markers start (sweepStart, a pure hash of the
+     seed and the kick number) and scatters the 2D confetti, so the same seed and the same taps give
+     the same round. A challenge round (cfg.challengeRound) keeps the challenge's seed; in
+     duel mode (its .duel) the round waits at each kick's ready beat while round.hold is on until the
+     challenge opens that kick (round.open(k)), and after kick 8 it waits for round.decide('end' |
+     'decider').
      ================================================================ */
   function newRound(api, variant, cfg) {
     api = api || {};
@@ -328,7 +364,6 @@
     var cr = takeChallenge(cfg), duel = cr ? cr.duel : null;
     var sound = typeof api.sound === 'function' ? api.sound : noop;
     var seed = cr ? cr.seed : (cfg.seed != null && isFinite(cfg.seed)) ? ((cfg.seed >>> 0) || 1) : ((Date.now() & 0x7fffffff) || 9);
-    var r = !cr && typeof cfg.rng === 'function' ? cfg.rng : mkRng(seed);
     var ri = Math.max(0, rivalIndex(variant)), rival = RIVALS[ri];
     var pb0 = {};
     Object.keys(cfg.pb || {}).forEach(function (k) { pb0[k] = cfg.pb[k]; });
@@ -341,20 +376,22 @@
       shot: 0, phase: 'ready', phaseT: 0, clock: 0, aimT: 0, idleT: 0, intro: true, final: false,
       /* aim */
       ax: (AIM_X0 + AIM_X1) / 2, ay: AIM_Y1, lockX: null, lockY: null, sweepX: 0, sweepY: 0, speed: 0, nudged: false,
-      /* keeper */
-      dive: 'stay', tell: tellAt(rival.id, 'stay', 0, 0), keeperT: 0,
+      /* keeper: nothing is known about his move until the ball is struck (enterStrike sets dive and
+         the glove spot gx, gy from the ball itself); keeperT is how far through that move he is */
+      dive: null, gx: null, gy: null, keeperT: 0,
       /* kick */
       flight: 0, slow: 1, close: false, replay: false, pending: null, result: null, kind: null, resT: 0, resLen: T.RESULT,
-      /* QA2C-2: a kick aimed with no tap at all (both locks automatic) is a gentle centre shot */
-      autoX: false, autoKick: false, autoKicks: 0,
+      /* QA2C-2: a kick aimed with no tap at all (both locks automatic) is a gentle centre shot;
+         softKick: the side was tapped but the height locked itself, a gentle roll he gathers */
+      autoX: false, autoKick: false, autoKicks: 0, softKick: false,
       /* meter */
       hype: 0, encore: false, streak: 0, bestStreak: 0, nonGoalRun: 0, boost: false, help: false,
       /* totals */
       goals: 0, corners: 0, starStrikes: 0, posts: 0, score: 0, boostsUsed: 0, topSlows: 0,
-      history: { left: 0, right: 0, mid: 0 }, log: [], ev: [], evN: 0,
+      log: [], ev: [], evN: 0,
       kickSent: false, needSync: true, finished: false,
-      /* rushed kicks (ES-1): this kick was read; the round's count, and how many of them were saved */
-      rushed: false, rushedN: 0, rushedSaves: 0,
+      /* saves near the middle (he did not have to dive): two of them bring the coach line */
+      midSaves: 0,
       /* challenges (ES-2). kick: the challenge's kick number (0-7, then 8 + decider - 1, so a retake
          keeps its number); decider: 0, or which decider kick this is (1-5); deciders: their results
          (never in score, goals or hype); held: waiting at the gate (holdT s so far); waitDecide:
@@ -387,29 +424,18 @@
     }
     function musicLowpass(hz, sec) { if (!music('lowpass', hz, sec)) music('set', 'lowpass', hz); }
 
-    function chooseDive() {
-      if (duel) {
-        /* duel mode: the pre-rolled move for this kick number, and no adapting (both children face the
-           same keeper). One value is still drawn, so the marker starts follow the seed on both devices */
-        var x0 = r(), want = duel.dives && duel.dives[s.kick], w = DUEL.WEIGHTS;
-        return want || (x0 < w.left ? 'left' : x0 < w.left + w.stay ? 'stay' : 'right');
-      }
-      /* the keeper "learns": leans toward the side you've used most */
-      var wl = 0.36 + Math.min(0.24, s.history.left * 0.08), wr = 0.36 + Math.min(0.24, s.history.right * 0.08), wm = 0.28 + Math.min(0.2, s.history.mid * 0.08);
-      var tot = wl + wr + wm, x = r() * tot;
-      return x < wl ? 'left' : x < wl + wm ? 'stay' : 'right';
-    }
     function posX(ph) { return (AIM_X0 + AIM_X1) / 2 + tri(ph) * (AIM_X1 - AIM_X0) / 2; }
     function posY(ph) { return (AIM_Y0 + AIM_Y1) / 2 + tri(ph + Math.PI / 2) * (AIM_Y1 - AIM_Y0) / 2; }
 
-    /* the ready beat's clean slate (no draw from the seed: a decider wait may never become a kick) */
+    /* the ready beat's clean slate (no state is drawn or advanced: a decider wait may never become a kick) */
     function resetKick() {
       s.phase = 'ready'; s.phaseT = 0; s.aimT = 0; s.idleT = 0;
       s.intro = s.shot === 0; s.final = s.shot === SHOTS - 1;
       s.lockX = s.lockY = null; s.flight = 0; s.keeperT = 0; s.slow = 1; s.close = false; s.replay = false;
+      s.dive = null; s.gx = s.gy = null;
       s.pending = null; s.result = null; s.kind = null; s.resT = 0; s.resLen = T.RESULT; s.nudged = false; s.kickSent = false;
-      s.rushed = false; s.held = false; s.holdT = 0; s.readyMin = 0;
-      s.autoX = false; s.autoKick = false;
+      s.held = false; s.holdT = 0; s.readyMin = 0;
+      s.autoX = false; s.autoKick = false; s.softKick = false;
     }
     /* keepBeat: a decider that starts out of the decider wait keeps the ready clock running (the views
        ease the camera on it) and gets a full ready beat from now */
@@ -418,13 +444,11 @@
       resetKick();
       if (keepBeat) { s.phaseT = pt; s.readyMin = pt + T.READY; }
       s.kick = s.decider ? SHOTS + s.decider - 1 : s.shot;
-      s.sweepX = r() * TAU;                                  /* start the marker somewhere different */
-      s.dive = chooseDive();
+      s.sweepX = sweepStart(s.kick, seed);
       s.help = (s.shot < 2 && best0 < 400) || s.boost;
       /* a decider is never faster than the round's own final kick */
       s.speed = sweepSpeed(ri, Math.min(s.shot, SHOTS - 1), s.hype, s.boost);
       s.ax = posX(s.sweepX);
-      tellAt(rival.id, s.dive, 0, s.clock, s.tell);
     }
     function enterAimX() {
       s.phase = 'aimX'; s.phaseT = 0; s.aimT = 0; s.idleT = 0; s.nudged = false;
@@ -437,55 +461,45 @@
     function lockX(auto) {
       s.lockX = Math.round(s.ax); s.autoX = !!auto;
       snd('tick');
-      /* ES-1: a side tapped before the tell can be read is read by the keeper. He dives to the locked
-         side and his tell jumps to it at full strength, so the tell on show is always the real dive.
-         An auto-lock is never rushed. (1e-6: 36 steps of 1/120 s are 0.30 s, not a rushed 0.2999…) */
-      var rushed = !auto && s.aimT < T.RUSH_T - 1e-6;
-      if (rushed) {
-        s.dive = s.lockX < MID - 88 ? 'left' : s.lockX > MID + 88 ? 'right' : 'stay';
-        s.rushed = true; s.rushedN++;
-        tellAt(rival.id, s.dive, FULL_TELL, s.clock, s.tell);
-      }
       if (auto) emit('autoLock', { axis: 'x' });
       emit('lockX', { x: s.lockX, auto: !!auto });
-      if (rushed) emit('rushed', { shot: s.shot, kick: s.kick, dive: s.dive, x: s.lockX });
       s.phase = 'aimY'; s.phaseT = 0; s.idleT = 0; s.nudged = false;
-      s.sweepY = r() * TAU; s.ay = posY(s.sweepY);
+      s.sweepY = sweepStartY(s.kick, seed); s.ay = posY(s.sweepY);
       if (s.final || s.decider) { snd('heartbeat'); musicLowpass(800, 0.3); }
     }
     function lockY(auto) {
       s.lockY = Math.round(s.ay);
       if (auto) emit('autoLock', { axis: 'y' });
       /* QA2C-2: no tap for the side or the height — the round plays no kick for the child. The
-         ball rolls gently to the middle and the keeper, staying put, gathers it: 0 points, no
-         hype either way, no slow motion, and the keeper learns nothing from it */
-      if (auto && s.autoX) {
-        s.autoKick = true; s.lockX = AUTO_SHOT.x; s.lockY = AUTO_SHOT.y; s.dive = 'stay';
-        tellAt(rival.id, s.dive, s.aimT, s.clock, s.tell);
-      }
+         ball rolls gently to the middle, inside every keeper's reach, and he gathers it: 0 points,
+         no hype either way, no slow motion */
+      if (auto && s.autoX) { s.autoKick = true; s.lockX = AUTO_SHOT.x; s.lockY = AUTO_SHOT.y; }
+      /* a tapped side with the height left to the clock: the child's own kick, but a soft one (it
+         counts as a save like any other, with the banner's height tip; no slow motion) */
+      else if (auto) { var sf = softShot(s.lockX); s.softKick = true; s.lockX = sf.x; s.lockY = sf.y; }
       emit('lockY', { y: s.lockY, auto: !!auto });
-      if (!s.autoKick) {
-        var side = s.lockX < MID - 88 ? 'left' : s.lockX > MID + 88 ? 'right' : 'mid';
-        s.history[side]++;
-      }
       s.phase = 'windup'; s.phaseT = 0; s.idleT = 0;
     }
-    /* STRIKE: the result is decided here, once, and frozen in s.pending. A decider kick scores no
-       points and is no Star Strike (it never touches the round's score); it always plays in slow-mo */
+    /* STRIKE: the result is decided here, once, and frozen in s.pending: where the ball goes against
+       this rival's reach, nothing else. Only now does the keeper have a move (he reacts to the ball):
+       s.dive and his glove spot s.gx, s.gy. A decider kick scores no points and is no Star Strike (it
+       never touches the round's score); it always plays in slow-mo */
     function enterStrike() {
-      var x = s.lockX, y = s.lockY, res = outcome(x, y, s.dive), dec = s.decider > 0;
+      var x = s.lockX, y = s.lockY, res = outcome(x, y, rival), dec = s.decider > 0;
+      var gl = gloveFor(x, y, rival);
+      s.dive = diveFor(x, y, rival); s.gx = Math.round(gl.x); s.gy = Math.round(gl.y); s.keeperT = 0;
       var top = res === 'goal' && isTopCorner(x, y), star = res === 'goal' && s.hype >= 4 && !dec;
       var kind = res === 'miss' ? missKind(x, y) : res;
       var pts = dec ? 0 : shotPoints(res, top, s.hype);
       var topSlow = top && s.topSlows < 2 && !dec;
-      s.close = !s.autoKick && (res === 'save' || kind === 'post' || kind === 'bar' || s.final || topSlow || dec);
+      s.close = !s.autoKick && !s.softKick && (res === 'save' || kind === 'post' || kind === 'bar' || s.final || topSlow || dec);
       if (topSlow) s.topSlows++;
       s.replay = res === 'goal' && !dec && ((top && s.corners === 0) || s.final);
-      s.pending = { res: res, kind: kind, top: top, star: star, pts: pts, auto: s.autoKick };
+      s.pending = { res: res, kind: kind, top: top, star: star, pts: pts, auto: s.autoKick, soft: s.softKick };
       s.phase = 'strike'; s.phaseT = 0;
       snd('kick');
       if (s.final || dec) { musicLowpass(18000, 0.5); music('drop'); }
-      emit('strike', { res: res, kind: kind, top: top, star: star, pts: pts, slow: s.close, replay: s.replay, rushed: s.rushed, decider: s.decider });
+      emit('strike', { res: res, kind: kind, top: top, star: star, pts: pts, slow: s.close, replay: s.replay, dive: s.dive, decider: s.decider });
     }
     function setHype(to) {
       var from = s.hype; if (to === from) return;
@@ -498,11 +512,10 @@
     /* a decider's result: kept in s.deciders and the kick log (the views show the last logged kick),
        never in the score, goals, hype, streaks, the Cheer Boost or the medal */
     function deciderResult(p) {
-      var d = { n: s.decider, kick: s.kick, shot: s.shot, x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, top: p.top, rushed: s.rushed };
+      var d = { n: s.decider, kick: s.kick, shot: s.shot, x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, top: p.top };
       s.deciders.push(d);
-      if (p.res === 'save' && s.rushed) s.rushedSaves++;
-      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, pts: 0, top: p.top, star: false, slow: s.close, replay: false, hypeBefore: s.hype, rushed: s.rushed, decider: s.decider });
-      emit('result', { res: p.res, kind: p.kind, top: p.top, star: false, pts: 0, dive: s.dive, x: s.lockX, y: s.lockY, rushed: s.rushed, decider: s.decider });
+      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, gx: s.gx, gy: s.gy, res: p.res, kind: p.kind, pts: 0, top: p.top, star: false, slow: s.close, replay: false, hypeBefore: s.hype, decider: s.decider, soft: !!p.soft });
+      emit('result', { res: p.res, kind: p.kind, top: p.top, star: false, pts: 0, dive: s.dive, x: s.lockX, y: s.lockY, decider: s.decider, soft: !!p.soft });
       if (p.res === 'goal') { snd('correct', 0.7); snd('applause'); }
       else if (p.res === 'save') snd('save');
       else if (p.kind === 'post' || p.kind === 'bar') { snd('boing'); snd('miss', 0.5); }
@@ -514,7 +527,7 @@
       s.phase = 'result'; s.phaseT = 0; s.resT = 0; s.resLen = s.replay ? T.RESULT_REPLAY : T.RESULT;
       s.result = p.res; s.kind = p.kind; s.flight = 1; s.slow = 1;
       if (s.decider) { deciderResult(p); return; }
-      if (p.res === 'save' && s.rushed) s.rushedSaves++;
+      if (p.res === 'save' && !p.auto && !p.soft && s.dive === 'stay') s.midSaves++;
       s.score += p.pts;
       if (p.auto) { s.autoKicks++; s.streak = 0; to = hb; }
       else if (p.res === 'goal') {
@@ -525,8 +538,8 @@
         s.streak = 0; s.nonGoalRun++;
         if (p.kind === 'post' || p.kind === 'bar') { s.posts++; to = Math.max(0, hb - 1); } else to = 0;
       }
-      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, res: p.res, kind: p.kind, pts: p.pts, top: p.top, star: p.star, slow: s.close, replay: s.replay, hypeBefore: hb, rushed: s.rushed, auto: !!p.auto });
-      emit('result', { res: p.res, kind: p.kind, top: p.top, star: p.star, pts: p.pts, dive: s.dive, x: s.lockX, y: s.lockY, rushed: s.rushed, auto: !!p.auto });
+      s.log.push({ x: s.lockX, y: s.lockY, dive: s.dive, gx: s.gx, gy: s.gy, res: p.res, kind: p.kind, pts: p.pts, top: p.top, star: p.star, slow: s.close, replay: s.replay, hypeBefore: hb, auto: !!p.auto, soft: !!p.soft });
+      emit('result', { res: p.res, kind: p.kind, top: p.top, star: p.star, pts: p.pts, dive: s.dive, x: s.lockX, y: s.lockY, auto: !!p.auto, soft: !!p.soft });
       if (p.res === 'goal') {
         snd('correct', 0.7); snd('combo', 1, to);
         if (p.top) { snd('applause'); snd('powerup'); } else if (p.star) { snd('applause'); snd('star'); }
@@ -547,8 +560,7 @@
       if (!duel || !duel.deciders) { round.done = true; return; }
       s.decider = 0;
       resetKick();
-      s.kick = Math.min(DUEL.DIVES - 1, SHOTS + lastDecider());   /* (the next decider's number; nothing is drawn yet) */
-      s.dive = 'stay'; tellAt(rival.id, 'stay', 0, s.clock, s.tell);
+      s.kick = Math.min(DUEL.KICKS - 1, SHOTS + lastDecider());   /* (the next decider's number) */
       s.waitDecide = true; s.decideT = 0;
       var q = s.queued; s.queued = null;
       if (q) applyDecide(q.what, q.n);
@@ -556,7 +568,8 @@
     /* the last decider number played (0 before the first) */
     function lastDecider() { return s.deciders.length ? s.deciders[s.deciders.length - 1].n : 0; }
     /* round.decide(what, n): 'end' finishes the round; 'decider' plays decider n (default: the next one;
-       n equal to the last one replays it, as 'retake' does: the same keeper move, after both missed) */
+       n equal to the last one replays it, as 'retake' does after both missed: the same kick number, so
+       the same marker starts, against the same keeper, who only ever reacts to the ball) */
     function applyDecide(what, n) {
       if (what === 'end') { round.done = true; s.waitDecide = false; return true; }
       var last = lastDecider();
@@ -589,8 +602,8 @@
       if (allAuto()) return 'Tap KICK once for the side, then again for the height.';
       var un = newlyUnlocked();
       if (un) return un.name + ' is unlocked: try him next!';
-      /* the coach line (ES-1): after two or more quick kicks the keeper read and saved */
-      if (s.rushedSaves >= 2) return COPY.rushedCard[1];
+      /* the coach line: after two or more saves he made without having to dive */
+      if (s.midSaves >= 2) return COPY.coach;
       if (s.goals < 5) return 'Score 5 goals to earn the ENCORE dance!';
       var top = Math.max(best0, s.score), nm = null;
       for (var i = 0; i < MEDALS.length; i++) if (top < MEDALS[i].score) { nm = MEDALS[i]; break; }
@@ -602,6 +615,10 @@
     function lastKickLanded() { return s.phase === 'result' && !s.decider && s.shot >= SHOTS - 1 && !(duel && duel.deciders); }
     /* QA2C-2: every kick of the round went with no tap: nothing to save, no medal */
     function allAuto() { return s.autoKicks >= SHOTS; }
+    /* the results are up (the shell calls onFinish as it puts them up, however the round ended: its last kick,
+       a challenge's 'end', the time limit, 🏝️ Exit after the last kick): no in-round label stays ('FINAL KICK'
+       on the results, QA 27 Oct): the pill is empty and the 2D canvas draws no words */
+    function over() { return s.finished; }
     function kickLine() { return s.decider ? COPY.deciderChip + ' ' + s.decider : s.waitDecide ? COPY.allKicks : s.final ? 'FINAL KICK' : 'kick ' + Math.min(SHOTS, s.shot + 1) + ' of ' + SHOTS; }
 
     /* the intro can be tapped away (never past a closed gate or the decider wait) */
@@ -610,13 +627,11 @@
        mode) the challenge has opened the kick; a gate that held gets one short beat after it opens */
     function stepReady(dt) {
       if (s.waitDecide) {
-        tellAt(rival.id, 'stay', 0, s.clock, s.tell);
         s.decideT += dt;
         if (s.decideT >= DUEL.DECIDE_MAX) applyDecide('end');
         return;
       }
       if (!s.kickSent) { s.kickSent = true; emit('kick', { shot: s.shot, final: s.final, rival: s.rival, kick: s.kick, decider: s.decider }); }
-      tellAt(rival.id, s.dive, 0, s.clock, s.tell);
       if (s.phaseT < Math.max(s.intro ? T.INTRO : T.READY, s.readyMin)) return;
       if (gated() && s.holdT < DUEL.HOLD_MAX) { s.held = true; s.holdT += dt; return; }
       if (s.held) { s.held = false; s.readyMin = s.phaseT + DUEL.OPEN_BEAT; return; }
@@ -624,7 +639,7 @@
     }
 
     nextShot();
-    var paint = makePainter(s, look, api, rival, canSkip, personSprites(cfg, look.sig));
+    var paint = makePainter(s, look, api, rival, canSkip, personSprites(cfg, look.sig), over);
     var round = {
       done: false, state: s, wantEvents: false, events: [],
       /* duel mode: the gate is on (the challenge opens each kick with open(k), or turns hold off) */
@@ -644,8 +659,6 @@
             s.aimT += dt; s.idleT += dt;
             if (s.phase === 'aimX') { s.sweepX += dt * s.speed * TAU; s.ax = posX(s.sweepX); }
             else { s.sweepY += dt * s.speed * 1.1 * TAU; s.ay = posY(s.sweepY); }
-            /* a rushed kick's tell stays at full strength: the keeper has already shown his dive */
-            tellAt(rival.id, s.dive, s.rushed ? Math.max(s.aimT, FULL_TELL) : s.aimT, s.clock, s.tell);
             if (!s.nudged && s.idleT >= T.NUDGE) { s.nudged = true; emit('nudge', { axis: s.phase === 'aimX' ? 'x' : 'y' }); }
             if (s.idleT >= T.AUTOLOCK) { if (s.phase === 'aimX') lockX(true); else lockY(true); }
             break;
@@ -656,11 +669,12 @@
             if (s.phaseT >= T.HITSTOP) { s.phase = 'flight'; s.phaseT = 0; }
             break;
           case 'flight':
-            /* 'close' kicks run at 0.3× through the slow window; the keeper's dive scales with them */
+            /* 'close' kicks run at 0.3× through the slow window; the keeper moves with the ball's
+               clock: still for his reaction time, then at his glove spot just as the ball gets there */
             var k = (s.close && s.flight >= T.SLOW_F0 && s.flight < T.SLOW_F1) ? T.SLOW : 1;
             if (k !== s.slow) { s.slow = k; emit('slow', { on: k < 1 }); }
             s.flight = Math.min(1, s.flight + dt / T.FLIGHT * k);
-            s.keeperT = Math.min(1, s.keeperT + dt / T.DIVE * k);
+            s.keeperT = keeperAt(s.flight, rival);
             if (s.flight >= 1) enterResult();
             break;
           case 'result':
@@ -680,7 +694,7 @@
          now or before this device gets there; each opening starts one kick */
       open: function (k) {
         k = Math.floor(Number(k));
-        if (!duel || !(k >= 0 && k < DUEL.DIVES)) return false;
+        if (!duel || !(k >= 0 && k < DUEL.KICKS)) return false;
         if (k > s.openK) s.openK = k;
         return true;
       },
@@ -708,13 +722,14 @@
       /* o.narrow (a phone held upright, QA2C-12): the short form, so 🔊 ⏸ Exit still fit — the
          canvas's kick dots say which kick it is, and the stadium itself shows ENCORE MODE */
       hud: function (o) {
+        if (over()) return '';                               /* the results show the score: no in-round pill */
         var taken = Math.min(SHOTS, s.shot + (s.phase === 'result' ? 1 : 0));
         if (o && o.narrow) return '⚽ ' + s.goals + '/' + taken + ' · ✦ ' + s.hype + ' · ' + fmt(s.score);
         return '⚽ ' + s.goals + '/' + taken + ' · ' + (s.encore ? '✦ ENCORE!' : '✦ Hype ' + s.hype) + ' · ' + fmt(s.score) + ' · ' + kickLine();
       },
       /* B11: over the 3D stadium (its LED, wands and score already show goals, Hype and points) the
          shell's pill says only which kick this is */
-      hud3d: function () { return kickLine(); },
+      hud3d: function () { return over() ? '' : kickLine(); },
       result: function () { return allAuto() ? null : { score: s.score, extra: s.goals }; },
       stats: stats,
       onFinish: function () {
@@ -729,7 +744,7 @@
         if (allAuto()) return '⚽ Ready when you are!';
         var m = medalFor(s.score);
         return m === 'perfect' ? 'PERFECT SHOW! 🎤' : m === 'gold' ? '🥇 GOLD: Amazing shooting!' : m === 'silver' ? '🥈 SILVER: Brilliant shooting!' :
-          m === 'bronze' ? '🥉 BRONZE: Great shooting!' : 'Good practice! Watch the tell!';
+          m === 'bronze' ? '🥉 BRONZE: Great shooting!' : COPY.practice;
       },
       summaryBig: function () { return s.goals + ' / ' + SHOTS + ' goals · ' + fmt(s.score); },
       /* the kicks in numbers (behind 📊 Details on the results) */
@@ -754,12 +769,13 @@
       },
       autoHeld: {},
       autopilot: function () {
-        /* preview / tests: a perfect reader that aims for the top corner away from the dive; like a
-           child who reads the tell, it never picks the side before RUSH_T */
+        /* preview / tests: a sharp shooter who puts every kick into a top corner (left, then right,
+           kick by kick), out of every keeper's reach. It never looks at the keeper: there is nothing
+           to look at before the kick */
         if (round.done) return;
-        var wantX = s.dive === 'left' ? 640 : s.dive === 'right' ? 320 : 300;
-        if (s.phase === 'aimX' && s.phaseT >= T.GUARD && s.aimT >= T.RUSH_T && Math.abs(s.ax - wantX) < 10) round.input('kick', true);
-        else if (s.phase === 'aimY' && s.phaseT >= T.GUARD && Math.abs(s.ay - 190) < 8) round.input('kick', true);
+        var wantX = s.kick % 2 ? 660 : 300;
+        if (s.phase === 'aimX' && s.phaseT >= T.GUARD && Math.abs(s.ax - wantX) < 10) round.input('kick', true);
+        else if (s.phase === 'aimY' && s.phaseT >= T.GUARD && Math.abs(s.ay - 185) < 8) round.input('kick', true);
       },
       render: function (ctx, opts) { paint(ctx, opts); },
       dispose: function () {}
@@ -823,30 +839,237 @@
      kick: 'stand' while aiming, 'runup' as it runs in through the wind-up, 'kick' from the strike, then it
      walks back to its mark; the HUD shows its head and shoulders beside the rival chip ('you vs Mochi').
      The frames come from SLPeopleArt through SLGamePeople.sprites, made once per look and colour and kept
-     in memory only (the menu backdrop asks first, so they are in by the first kick). Until they arrive,
-     or with no character (the classic avatar has no 2D sprite), the view is first-person as before.
+     in memory only (the menu backdrop asks first, so they are in by the first kick). Until they arrive the
+     view is first-person. With no character, or a character whose frames never came, the child kicks as the
+     classic avatar, the figure the 3D view draws in that case (QA 27 Oct: a child with no character no
+     longer vanishes in 2D); with no people helper at all the view is first-person as before (V4.54).
      Drawing only: nothing here reads or writes a rule, a timing or a score. */
   /* standX: its mark (clear of the challenge pips panel at the bottom left); hitX: its foot at the ball;
      promptShift: the prompt line moves right while the figure is drawn, so the words never sit on it */
   var KICK2D = deepFreeze({ standX: 322, hitX: 438, footY: 528, scale: 1.2, back: 0.5, kickHold: 0.35, promptShift: 56,
     frame: { w: 72, h: 120, foot: [36, 116] }, portrait: { x: 763, y: 32, r: 18 } });
   var spriteMemo = [];
-  function personSprites(cfg, color) {
-    var W = win(), GP = W && W.SLGamePeople, ch = cfg && cfg.char, key;
-    if (!GP || typeof GP.sprites !== 'function' || !ch || typeof ch !== 'object' || !ch.look || typeof ch.look !== 'object') return null;
-    try { key = [ch.lk || JSON.stringify(ch.look), ch.wr || JSON.stringify([ch.wear || {}, ch.vr || {}]), color].join('|'); } catch (e) { return null; }
-    for (var i = 0; i < spriteMemo.length; i++) if (spriteMemo[i].key === key) return spriteMemo[i];
-    var m = { key: key, frames: null, portrait: null };
+  function keepSprites(m) {
     spriteMemo.unshift(m);
     if (spriteMemo.length > 2) spriteMemo.length = 2;
+    return m;
+  }
+  function personSprites(cfg, color) {
+    var W = win(), GP = W && W.SLGamePeople, ch = cfg && cfg.char, key;
+    if (!GP || typeof GP.sprites !== 'function') return null;
+    var who = (cfg && (cfg.member || cfg.user)) || {}, face = typeof who.avatar === 'string' && who.avatar ? who.avatar : '🙂';
+    if (!ch || typeof ch !== 'object' || !ch.look || typeof ch.look !== 'object') return classicSprites(color, face);
+    try { key = [ch.lk || JSON.stringify(ch.look), ch.wr || JSON.stringify([ch.wear || {}, ch.vr || {}]), color].join('|'); } catch (e) { return null; }
+    for (var i = 0; i < spriteMemo.length; i++) if (spriteMemo[i].key === key) return spriteMemo[i];
+    var m = keepSprites({ key: key, frames: null, portrait: null });
+    /* the character's frames never came (no art inside the helper's deadline, or none drawn): this round
+       kicks as the classic avatar, as the 3D view does, and the next round asks again */
+    function miss() {
+      if (m.frames) return;
+      var cl = classicSprites(color, face);
+      if (cl) { m.frames = cl.frames; m.portrait = cl.portrait; m.classic = true; }
+      var at = spriteMemo.indexOf(m); if (at >= 0) spriteMemo.splice(at, 1);
+    }
     try {
-      Promise.resolve(GP.sprites(cfg, 'shootout', { color: color })).then(function (f) { if (f && f.stand) m.frames = f; }, noop);
-      Promise.resolve(GP.sprites(cfg, ['portrait'], { size: 96, color: color })).then(function (f) { if (f && f.portrait) m.portrait = f.portrait; }, noop);
-    } catch (e) { /* no figure: first-person as before */ }
+      Promise.resolve(GP.sprites(cfg, 'shootout', { color: color })).then(function (f) { if (f && f.stand) m.frames = f; else miss(); }, miss);
+      Promise.resolve(GP.sprites(cfg, ['portrait'], { size: 96, color: color })).then(function (f) { if (f && f.portrait && !m.classic) m.portrait = f.portrait; }, noop);
+    } catch (e) { miss(); }
     return m;
   }
 
-  function makePainter(s, look, api, rival, canSkip, ppl) {
+  /* ---------- the classic avatar in 2D: the 3D view's own default figure ----------
+     models-characters makeAvatar, seen from behind as the kicker cam sees it: the hood in the member colour
+     (a shade darker), a Graphite hoodie with a member chest band and a darker hem, member cuffs and Bone
+     White hands, Night Asphalt joggers, Bone White sneakers on member soles; the HUD portrait faces you,
+     the child's emoji in the hood's opening inside a member rim. Drawn once per colour and face into
+     canvases of the frames' own box (KICK2D.frame at CLASSIC.res times, the feet on its foot point) and the
+     portrait's 96 x 96, so drawKicker and drawPortrait draw it exactly as they draw a character's frames.
+     No canvas (Node) → null: first-person */
+  var CLASSIC = deepFreeze({ res: 3, unit: 100, outline: 2.4, ink: '#14101F', hoodie: '#2E2B3A', hem: '#24212E', legs: '#3A3646', bone: '#F4F2FA',
+    /* per frame: the body's bob and lean (frame px, degrees), each arm's swing out from the side (degrees),
+       each foot's lift (frame px: a leg swinging away from the camera looks shorter) */
+    poses: {
+      stand: { bob: 0, lean: 0, armL: 10, armR: 10, liftL: 0, liftR: 0 },
+      runup: { bob: 1.5, lean: -3, armL: 16, armR: 4, liftL: 7, liftR: 0 },
+      kick: { bob: 3, lean: 4, armL: 57, armR: 31, liftL: 0, liftR: 15 }
+    } });
+  function canvasOf(w, h) {
+    var W = win(), D = W && W.document;
+    if (!D || typeof D.createElement !== 'function') return null;
+    try {
+      var c = D.createElement('canvas'); c.width = w; c.height = h;
+      var x = c.getContext && c.getContext('2d');
+      return x ? { c: c, x: x } : null;
+    } catch (e) { return null; }
+  }
+  function classicSprites(color, face) {
+    var key = 'classic|' + color + '|' + face;
+    for (var i = 0; i < spriteMemo.length; i++) if (spriteMemo[i].key === key) return spriteMemo[i];
+    var F = KICK2D.frame, R = CLASSIC.res, frames = {}, ok = true;
+    ['stand', 'runup', 'kick'].forEach(function (n) {
+      var cv = ok ? canvasOf(F.w * R, F.h * R) : null;
+      if (!cv) { ok = false; return; }
+      try { cv.x.scale(R, R); classicBack(cv.x, CLASSIC.poses[n], color); } catch (e) { ok = false; return; }
+      cv.c.slFrame = n;
+      frames[n] = cv.c;
+    });
+    if (!ok) return null;
+    var pc = canvasOf(192, 192), portrait = null;
+    if (pc) { try { pc.x.scale(2, 2); classicFace(pc.x, color, face); pc.c.slFrame = 'portrait'; portrait = pc.c; } catch (e) { portrait = null; } }
+    return keepSprites({ key: key, frames: frames, portrait: portrait, classic: true });
+  }
+  /* one back-view frame in frame px (72 x 120, the foot point at 36, 116; one unit of the 3D avatar, 1.0 tall,
+     is CLASSIC.unit px). From behind its left arm and leg are on the left */
+  function classicBack(c, p, sig) {
+    var K = CLASSIC, U = K.unit, F = KICK2D.frame, hood = shade(sig, -30);
+    function X(u) { return u * U; }
+    function Y(u) { return -u * U; }
+    function outline(fill) { c.fillStyle = fill; c.fill(); c.strokeStyle = K.ink; c.lineWidth = K.outline; c.stroke(); }
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    c.save(); c.translate(F.foot[0], F.foot[1]);
+    /* the joggers and sneakers (the shadow under them is drawKicker's) */
+    [[-1, p.liftL], [1, p.liftR]].forEach(function (L) {
+      var sx = L[0], lift = L[1], lx = X(0.068 * sx), top = Y(0.27) - p.bob, foot = Y(0.045) - lift, sw = lift > 8 ? 0.8 : 1;
+      c.beginPath(); rr(c, lx - X(0.056), top, X(0.112), foot - top + 2, X(0.05)); outline(K.legs);
+      c.beginPath(); ell(c, lx + X(0.004 * sx), foot + 1, X(0.062) * sw, X(0.034) * sw); outline(K.bone);
+      c.fillStyle = sig; c.fillRect(lx - X(0.05) * sw, foot + 1 + X(0.02) * sw, X(0.1) * sw, X(0.014) * sw);
+    });
+    /* the body bobs and leans about the hips */
+    c.translate(0, Y(0.26) - p.bob); c.rotate(p.lean * Math.PI / 180); c.translate(0, -Y(0.26));
+    /* the sleeves, swung out from the shoulders: member cuffs, Bone White hands */
+    [[-1, p.armL], [1, p.armR]].forEach(function (A) {
+      var sx = A[0], ang = A[1] * Math.PI / 180, len = X(0.2), w = X(0.09), x0 = -w / 2;
+      c.save(); c.translate(X(0.165 * sx), Y(0.575)); c.rotate(-sx * ang);
+      c.beginPath(); rr(c, x0, -w * 0.3, w, len + w * 0.3, w / 2); outline(K.hoodie);
+      c.fillStyle = sig; c.fillRect(x0 + 1.2, len - X(0.04), w - 2.4, X(0.03));
+      c.beginPath(); ell(c, 0, len + X(0.022), X(0.033), X(0.033)); outline(K.bone);
+      c.restore();
+    });
+    /* the hoodie: a rounded body, the member chest band and a darker hem */
+    var bx = X(0.17), by0 = Y(0.615), by1 = Y(0.195), rad = X(0.12);
+    c.save();
+    c.beginPath(); rr(c, -bx, by0, 2 * bx, by1 - by0, rad); c.clip();
+    c.fillStyle = K.hoodie; c.fillRect(-bx, by0, 2 * bx, by1 - by0);
+    c.fillStyle = K.hem; c.fillRect(-bx, Y(0.235), 2 * bx, by1 - Y(0.235));
+    c.fillStyle = sig; c.fillRect(-bx, Y(0.4), 2 * bx, X(0.04));
+    c.restore();
+    c.beginPath(); rr(c, -bx, by0, 2 * bx, by1 - by0, rad); c.strokeStyle = K.ink; c.lineWidth = K.outline; c.stroke();
+    /* the hood from behind: a round shell a shade darker than the member colour, a soft light on its crown and
+       a seam down the back (a kick tips the head forward a little) */
+    var hy = Y(0.775) + (p.lean > 0 ? 1.5 : 0), hr = X(0.225);
+    c.beginPath(); ell(c, 0, hy, hr, hr); outline(hood);
+    c.fillStyle = 'rgba(255,255,255,0.16)'; c.beginPath(); ell(c, -hr * 0.3, hy - hr * 0.35, hr * 0.5, hr * 0.38); c.fill();
+    c.strokeStyle = shade(sig, -70); c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(0, hy - hr * 0.92); c.quadraticCurveTo(-1.5, hy, 0, hy + hr * 0.92); c.stroke();
+    c.restore();
+  }
+  /* the HUD portrait (96 x 96, facing you): Graphite shoulders and Bone White drawstrings, the hood, the child's
+     emoji in its opening and the member rim round it; drawPortrait shows the circle of radius 40 about (48, 46) */
+  function classicFace(c, sig, face) {
+    var K = CLASSIC;
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    c.beginPath(); ell(c, 48, 100, 38, 26); c.fillStyle = K.hoodie; c.fill(); c.strokeStyle = K.ink; c.lineWidth = 3; c.stroke();
+    c.strokeStyle = K.bone; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(42, 78); c.lineTo(41, 92); c.moveTo(54, 78); c.lineTo(55, 92); c.stroke();
+    c.beginPath(); ell(c, 48, 44, 34, 34); c.fillStyle = shade(sig, -30); c.fill(); c.strokeStyle = K.ink; c.lineWidth = 3; c.stroke();
+    c.beginPath(); ell(c, 48, 47, 25, 25); c.fillStyle = K.ink; c.fill();
+    c.font = '38px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffffff';
+    c.fillText(face, 48, 49);
+    c.beginPath(); ell(c, 48, 47, 26, 26); c.strokeStyle = sig; c.lineWidth = 5; c.stroke();
+  }
+
+  /* ---------- the 2D keeper's pose (one goalie-blob with 4 skins) ----------
+     Until the ball is struck he stands in the SAME set pose for every kick of every round (a ready
+     bounce, a slight crouch while you aim; Bop bops straight up and down to the beat): there is no
+     move to show yet, and nothing about where the child is aiming moves him (only his face: a worried
+     look while the height marker is in a top corner, the same on both sides). After the strike he
+     waits his reaction time (s.keeperT stays 0), then dives so that his leading glove arrives at
+     s.gx, s.gy just as the ball does: on the ball for a save, at the edge of his reach for a goal.
+     A pure function of the round state, the rival and reduced motion (memo: the dive's end pose, kept
+     per kick), at module level so tests/game-penalty-react.test.js can check it directly. */
+  var GLOVE_GAP = 46;                                      /* a goal passes at least this far from his glove's centre (≈ a ball's width clear of it) */
+  function keeperPose2d(s, rival, reduced, memo) {
+    rival = rival && rival.style ? rival : rivalById(rival);
+    memo = memo || { key: '', e: null };
+    reduced = !!reduced;
+    function setPose() {
+      /* the set crouch from the first aim until he moves (the dive blends out of it: no pop at the strike) */
+      var set = s.phase === 'aimX' || s.phase === 'aimY' || s.phase === 'windup' || s.phase === 'strike' || s.phase === 'flight' || s.phase === 'result';
+      var cr = set ? 0.35 : 0, beatF = ((s.clock / T.BEAT) % 1 + 1) % 1;
+      var hop = rival.style === 'phones' && !reduced ? 7 * Math.abs(Math.sin(Math.PI * beatF)) : 0;
+      var bounce = (s.phase === 'ready' && !reduced) ? 3 * Math.abs(Math.sin(s.clock * 7)) : 0;
+      var sy = 1 - 0.1 * cr, glow = rival.style === 'glow' ? 0.45 : 0;
+      var p = { cx: MID, cy: LINE - hop - bounce - 58 * sy, rot: 0, sx: 1 + 0.08 * cr, sy: sy,
+        g: [{ x: -47, y: -15, s: 1, glow: glow }, { x: 47, y: -15, s: 1, glow: glow }], face: 'calm', eye: 0, lead: 0, wave: 0 };
+      for (var q = 0; q < 2; q++) { p.g[q].x = (q ? 1 : -1) * lerp(47, 30, cr); p.g[q].y = lerp(-15, 0, cr); p.g[q].s = 1 + 0.15 * cr; }
+      if (s.phase === 'aimY' && s.lockX > POST_L + 6 && s.lockX < POST_R - 6 && s.ay > BAR + 6 && isTopCorner(s.lockX, s.ay)) p.face = 'worried';
+      return p;
+    }
+    /* the glove spot as he will show it: a goal (or a miss) never touches his glove */
+    function gloveSpot(save) {
+      var gx = s.gx, gy = s.gy;
+      if (save || gx == null) return [gx == null ? MID : gx, gy == null ? LINE - 80 : gy];
+      var bx = s.lockX, by = s.lockY, dx = gx - bx, dy = gy - by, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= GLOVE_GAP) return [gx, gy];
+      if (d < 1e-6) { dx = MID - bx; dy = LINE - 60 - by; d = Math.sqrt(dx * dx + dy * dy) || 1; }
+      return [bx + dx / d * GLOVE_GAP, by + dy / d * GLOVE_GAP];
+    }
+    /* his pose at the end of the move (keeperT = 1), built once per kick from the glove spot */
+    function diveEnd(save) {
+      var key = s.kick + ':' + s.shot + ':' + s.lockX + ':' + s.lockY + ':' + s.dive + ':' + save;
+      if (memo.key === key) return memo.e;
+      var dir = s.dive === 'left' ? -1 : s.dive === 'right' ? 1 : 0, G = gloveSpot(save), dh = LINE - G[1];
+      var e = { dir: dir, cx: MID, cy: LINE - 78, rot: 0, lead: dir > 0 ? 1 : 0, g: [[-72, -75], [72, -75]] };
+      if (dir) {
+        /* a dive: flatter for a low ball, more upright for a high one; the lead glove at the top of the bean */
+        e.rot = dir * lerp(1.5, 1.0, clamp01(dh / 150));
+        var lead = [dir < 0 ? -8 : 8, -74], c = Math.cos(e.rot), sn = Math.sin(e.rot);
+        e.cx = G[0] - (lead[0] * c - lead[1] * sn); e.cy = Math.min(LINE - 32, G[1] - (lead[0] * sn + lead[1] * c));
+      } else {
+        /* straight up for a high ball over his middle, a scoop for a low one */
+        e.lead = G[0] < MID ? 0 : 1;
+        e.cx = MID + Math.max(-30, Math.min(30, (G[0] - MID) * 0.4));
+        e.cy = dh > 110 ? LINE - 78 - Math.min(40, dh - 110) : LINE - 62;
+      }
+      /* both gloves in body space: the lead one on the spot, the other just behind it */
+      var cs = Math.cos(-e.rot), sn2 = Math.sin(-e.rot), ddx = G[0] - e.cx, ddy = G[1] - e.cy;
+      var lx = ddx * cs - ddy * sn2, ly = ddx * sn2 + ddy * cs;
+      e.g[e.lead] = [lx, ly];
+      e.g[1 - e.lead] = dir ? [lx - dir * 30, ly + 20] : [lx + (e.lead ? -30 : 30), ly + 8];
+      memo.key = key; memo.e = e;
+      return e;
+    }
+    var p = setPose();
+    if (s.phase !== 'flight' && s.phase !== 'result') return p;
+    var save = (s.phase === 'result' ? s.result : s.pending && s.pending.res) === 'save';
+    var E = diveEnd(save), dir = E.dir;
+    var k = s.phase === 'result' ? 1 : 1 - (1 - s.keeperT) * (1 - s.keeperT), b = { cx: p.cx, cy: p.cy, rot: p.rot };
+    /* still in his reaction time (the ball is on its way, he has not moved): exactly the set pose */
+    if (k <= 0) return p;
+    p.face = 'calm'; p.eye = 0; p.sx = lerp(p.sx, 1, k); p.sy = lerp(p.sy, 1, k); p.lead = E.lead;
+    p.cx = lerp(b.cx, E.cx, k); p.cy = lerp(b.cy, E.cy, k) - Math.sin(k * Math.PI) * (dir ? 18 : 10); p.rot = lerp(b.rot, E.rot, k);
+    for (var n = 0; n < 2; n++) { p.g[n].x = lerp(p.g[n].x, E.g[n][0], k); p.g[n].y = lerp(p.g[n].y, E.g[n][1], k); p.g[n].s = lerp(p.g[n].s, 1, k); }
+    if (save) {
+      p.g[p.lead].s += 0.25 * k;
+      if (k > 0.6) p.face = 'happy';
+      if (rival.style === 'glow') p.g[p.lead].glow = Math.max(p.g[p.lead].glow, k);
+    }
+    if (s.phase === 'result') {
+      var fl = clamp01(s.resT / 0.35);
+      if (dir) {
+        /* a comic belly-flop onto the grass, then (after a save) dizzy sparkles and a friendly wave */
+        p.cy = lerp(E.cy, LINE - 34, fl) - (fl >= 1 && !reduced ? Math.max(0, Math.sin((s.resT - 0.35) * 14)) * 6 * Math.max(0, 1 - (s.resT - 0.35) * 3) : 0);
+        p.rot = lerp(E.rot, dir * 1.5708, fl);
+        if (save && s.resT > 0.35 && s.resT < 1.2) p.face = 'dizzy';
+      } else p.cy = lerp(E.cy, LINE - 58, fl);
+      if (save && s.resT > 1.2) p.wave = Math.sin((s.resT - 1.2) * 8) * 8;
+      p.g[1 - p.lead].y += p.wave;
+    }
+    return p;
+  }
+
+  function makePainter(s, look, api, rival, canSkip, ppl, isOver) {
     var reduced = !!(api && api.reduced);
     var P = { lastN: s.evN, lastClock: s.clock, fx: null, fxTried: false, show: HYPE_SHOW[s.hype] || 0,
       pipPop: [9, 9, 9, 9], pipDrop: [9, 9, 9, 9], banner: null, later: [], trail: [], trailShot: -1,
@@ -945,57 +1168,9 @@
     }
     function bigFont(px) { return P.bagel ? px + 'px "Bagel Fat One", "Baloo 2", sans-serif' : '800 ' + px + 'px "Baloo 2", sans-serif'; }
 
-    /* ---------- keeper: one goalie-blob with 4 skins; pose built from the tell / dive ---------- */
-    function keeperPose() {
-      var t = s.tell, dir = s.dive === 'left' ? -1 : s.dive === 'right' ? 1 : 0;
-      var lean = t.lean || 0, cr = t.crouch || 0;
-      var hop = (t.hop || 0) * 9 * Math.abs(Math.sin(Math.PI * ((s.clock / T.BEAT) % 1)));
-      var bounce = (s.phase === 'ready' && !reduced) ? 3 * Math.abs(Math.sin(s.clock * 7)) : 0;
-      var leanRot = lean * 0.2618, sy = 1 - 0.1 * cr, h = 58 * sy;
-      var fx0 = MID + (t.step || 0) * U + lean * 9.2, fy = LINE - hop - bounce;
-      var p = { cx: fx0 + Math.sin(leanRot) * h, cy: fy - Math.cos(leanRot) * h, rot: leanRot, sx: 1 + 0.08 * cr, sy: sy,
-        g: [{ x: -47, y: -15, s: 1, glow: 0 }, { x: 47, y: -15, s: 1, glow: 0 }], face: 'calm', eye: lean * 3, lead: dir > 0 ? 1 : 0, wave: 0 };
-      if (lean) { var gi = lean < 0 ? 0 : 1, a = Math.abs(lean), sg = gi ? 1 : -1; p.g[gi].x = sg * lerp(47, 38, a); p.g[gi].y = lerp(-15, -33, a); }
-      if (cr) for (var q = 0; q < 2; q++) { p.g[q].x = (q ? 1 : -1) * lerp(Math.abs(p.g[q].x), 30, cr); p.g[q].y = lerp(p.g[q].y, 0, cr); p.g[q].s = 1 + 0.15 * cr; }
-      p.g[0].y -= 23 * (t.gloveL || 0); p.g[0].glow = t.gloveL || 0;
-      p.g[1].y -= 23 * (t.gloveR || 0); p.g[1].glow = t.gloveR || 0;
-      if (s.phase === 'aimY' && s.lockX > POST_L + 6 && s.lockX < POST_R - 6 && s.ay > BAR + 6 && isTopCorner(s.lockX, s.ay)) p.face = 'worried';
-      if (s.phase !== 'flight' && s.phase !== 'result') return p;
-      /* the dive: end poses match REACH, so what you see is what counts */
-      var k = s.phase === 'result' ? 1 : 1 - (1 - s.keeperT) * (1 - s.keeperT), b = { cx: p.cx, cy: p.cy, rot: p.rot };
-      p.face = 'calm'; p.eye = 0; p.sx = lerp(p.sx, 1, k); p.sy = lerp(p.sy, 1, k);
-      var targets;
-      if (dir) {
-        p.cx = lerp(b.cx, MID + dir * 126, k); p.cy = lerp(b.cy, 244, k) - Math.sin(k * Math.PI) * 18; p.rot = lerp(b.rot, dir * 1.31, k);
-        targets = dir < 0 ? [[-8, -74], [10, -64]] : [[-10, -64], [8, -74]];
-      } else {
-        p.cy = lerp(b.cy, LINE - 78, k); p.cx = lerp(b.cx, MID, k); p.rot = lerp(b.rot, 0, k);
-        targets = [[-72, -75], [72, -75]];
-      }
-      for (var n = 0; n < 2; n++) { p.g[n].x = lerp(p.g[n].x, targets[n][0], k); p.g[n].y = lerp(p.g[n].y, targets[n][1], k); p.g[n].s = 1; }
-      var save = (s.phase === 'result' ? s.result : s.pending && s.pending.res) === 'save';
-      if (!dir) p.lead = s.lockX < MID ? 0 : 1;
-      if (save) {
-        /* the near glove snaps onto the ball's endpoint (computed against the end pose) */
-        var endCx = dir ? MID + dir * 126 : MID, endCy = dir ? 244 : LINE - 78, endRot = dir * 1.31;
-        var dx = s.lockX - endCx, dy = s.lockY - endCy, cs = Math.cos(-endRot), sn = Math.sin(-endRot);
-        var lx = dx * cs - dy * sn, ly = dx * sn + dy * cs, w = s.phase === 'result' ? 1 : clamp01((s.flight - 0.6) / 0.25);
-        p.g[p.lead].x = lerp(p.g[p.lead].x, lx, w); p.g[p.lead].y = lerp(p.g[p.lead].y, ly, w); p.g[p.lead].s = 1 + 0.25 * w;
-        p.face = 'happy';
-      }
-      if (s.phase === 'result') {
-        var fl = clamp01(s.resT / 0.35);
-        if (dir) {
-          /* a comic belly-flop onto the grass, then (after a save) dizzy sparkles and a friendly wave */
-          p.cy = lerp(244, LINE - 34, fl) - (fl >= 1 && !reduced ? Math.max(0, Math.sin((s.resT - 0.35) * 14)) * 6 * Math.max(0, 1 - (s.resT - 0.35) * 3) : 0);
-          p.rot = lerp(dir * 1.31, dir * 1.5708, fl);
-          if (save && s.resT > 0.35 && s.resT < 1.2) p.face = 'dizzy';
-        } else p.cy = lerp(LINE - 78, LINE - 58, fl);
-        if (save && s.resT > 1.2) p.wave = Math.sin((s.resT - 1.2) * 8) * 8;
-        p.g[1 - p.lead].y += p.wave;
-      }
-      return p;
-    }
+    /* the keeper: keeperPose2d (module level) with this painter's memo of his dive's end pose */
+    var endMemo = { key: '', e: null };
+    function keeperPose() { return keeperPose2d(s, rival, reduced, endMemo); }
     function toWorld(p, x, y) {
       var X = x * p.sx, Y = y * p.sy, c = Math.cos(p.rot), sn = Math.sin(p.rot);
       return [p.cx + X * c - Y * sn, p.cy + X * sn + Y * c];
@@ -1017,22 +1192,22 @@
       ctx.fillStyle = 'rgba(255,255,255,0.28)'; ell(ctx, 0, 18, 21, 24); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.35)'; ell(ctx, -14, -34, 7, 12); ctx.fill();
       /* skin accessories */
-      if (rival.tell === 'lean') { ctx.fillStyle = rival.trim; rr(ctx, -31, -45, 62, 9, 4); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke(); }
-      else if (rival.tell === 'beat') {
+      if (rival.style === 'band') { ctx.fillStyle = rival.trim; rr(ctx, -31, -45, 62, 9, 4); ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke(); }
+      else if (rival.style === 'phones') {
         ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, -26, 36, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
         ctx.fillStyle = rival.trim; ctx.strokeStyle = INK; ctx.lineWidth = 2.5;
         ell(ctx, -35, -24, 8, 12); ctx.fill(); ctx.stroke(); ell(ctx, 35, -24, 8, 12); ctx.fill(); ctx.stroke();
-      } else if (rival.tell === 'mirror') {
+      } else if (rival.style === 'visor') {
         var vg = ctx.createLinearGradient(0, -48, 0, -34); vg.addColorStop(0, '#FFFFFF'); vg.addColorStop(0.6, '#DDE3F0'); vg.addColorStop(1, '#9AA3B8');
         ctx.fillStyle = vg; rr(ctx, -31, -48, 62, 13, 6); ctx.fill(); ctx.strokeStyle = '#C7B8FF'; ctx.lineWidth = 2.5; ctx.stroke();
       }
       drawFace(ctx, p);
-      /* puff gloves (Glowy's glow is a thicker ring + a ✦, never colour alone) */
+      /* puff gloves (Glowy's glow is a thicker ring + a ✦, never colour alone; the same on both gloves until he saves) */
       for (var i = 0; i < 2; i++) {
         var g = p.g[i], r = 15 * g.s;
         if (g.glow > 0.05) { ctx.fillStyle = rgba(COLORS.cyan, 0.35 * g.glow); ell(ctx, g.x, g.y, r + 12, r + 12); ctx.fill(); }
         ctx.fillStyle = '#ffffff'; ctx.strokeStyle = INK; ctx.lineWidth = 3; ell(ctx, g.x, g.y, r, r); ctx.fill(); ctx.stroke();
-        if (rival.tell === 'glove') {
+        if (rival.style === 'glow') {
           ctx.fillStyle = g.glow > 0.05 ? COLORS.cyan : '#7FB8C8'; ell(ctx, g.x, g.y, 5.5, 5.5); ctx.fill();
           if (g.glow > 0.05) {
             ctx.strokeStyle = COLORS.cyan; ctx.lineWidth = 3 + 3 * g.glow; ell(ctx, g.x, g.y, r + 4, r + 4); ctx.stroke();
@@ -1043,10 +1218,6 @@
       ctx.restore();
       /* world-space extras */
       var head = toWorld(p, 0, -56);
-      if (rival.tell === 'mirror' && s.phase !== 'flight' && s.phase !== 'result') {
-        ctx.fillStyle = '#ffffff'; ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ell(ctx, head[0], head[1] - 32, 16, 14); ctx.fill(); ctx.stroke();
-        outlinedText(ctx, '⇄', head[0], head[1] - 32, '800 20px "Baloo 2", sans-serif', COLORS.pink, 0.01);
-      }
       if (p.face === 'dizzy') {
         for (var d = 0; d < 3; d++) {
           var a = s.clock * 3 + d * 2.094;
@@ -1212,23 +1383,29 @@
       ctx.lineCap = 'butt';
     }
     function drawZones(ctx) {
-      var aiming = s.phase === 'aimX' || s.phase === 'aimY';
+      var aiming = s.phase === 'aimX' || s.phase === 'aimY', zy = LINE - TOP_DH;
       if (aiming) {
         /* top corners twinkle at 0.5 Hz; the one under the reticle brightens */
         var base = reduced ? 0.5 : 0.4 + 0.25 * Math.sin(s.clock * Math.PI);
-        [[POST_L + 6, MID - 88], [MID + 88, POST_R - 6]].forEach(function (z) {
-          var inside = s.phase === 'aimY' && s.lockX > z[0] && s.lockX < z[1] && s.ay > BAR + 6 && s.ay < REACH.left.y0;
-          if (inside) { ctx.fillStyle = 'rgba(255,210,63,0.16)'; ctx.fillRect(z[0], BAR + 6, z[1] - z[0], REACH.left.y0 - BAR - 6); }
+        [[POST_L + 6, MID - BODY], [MID + BODY, POST_R - 6]].forEach(function (z) {
+          var inside = s.phase === 'aimY' && s.lockX > z[0] && s.lockX < z[1] && s.ay > BAR + 6 && s.ay < zy;
+          if (inside) { ctx.fillStyle = 'rgba(255,210,63,0.16)'; ctx.fillRect(z[0], BAR + 6, z[1] - z[0], zy - BAR - 6); }
           ctx.setLineDash([8, 6]); ctx.strokeStyle = rgba(COLORS.gold, inside ? 0.95 : base); ctx.lineWidth = inside ? 4 : 3;
-          ctx.strokeRect(z[0], BAR + 6, z[1] - z[0], REACH.left.y0 - BAR - 6); ctx.setLineDash([]);
+          ctx.strokeRect(z[0], BAR + 6, z[1] - z[0], zy - BAR - 6); ctx.setLineDash([]);
         });
       }
-      var R = REACH[s.dive], a = 0;
-      if (aiming && s.help) a = 0.3 * clamp01(s.aimT * T.LEAN_RATE);
-      else if (s.phase === 'result' && s.result === 'save' && s.resT < 0.6) a = 0.45 * (1 - s.resT / 0.6);   /* the teaching flash */
+      /* the glove zone: everywhere this rival can reach (the same on both sides, every kick), shown
+         while aiming on help kicks and in the Cheer Boost, and as the teaching fade after a save */
+      var a = 0;
+      if (aiming && s.help) a = 0.3 * clamp01(s.aimT * T.HELP_IN);
+      else if (s.phase === 'result' && s.result === 'save' && s.resT < 0.6) a = 0.45 * (1 - s.resT / 0.6);
       if (a > 0.005) {
-        ctx.fillStyle = 'rgba(255,95,162,' + a.toFixed(3) + ')'; ctx.fillRect(R.x0, R.y0, R.x1 - R.x0, LINE - R.y0);
-        ctx.strokeStyle = 'rgba(255,95,162,' + Math.min(0.9, a * 2.4).toFixed(3) + ')'; ctx.lineWidth = 2; ctx.strokeRect(R.x0, R.y0, R.x1 - R.x0, LINE - R.y0);
+        var pts = reachOutline(rival);
+        ctx.beginPath();
+        for (var i = 0; i < pts.length; i++) ctx[i ? 'lineTo' : 'moveTo'](pts[i][0], pts[i][1]);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,95,162,' + a.toFixed(3) + ')'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,95,162,' + Math.min(0.9, a * 2.4).toFixed(3) + ')'; ctx.lineWidth = 2; ctx.stroke();
       }
     }
     function drawAim(ctx) {
@@ -1415,6 +1592,9 @@
 
     return function paint(ctx, opts) {
       var menu = !!(opts && opts.menu);
+      /* the results are up (isOver): the stadium, the keeper and the child only, with no in-round words
+         (no 'FINAL KICK!', no banner, no aim, no kick dots) left under the sheet */
+      var bare = menu || !!(isOver && isOver());
       var dt = Math.max(0, Math.min(0.1, s.clock - P.lastClock)); P.lastClock = s.clock;
       if (!menu) consume();
       advance(dt);
@@ -1427,12 +1607,12 @@
       drawCones(ctx);
       drawPitch(ctx);
       drawGoal(ctx);
-      if (!menu) drawZones(ctx);
+      if (!bare) drawZones(ctx);
       if (ball.behind) drawBall(ctx, ball);
       drawKeeper(ctx, pose);
       if (!ball.behind) drawBall(ctx, ball);
       if (!menu) drawKicker(ctx);
-      if (!menu) {
+      if (!bare) {
         drawAim(ctx);
         drawPrompt(ctx);
         var fx = fxSys(); if (fx) fx.draw(ctx);
@@ -1440,7 +1620,7 @@
         drawEventBanner(ctx);
         drawHud(ctx);
         if (s.phase === 'ready' && s.intro) drawIntro(ctx);
-      }
+      } else if (!menu) drawPortrait(ctx);                 /* over: the child stays (their HUD portrait too), only the words go */
       ctx.restore();
     };
   }
@@ -1453,7 +1633,7 @@
   }
   function idle(ctx, cfg) {
     var c = {}; Object.keys(cfg || {}).forEach(function (k) { c[k] = cfg[k]; });
-    c.seed = 1; c.rng = null; c.challengeRound = null;          /* the backdrop is never a challenge's round */
+    c.seed = 1; c.challengeRound = null;          /* the backdrop is never a challenge's round */
     var r = newRound({ sound: noop, reduced: true }, idleRival(cfg), c);
     r.render(ctx, { menu: true });
   }
@@ -1564,11 +1744,11 @@
   var def = {
     key: 'penalty', title: 'Encore Shootout', subtitle: 'ENCORE SHOOTOUT', emoji: '⚽', LW: LW, LH: LH, defaultVariant: 'std',
     tutorial: [
-      ['👀', 'The keeper shows which way he’ll dive. Kick the OTHER way!'],
+      COPY.aimCard.slice(),
       ['👆', 'Tap for SIDE (blue), tap again for HEIGHT (pink)'],
-      COPY.rushedCard.slice(),
+      COPY.jumpCard.slice(),
       ['✨', '4 goals in a row = ENCORE MODE. Every goal is worth 150!'],
-      ['🎯', 'Top corners can’t be saved… but watch the posts!']
+      ['🌟', 'Top corners can’t be saved… but watch the posts!']
     ],
     controls: [{ id: 'kick', label: '⚽ KICK', side: 'right', wide: true }],
     keys: { ' ': 'kick', 'Enter': 'kick', 'ArrowUp': 'kick' },
@@ -1584,11 +1764,13 @@
   };
 
   var API = {
-    /* unchanged exports */
-    outcome: outcome, isTopCorner: isTopCorner, newRound: newRound, REACH: REACH, SHOTS: SHOTS,
+    outcome: outcome, isTopCorner: isTopCorner, newRound: newRound, SHOTS: SHOTS,
     POST_L: POST_L, POST_R: POST_R, BAR: BAR, LINE: LINE, MID: MID,
+    /* the reacting keeper (PENALTY_RULES 3) */
+    BODY: BODY, TOP_DH: TOP_DH, onTarget: onTarget, inReach: inReach, reachOf: reachOf, reachOutline: reachOutline,
+    diveFor: diveFor, gloveFor: gloveFor, keeperAt: keeperAt, keeperPose2d: keeperPose2d, softShot: softShot, SOFT_DX: SOFT_DX,
     /* Encore Shootout */
-    missKind: missKind, shotPoints: shotPoints, sweepSpeed: sweepSpeed, tellAt: tellAt, readTell: readTell,
+    missKind: missKind, shotPoints: shotPoints, sweepSpeed: sweepSpeed, sweepStart: sweepStart, sweepStartY: sweepStartY,
     medalFor: medalFor, rivalUnlocked: rivalUnlocked, resultLabel: resultLabel, bestFor: bestFor, rivalById: rivalById,
     NUDGE: NUDGE, nudgeText: nudgeText, AUTO_SHOT: AUTO_SHOT,
     AIM: AIM, TIMING: TIMING, RIVALS: RIVALS, MEDALS: MEDALS, MAP: MAP, HYPE_SHOW: HYPE_SHOW, WANDS_LIT: WANDS_LIT,

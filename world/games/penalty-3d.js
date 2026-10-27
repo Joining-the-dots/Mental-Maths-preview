@@ -266,8 +266,8 @@ export async function create(mid, opts) {
     const keeper = M.buildKeeper(A, { rivals: P.RIVALS }); scene.add(keeper.root);
     const ball = M.buildBall(A, { id: ballId, look: ballLook, SL3D }); scene.add(ball.root);
     const trail = M.buildTrail(A); scene.add(trail.mesh);
-    const aim = M.buildAim(A, { cyan: C.NEON.cyan, pink: C.NEON.pink, gold: C.NEON.gold, glove: C.NEON.glove, aimU: P.MAP.AIM_U, corner: P.MAP.CORNER_U });
-    scene.add(aim.group); scene.add(aim.help);           /* the help zone also flashes after a save, outside aiming */
+    const aim = M.buildAim(A, { cyan: C.NEON.cyan, pink: C.NEON.pink, gold: C.NEON.gold, glove: C.NEON.glove, aimU: P.MAP.AIM_U, corner: P.MAP.CORNER_U, reachU: P.MAP.reachU });
+    scene.add(aim.group); scene.add(aim.help);           /* the glove zone also fades in after a save, outside aiming */
     const spot = M.buildFollowSpot(A); scene.add(spot.mesh);
     const fx = FXM.makeFx(A, { sig: sigHex, reduced, seed, halos: layout.length + 8 }); scene.add(fx.group);
     const snow = look.snow ? FXM.makeSnow(A, budget.snow || (tier === 'LOW' ? 60 : tier === 'HIGH' ? 150 : 100)) : null;
@@ -292,7 +292,8 @@ export async function create(mid, opts) {
       if (fan.setWand) fan.setWand(true);
       fan.root.scale.setScalar(C.GEO.AVATAR_SCALE); scene.add(fan.root);
     }
-    const qa = isQa() ? M.buildQa(A, P.MAP.REACH_U, P.MAP.CORNER_U) : null;
+    /* (QA only: the reach of the rival the view opened with) */
+    const qa = isQa() ? M.buildQa(A, P.MAP.reachU(cfg.variant || 'std'), P.MAP.CORNER_U) : null;
     if (qa) scene.add(qa);
     return { sky, stadium, goal, crowd, layout, led, cones, keeper, ball, trail, aim, spot, fx, snow, blobs, kicker, fan, qa };
   }
@@ -317,10 +318,10 @@ export async function create(mid, opts) {
   let litFrac = -1, crowdShown = nFans, crowdTick = 0;
   const sched = { t: new Float32Array(16), name: new Array(16).fill(''), vol: new Float32Array(16) };
   /* inputs / outputs for the pure director */
-  const camIn = { mode: 'menu', lp: '', shot: 0, intro: false, phaseT: 0, flight: 0, close: false, resT: 0, replay: false, res: null, ex: 0, ey: 0, prevEx: 0, aspect: 16 / 9, reduced, t: 0, offY: 0 };
+  const camIn = { mode: 'menu', lp: '', shot: 0, intro: false, phaseT: 0, flight: 0, close: false, resT: 0, replay: false, res: null, ex: 0, ey: 0, prevEx: 0, aspect: 16 / 9, h: 0, reduced, t: 0, offY: 0 };
   const shot = {}, cur = { px: 0, py: 2.6, pz: 16, lx: 0, ly: 1, lz: 0, fov: 26, offY: 0 }, from = { px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0, fov: 26, offY: 0 };
   let camKey = '', blendT = 0, blendDur = 0, fovSet = -1, offSet = -1, aspectSet = -1;
-  const kIn = { lp: 'menu', tellType: 'lean', tell: null, dive: 'stay', clock: 0, phaseT: 0, keeperT: 0, resT: 0, res: null, ex: NaN, ey: NaN, flight: 0, worried: false, reduced, bop: false, intro: false, shot: 0, hasPrev: false, prevDive: 'stay', prevRes: null, prevEx: NaN, prevEy: NaN };
+  const kIn = { lp: 'menu', style: 'band', dive: 'stay', gx: NaN, gy: NaN, clock: 0, phaseT: 0, keeperT: 0, resT: 0, res: null, ex: NaN, ey: NaN, flight: 0, worried: false, reduced, bop: false, intro: false, shot: 0, hasPrev: false, prevDive: 'stay', prevRes: null, prevEx: NaN, prevEy: NaN, prevGx: NaN, prevGy: NaN };
   const kp = C.resetPose({});
   const bIn = { lp: 'ready', phaseT: 0, flight: 0, resT: 0, res: null, kind: null, top: false, ex: 0, ey: 0, catchX: 0, catchY: 0, catchZ: 0, hugX: 0, hugY: 0, hugZ: 0, reduced };
   const bp = {};
@@ -328,11 +329,11 @@ export async function create(mid, opts) {
   const petOpts = { reduced, speed: 0, rate: 1, bpm: C.DANCE_BPM, intensity: 1 }, avOpts = { reduced, speed: 0, rate: 1, bpm: C.DANCE_BPM };
   const kickOpts = people ? avOpts : petOpts, fanOpts = people ? petOpts : avOpts;
   /* the child's figure (kids update): petStage's moments → clips through the people helper */
-  const kmIn = { lp: '', phaseT: 0, resT: 0, res: null, rushed: false, decider: false }, km = {};
+  const kmIn = { lp: '', phaseT: 0, resT: 0, res: null, decider: false }, km = {};
   const skIn = { lp: '', res: null, resT: 0, encore: false, star: false, clock: 0 }, sk = {};
   const clipOpts = { res: null, star: false, sig, pet: !!fanPet };
-  let shrugKick = -1, readyKick = -1;
-  const mt = {}, menuTellOut = {}, ca = {}, pre = C.makePreset(), pips = [0, 0, 0, 0, 0, 0, 0, 0], ct = {};
+  let readyKick = -1;
+  const ca = {}, pre = C.makePreset(), pips = [0, 0, 0, 0, 0, 0, 0, 0], ct = {};
   const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), prevBall = new THREE.Vector3(0, 0.11, 7.5), qBall = new THREE.Quaternion();
   const ZAXIS = new THREE.Vector3(0, 0, 1), rimC = new THREE.Color(), tmpC = new THREE.Color();
   const coneCols = [A.col(C.NEON.pink), A.col(C.NEON.cyan), A.col(C.NEON.violet)], floodCol = A.col('#FFF6C8');
@@ -401,7 +402,7 @@ export async function create(mid, opts) {
   function attach(round) {
     roundRef = round; st = round.state;
     lastN = st.evN || 0; lastClock = st.clock || 0;
-    landedKick = catchKick = heartsKick = tadaKick = glowKick = -1; catchIdx = -1; shrugKick = readyKick = -1;
+    landedKick = catchKick = heartsKick = tadaKick = glowKick = -1; catchIdx = -1; readyKick = -1;
     waveT = -1; boostT = -1; finale = null; trail.reset(); fx.clear(); clearSchedule();
     keeper.setRival(st.rival);
     if (hud) { hud.reset(); hud.setRival(rival()); hud.setHype(st.hype, false); hud.setEncore(!!st.encore); }
@@ -529,8 +530,6 @@ export async function create(mid, opts) {
       boostT = 0; sfx('boost', 0.5);
     } else if (t === 'finale') {
       finale = { encoreDance: !!e.encoreDance, medal: e.medal || null };
-    } else if (t === 'rushed') {
-      shrugKick = e.kick != null ? e.kick : st.kick;      /* KU gameEvents: the keeper read it, the kicker shrugs */
     } else if (t === 'decider') {
       readyKick = e.kick != null ? e.kick : st.kick;      /* KU gameEvents: a decider kick, the kicker stands ready */
     }
@@ -549,7 +548,8 @@ export async function create(mid, opts) {
     /* interpolate the 120 Hz logic by alpha (read-only extrapolation of the same formulas) */
     const ahead = Math.max(0, Math.min(1, alpha || 0)) * STEP;
     const flightI = lp === 'flight' ? Math.min(1, st.flight + ahead * st.slow / C.T.FLIGHT) : st.flight;
-    const keeperI = lp === 'flight' ? Math.min(1, st.keeperT + ahead * st.slow / C.T.DIVE) : st.keeperT;
+    /* the keeper moves on the ball's clock (still for his reaction time): the same formula as the logic */
+    const keeperI = lp === 'flight' ? P.keeperAt(flightI, st.rival) : st.keeperT;
     let axI = st.ax, ayI = st.ay;
     if (lp === 'aimX' && Math.abs(C.markerX(st.sweepX) - st.ax) < 1) axI = C.markerX(st.sweepX + ahead * st.speed * TAU);
     if (lp === 'aimY' && Math.abs(C.markerY(st.sweepY) - st.ay) < 1) ayI = C.markerY(st.sweepY + ahead * st.speed * 1.1 * TAU);
@@ -565,18 +565,21 @@ export async function create(mid, opts) {
     const rp = shot.replayF, inReplay = rp >= 0;
     if (inReplay !== wasReplay) { wasReplay = inReplay; trail.reset(); spinA = 0; }
     /* the keeper */
-    kIn.lp = inReplay ? 'flight' : lp; kIn.tellType = rv.tell; kIn.tell = st.tell; kIn.dive = st.dive; kIn.clock = st.clock;
-    kIn.phaseT = st.phaseT; kIn.keeperT = inReplay ? Math.min(1, rp * C.T.FLIGHT / C.T.DIVE) : keeperI; kIn.resT = st.resT; kIn.res = res;
+    /* (st.dive and st.gx/gy exist only from the strike on: before it he has no move to show) */
+    kIn.lp = inReplay ? 'flight' : lp; kIn.style = rv.style; kIn.dive = st.dive || 'stay'; kIn.clock = st.clock;
+    kIn.gx = st.gx != null ? P.MAP.lx2u(st.gx) : NaN; kIn.gy = st.gy != null ? P.MAP.ly2u(st.gy) : NaN;
+    kIn.phaseT = st.phaseT; kIn.keeperT = inReplay ? P.keeperAt(rp, st.rival) : keeperI; kIn.resT = st.resT; kIn.res = res;
     kIn.ex = st.lockX != null ? ex : NaN; kIn.ey = st.lockY != null ? ey : NaN; kIn.flight = inReplay ? rp : flightI;
     kIn.worried = lp === 'aimY' && st.lockX > P.POST_L + 6 && st.lockX < P.POST_R - 6 && st.ay > P.BAR + 6 && P.isTopCorner(st.lockX, st.ay);
     kIn.bop = rv.id === 'rival_bop'; kIn.intro = !!st.intro; kIn.shot = st.shot;
     kIn.hasPrev = !!prev; kIn.prevDive = prev ? prev.dive : 'stay'; kIn.prevRes = prev ? prev.res : null;
     kIn.prevEx = prev ? P.MAP.lx2u(prev.x) : NaN; kIn.prevEy = prev ? P.MAP.ly2u(prev.y) : NaN;
+    kIn.prevGx = prev && prev.gx != null ? P.MAP.lx2u(prev.gx) : NaN; kIn.prevGy = prev && prev.gy != null ? P.MAP.ly2u(prev.gy) : NaN;
     C.keeperPose(kIn, kp);
     keeper.apply(kp);
-    if (kp.landed && lp === 'result' && st.dive !== 'stay' && landedKick !== kickKey()) { landedKick = kickKey(); sfx('boing', 0.5); }
+    if (kp.landed && lp === 'result' && st.dive && st.dive !== 'stay' && landedKick !== kickKey()) { landedKick = kickKey(); sfx('boing', 0.5); }
     /* Glowy's gloves sparkle when he saves */
-    if (lp === 'result' && res === 'save' && rv.tell === 'glove' && st.resT > 0.12 && glowKick !== kickKey()) {
+    if (lp === 'result' && res === 'save' && rv.style === 'glow' && st.resT > 0.12 && glowKick !== kickKey()) {
       glowKick = kickKey();
       keeper.gloveWorld(true, v1); fx.sparkles(v1.x, v1.y, v1.z, 8, 1.4, cCyan, 0.6, 0.12);
       keeper.gloveWorld(false, v1); fx.sparkles(v1.x, v1.y, v1.z, 8, 1.4, cCyan, 0.6, 0.12);
@@ -587,9 +590,9 @@ export async function create(mid, opts) {
       const a = (reduced ? 0.6 : viewT * Math.PI) + i * TAU / 3;
       fx.glowPool.set(dizzyIdx[i], v2.x + 0.34 * Math.cos(a), v2.y + 0.05 + 0.05 * Math.sin(a * 2), v2.z + 0.18 * Math.sin(a), 0.18, cGold, kp.dizzy, K.ATLAS.sparkle | 0, a);
     }
-    /* Glowy's glove halos follow the tell */
+    /* Glowy's glove halos: a soft glow on both gloves, the saving one lit as it meets the ball */
     for (let g = 0; g < 2; g++) {
-      const on = rv.tell === 'glove' ? (g ? kp.glowR : kp.glowL) : 0;
+      const on = rv.style === 'glow' ? (g ? kp.glowR : kp.glowL) : 0;
       keeper.gloveWorld(g === 0, v1);
       fx.halos.set(gloveHalo[g], v1.x, v1.y, v1.z + 0.12, 0.6 * 1.6, cCyan, 0.8 * on, 0, 0);
     }
@@ -678,7 +681,7 @@ export async function create(mid, opts) {
     blobs.set(blobBall, bp.x, 0.004, bp.z, sh, sh);
   }
   /* the child's figure kicks (petStage's moments mapped by the people helper: kick → shoot, a goal → cheer
-     or the signature move, a save → shrug then thumbs-up, a miss → oops, 'rushed' → shrug, 'decider' →
+     or the signature move, a save → shrug then thumbs-up, a miss → oops, 'decider' →
      ready); the pet cheers from the touchline (hop, dance, sit: never sad) */
   function starNow(lp, res) {
     if (lp !== 'result' || res !== 'goal') return false;
@@ -687,7 +690,6 @@ export async function create(mid, opts) {
   }
   function stagePeople(lp, res) {
     kmIn.lp = lp; kmIn.phaseT = st.phaseT; kmIn.resT = st.resT; kmIn.res = res;
-    kmIn.rushed = !!st.rushed && shrugKick === st.kick;
     kmIn.decider = st.decider > 0 && !st.waitDecide && readyKick === st.kick;
     C.kickerMoment(kmIn, ps, km);
     clipOpts.res = res; clipOpts.star = starNow(lp, res);
@@ -762,9 +764,9 @@ export async function create(mid, opts) {
     }
     /* the help zone (kicks 1–2 before Bronze, and boosted kicks), then the teaching flash after a save */
     let a = 0;
-    if (aiming && st.help) a = 0.35 * Math.min(1, st.aimT * C.T.LEAN_RATE);
+    if (aiming && st.help) a = 0.35 * Math.min(1, st.aimT * C.T.HELP_IN);
     else if (lp === 'result' && st.result === 'save' && st.resT < 0.6) a = 0.45 * (1 - st.resT / 0.6);
-    aim.setHelp(P.MAP.REACH_U[st.dive] || P.MAP.REACH_U.stay, a);
+    aim.setHelp(st.rival, a);
   }
   function updateCones(dt, coneMode, nLit, ex, ey, t) {
     if (!cones.mesh.visible) return;
@@ -835,7 +837,7 @@ export async function create(mid, opts) {
         const cyc = dT % 3, beat = 60 / C.DANCE_BPM;
         if (cyc < 1.02) { kickClip = 'dance'; kickT = 4 * beat + cyc * 2 * beat * 0.98; } else { kickClip = 'cheer'; kickT = cyc; }
       }
-      kIn.lp = 'menu'; kIn.tellType = rival().tell; kIn.tell = null; kIn.clock = resultsT; kIn.reduced = reduced; kIn.bop = rival().id === 'rival_bop'; kIn.worried = false;
+      kIn.lp = 'menu'; kIn.style = rival().style; kIn.clock = resultsT; kIn.reduced = reduced; kIn.bop = rival().id === 'rival_bop'; kIn.worried = false;
       C.keeperPose(kIn, kp);
       const kx = C.lerp(0, DANCE_SPOT.keeper[0], hop), kz = C.lerp(KZ, DANCE_SPOT.keeper[1], hop), dx = kx - kp.cx, dz = kz - kp.cz;
       kp.cx += dx; kp.gLx += dx; kp.gRx += dx; kp.cz += dz; kp.gLz += dz; kp.gRz += dz; kp.hugX += dx; kp.hugZ += dz;
@@ -858,7 +860,7 @@ export async function create(mid, opts) {
     fx.halos.set(ballHalo, 0, 0, 0, 0.1, cSig, 0, 0, 0);
     for (let i = 0; i < 3; i++) fx.glowPool.set(dizzyIdx[i], 0, -5, 0, 0.1, cGold, 0, 0, 0);
     for (let g = 0; g < 2; g++) fx.halos.set(gloveHalo[g], 0, -5, 0, 0.1, cCyan, 0, 0, 0);
-    aim.group.visible = false; aim.setHelp(P.MAP.REACH_U.stay, 0); trail.reset(); goal.ripple(null);
+    aim.group.visible = false; aim.setHelp(null, 0); trail.reset(); goal.ripple(null);
     setWands(dance ? 1 : C.wandsLit(st ? st.hype : 0, !!look.night), false);
     stepWands(dt, 1);
     crowdCtx.bob = dance ? 0.1 : 0.05; crowdCtx.bpm = dance ? C.DANCE_BPM : 112;
@@ -867,19 +869,17 @@ export async function create(mid, opts) {
     stepShared(dt, viewT);
   }
 
-  /* ---------------- MENU / TUTORIAL (the selected rival performs his tell on a loop) ---------------- */
+  /* ---------------- MENU / TUTORIAL (the selected rival bounces in his set pose: no moves to show) ---------------- */
   function updateMenu(dt) {
     menuT += dt;
     const rv = P.rivalById(menuRival);
     if (keeper.rival !== rv.id) keeper.setRival(rv.id);
-    C.menuTell(menuT, mt);
-    P.tellAt(rv.id, mt.dive, mt.aimT, mt.clock, menuTellOut);
-    kIn.lp = 'menu'; kIn.tellType = rv.tell; kIn.tell = menuTellOut; kIn.clock = menuT; kIn.reduced = reduced; kIn.bop = rv.id === 'rival_bop';
+    kIn.lp = 'menu'; kIn.style = rv.style; kIn.clock = menuT; kIn.reduced = reduced; kIn.bop = rv.id === 'rival_bop';
     kIn.worried = false; kIn.intro = false; kIn.hasPrev = false;
     C.keeperPose(kIn, kp);
     keeper.apply(kp);
     for (let g = 0; g < 2; g++) {
-      const on = rv.tell === 'glove' ? (g ? kp.glowR : kp.glowL) : 0;
+      const on = rv.style === 'glow' ? (g ? kp.glowR : kp.glowL) : 0;
       keeper.gloveWorld(g === 0, v1);
       fx.halos.set(gloveHalo[g], v1.x, v1.y, v1.z + 0.12, 0.96, cCyan, 0.8 * on, 0, 0);
     }
@@ -890,7 +890,7 @@ export async function create(mid, opts) {
     placeFan(C.GEO.AVATAR[0], C.GEO.AVATAR[2], C.GEO.AVATAR_YAW, 'idle', menuT);
     ball.root.position.set(0, 0.11, 7.5); ball.root.quaternion.identity(); ball.root.scale.set(1, 1, 1);
     blobs.set(blobBall, 0, 0.004, 7.5, 0.3, 0.3);
-    aim.group.visible = false; aim.setHelp(P.MAP.REACH_U.stay, 0); trail.reset(); goal.ripple(null);
+    aim.group.visible = false; aim.setHelp(null, 0); trail.reset(); goal.ripple(null);
     if (wobbleOn) { goal.wobble(-1, 0); wobbleOn = false; }
     stepWands(dt, 1);
     crowdCtx.bob = 0.03; crowdCtx.bpm = 112;
@@ -980,7 +980,7 @@ export async function create(mid, opts) {
     if (round && round.state && round !== roundRef && (playing || ending)) attach(round);
     const want = playing && roundRef ? 'play' : ending && roundRef && st && st.log && st.log.length ? 'results' : 'menu';
     if (want !== mode) enterMode(want);
-    camIn.aspect = W && H ? W / H : 16 / 9; camIn.t = viewT;
+    camIn.aspect = W && H ? W / H : 16 / 9; camIn.h = H; camIn.t = viewT;     /* H: the stage in CSS px (the fit on a phone held sideways) */
     if (mode === 'play') updatePlay(dt, alpha);
     else {
       if (mode === 'results') updateResults(dt); else updateMenu(dt);

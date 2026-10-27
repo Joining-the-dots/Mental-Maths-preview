@@ -248,6 +248,10 @@
        def.pbText(rec, variant, cfg)
        def.music {track}           with window.SLMusic present
        def.resultsGlass            results sheet as glass over the 3D scene
+       def.fit2d(w, h)             the 2D stage's own framing on this screen (crit-games #5):
+                                   {scale, ox, oy, clip: [x, y, w, h] logic units} or null (letterbox)
+       def.menuArt(el, cfg)        fills the menu's picture (the .slg-emo, def.emoji until then)
+       root[data-game]             the game's key on the shell's root, for a game's own CSS
        round.wantEvents/events[]   logic pushes view events only while wantEvents; the shell
                                    empties events after every draw
        round.countdown(countT, held, isStart), round.pauseReset(), round.padState(id),
@@ -486,6 +490,7 @@
       root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', title);
       root.setAttribute('tabindex', '-1');
       root.setAttribute('data-sl-modal', '1');          /* the app's one-off popups wait for it */
+      root.setAttribute('data-game', def.key);         /* a game's own CSS can scope itself (the kart's phone pads, crit-games #1) */
       /* skin hooks (world/island-encore.css): the player's colour and the count-in beat */
       if (cfg.user && /^#[0-9a-f]{6}$/i.test(cfg.user.color || '')) root.style.setProperty('--sle-member', cfg.user.color);
       if (def.countIn && def.countIn.bpm > 0) root.style.setProperty('--slg-beat', (60 / def.countIn.bpm).toFixed(3) + 's');
@@ -528,6 +533,12 @@
         canvas.height = Math.max(1, Math.round(r.height * dpr));
         var s = Math.min(r.width / def.LW, r.height / def.LH);
         view = { scale: s, ox: (r.width - def.LW * s) / 2, oy: (r.height - def.LH * s) / 2, dpr: dpr };
+        /* def.fit2d(w, h) (optional, crit-games #5): a game frames its own 2D stage on this screen →
+           {scale, ox, oy, clip: [x, y, w, h] in logic units} or null for the letterbox above */
+        if (def.fit2d) {
+          var f = null; try { f = def.fit2d(r.width, r.height); } catch (e) { f = null; }
+          if (f && f.scale > 0 && isFinite(f.ox) && isFinite(f.oy)) view = { scale: f.scale, ox: f.ox, oy: f.oy, dpr: dpr, clip: Array.isArray(f.clip) ? f.clip : null };
+        }
         if (v3) { try { v3.resize(r.width, r.height); } catch (e) { fail3d('resize'); } }
         draw();
       }
@@ -602,13 +613,17 @@
         banner = el('div', 'slg-banner'); banner.textContent = txt; banner.setAttribute('role', 'status');
         mid.appendChild(banner);
       }
+      /* a result (or a saved best) with no time and no score above 0, such as a round of automatic kicks
+         or a show that never got going, is no personal best: it is never saved or celebrated, and a 0 saved
+         by an older version reads as no best at all. A first real score is still a new best */
+      function scoreless(r) { return !!r && typeof r === 'object' && r.ms == null && !(Number(r.score) > 0); }
       /* o (optional): {results: true, result} on the results sheet — a game's pbText then leaves
          out what the sheet already says (QA2C-1: the kart's 'Next: 🥇 Gold … to go' is the next
          step there; QA2C-8: the Debut Run's medal when it is this round's badge) */
       function pbLine(v, o) {
         var key = def.key + ':' + String(v || 'std');
         var rec = cfg.pb && cfg.pb[key];
-        if (!rec) return 'No personal best yet — set one!';
+        if (!rec || scoreless(rec)) return 'No personal best yet — set one!';
         if (def.pbText) { try { var t = o ? def.pbText(rec, v, cfg, o) : def.pbText(rec, v, cfg); if (t) return t; } catch (e) {} }
         return '🏆 Your best: ' + (rec.ms != null ? (rec.ms / 1000).toFixed(2) + ' s' : 'score ' + String(rec.score).replace(/\B(?=(\d{3})+(?!\d))/g, ','));
       }
@@ -651,6 +666,8 @@
         }
         var sc = menuSc = setScreen(ROT_HTML + '<div class="slg-emo">' + def.emoji + '</div><h2>' + esc(title) + '</h2>' + vhtml + ohtml + '<p>' + esc(pbLine(variant)) + '</p>' +
           '<div class="row"><button class="slg-b go" type="button" id="slgPlay">▶ Play</button><button class="slg-b" type="button" id="slgHow">❓ How to play</button>' + bhtml + '</div>' + nhtml + lhtml + locksBelow);
+        /* def.menuArt (crit-games #7): the game may put its own picture in place of its emoji (it keeps the emoji until then) */
+        if (def.menuArt) { var art = sc.querySelector('.slg-emo'); if (art) { try { def.menuArt(art, cfg); } catch (e) {} } }
         if (bhtml) sc.querySelectorAll('[data-mbtn]').forEach(function (b) { b.addEventListener('click', function () { try { if (def.onMenuButton) def.onMenuButton(b.dataset.mbtn, ctl, cfg); } catch (e) {} }); });
         menuBoards(sc, false);
         sc.querySelectorAll('[data-var]').forEach(function (b) { b.addEventListener('click', function () { variant = b.dataset.var; cfg.variant = variant; if (cfg.onSelectVariant) cfg.onSelectVariant(variant); if (v3 && v3.setRound) v3.setRound(null, variant); menu(); }); });
@@ -737,6 +754,9 @@
         if (!round || phase === 'results') return;
         if (round.onFinish) { try { round.onFinish(); } catch (e) {} }
         phase = 'results'; stopLoop(); renderTouch(false); setBanner(null);
+        /* the pill reads the finished round once now (a 3D view may draw no frame after the last step): a
+           game whose round is over says what stays, '' for nothing (the Shootout: no 'FINAL KICK') */
+        if (hudEl && !hudObj) pillText();
         mus('menuMode', true);
         if (cfg.arcade) cfg.arcade.flush();
         var res = round.result(), rnd = round, rv = rVariant;
@@ -825,7 +845,8 @@
             else setTimeout(function () { if (screen === sc && !exited) b.disabled = false; }, GUARD_MS);
           });
         }
-        if (res && cfg.onResult) {
+        var none = !res || scoreless(res), had = cfg.pb && cfg.pb[def.key + ':' + String(rv || 'std')];
+        if (cfg.onResult && !none) {
           Promise.resolve(cfg.onResult(rv, res)).then(function (r) {
             boardLine(sc, rv, res, r);
             var slot = sc.querySelector('#slgPbSlot'); if (!slot) return;
@@ -842,7 +863,14 @@
             }
             offerNext();
           }).catch(function () {});
-        } else offerNext();
+        } else {
+          /* a round with nothing to save (no result: all automatic; or no time and no score above 0) is not sent
+             to be saved (nor to the boards); its slot still says where the best stands, or that there is none
+             yet (not out of game time for today, when the sheet invites no more play) */
+          var slot0 = none && sc.querySelector('#slgPbSlot');
+          if (slot0 && ((had && !scoreless(had)) || !timeUp)) slot0.innerHTML = '<span style="font-weight:700;color:#d9d2f7;">' + esc(pbLine(rv, { results: true, result: res })) + '</span>';
+          offerNext();
+        }
         /* a round with its own main button may hold it back with one line ('Waiting for …'):
            asked now and then twice a second while the sheet is up. The line keeps its height
            when empty, so nothing moves when the wait ends */
@@ -1131,7 +1159,8 @@
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = '#130c2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.setTransform(view.scale * view.dpr, 0, 0, view.scale * view.dpr, view.ox * view.dpr, view.oy * view.dpr);
-        ctx.save(); ctx.beginPath(); ctx.rect(0, 0, def.LW, def.LH); ctx.clip();
+        var c = view.clip;
+        ctx.save(); ctx.beginPath(); if (c) ctx.rect(c[0], c[1], c[2], c[3]); else ctx.rect(0, 0, def.LW, def.LH); ctx.clip();
       }
       function draw() {
         if (v3) {

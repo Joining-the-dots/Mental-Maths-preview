@@ -283,14 +283,50 @@
      upright phone the fixed CAM.dx (2.2 u) put the runner past the edge (QA2C-3) */
   var LOOK_K = 0.6;
   function lookAhead(dx, halfW) { return halfW > 0 && isFinite(halfW) ? Math.min(dx, halfW * LOOK_K) : dx; }
+  /* crit-games #5 (27 Oct 2026): upright on a phone the look-ahead cap (LOOK_K) kept the runner 20% in, but the
+     view is only ~4.3 u wide there: the runner saw half the runway ahead an iPad sees (3.5 u against 7) and the
+     sidekick, ~1.1 u behind, was half off the left edge. A view narrower than UPRIGHT.maxAspect (every phone held
+     upright; an iPad upright is 0.73 or more and keeps today's camera, as does every landscape screen) is framed
+     instead. Its first version widened the view until the runner sat 13% in (2.5× as wide: the runner and the props a
+     third of their size, in a thin band, with more runway than an iPad shows); the review asked for the runner's size
+     to come first. So now:
+     - the view widens at most UPRIGHT.zoomMax times (the runner at least 60% of its old size: about its size on the
+       same phone held sideways) and never past UPRIGHT.halfMax u each side (a shorter phone, already wider, widens less);
+     - the sidekick runs closer behind on an upright phone (UPRIGHT.petDelay, sidekickFollow), so UPRIGHT.room u behind
+       the runner keeps its whole body in view at the fastest part (380 px/s × 0.25 s + 0.39 u, half its body);
+     - the runner sits UPRIGHT.runX in, or as far in as that room needs (about 19% on today's phones: the critique's 12%
+       needs a view so wide the runner shrinks again), and everything else is runway ahead: 1.3-1.7× what it was,
+       never more than an iPad shows.
+     It widens first by the vertical FOV (up to UPRIGHT.fovMax: on a screen this narrow that is still an ordinary
+     sideways angle), then by dollying the camera straight back along its own line (the same angle). Drawing only:
+     the logic never sees it.
+     uprightFrame(aspect, fov) → {fov, k (the dolly, 1 = none), dx (the look-ahead), halfW (the half-width seen),
+     upright (framed this way)} */
+  var UPRIGHT = { maxAspect: 0.65, runX: 0.13, petDelay: 0.25, room: 1.34, zoomMax: 1.65, halfMax: 3.6, fovMax: 72 };
+  function uprightFrame(aspect, fov, out) {
+    out = out || {};
+    var halfW = halfWidthAt(aspect, fov, CAM.z), U = UPRIGHT;
+    out.fov = fov; out.k = 1; out.halfW = halfW; out.dx = lookAhead(CAM.dx, halfW); out.upright = false;
+    if (!(aspect > 0.05) || aspect >= U.maxAspect || !(halfW > 0)) return out;
+    out.upright = true;
+    var want = Math.max(halfW, Math.min(U.room / (2 * U.runX), halfW * U.zoomMax, U.halfMax));
+    out.fov = clamp(2 * Math.atan(want / (CAM.z * aspect)) / DEG, fov, Math.max(fov, U.fovMax));
+    var hw = halfWidthAt(aspect, out.fov, CAM.z);
+    out.k = Math.max(1, want / hw);
+    out.halfW = hw * out.k;
+    out.dx = out.halfW - Math.max(U.room, 2 * U.runX * out.halfW);       /* the runner U.runX in, or as far as the room needs */
+    return out;
+  }
   /* the follow rig: position + look-at for pet x and smoothed height h (yaw/roll always 0).
      lift (optional; the kids update's taller person, KU-CH18): the chase target rises by it, nothing
-     else. halfW (optional): the visible half-width at the pet's depth — caps the look-ahead */
-  function followCam(px, h, out, lift, halfW) {
+     else. halfW (optional): the visible half-width at the pet's depth — caps the look-ahead.
+     frame (optional, uprightFrame): its look-ahead, and the camera dollied back k times along its line */
+  function followCam(px, h, out, lift, halfW, frame) {
     out = out || {};
-    var dx = lookAhead(CAM.dx, halfW);
-    out.x = px + dx; out.y = CAM.y + CAM.ky * h; out.z = CAM.z;
+    var k = frame && frame.k > 1 ? frame.k : 1, dx = frame && isFinite(frame.dx) ? frame.dx : lookAhead(CAM.dx, halfW);
     out.tx = px + dx; out.ty = CAM.lookY + CAM.ky * h + (lift > 0 ? lift : 0); out.tz = 0;
+    out.x = px + dx; out.z = CAM.z * k;
+    out.y = k === 1 ? CAM.y + CAM.ky * h : out.ty + (CAM.y + CAM.ky * h - out.ty) * k;
     return out;
   }
   /* a decaying screen shake (never above amp): `since` seconds after the kick */
@@ -594,9 +630,22 @@
     return ending ? Math.min(trailX, runnerX - (gap > 0 ? gap : PEOPLE.endGap)) : trailX;
   }
   /* the sidekick's depth: PEOPLE.petZ, stepping up to sepZ further upstage as it closes in on the runner
-     (after a tumble the leader is knocked back and the trail catches up), so the two never merge */
-  function sidekickZ(petX, runnerX) {
-    return PEOPLE.petZ - PEOPLE.sepZ * clamp01((petX - (runnerX - PEOPLE.sepGap)) / 0.5);
+     (after a tumble the leader is knocked back and the trail catches up), so the two never merge.
+     gap (optional): 'close' starts here (sidekickFollow's; PEOPLE.sepGap by default) */
+  function sidekickZ(petX, runnerX, gap) {
+    return PEOPLE.petZ - PEOPLE.sepZ * clamp01((petX - (runnerX - (gap > 0 ? gap : PEOPLE.sepGap))) / 0.5);
+  }
+  /* how closely the sidekick follows (crit-games #5 review, 27 Oct 2026): on an upright phone UPRIGHT.petDelay
+     (0.25 s) behind on the runner's recorded path instead of the trail's own `base` (0.35 s), so less view is needed
+     behind the runner to keep it whole (uprightFrame); its 'close' gap shrinks in step (0.9 × 0.25 / 0.35 = 0.64 u,
+     under the 0.73 u it runs at the slowest part, 290 px/s), so it never waits on a straight. Anywhere else: as
+     before. Drawing only: the sidekick never touches a rule. → {delay (s), gap (u)} */
+  function sidekickFollow(aspect, base, out) {
+    out = out || {};
+    var up = aspect > 0.05 && aspect < UPRIGHT.maxAspect && base > UPRIGHT.petDelay;
+    out.delay = up ? UPRIGHT.petDelay : base;
+    out.gap = up ? PEOPLE.sepGap * UPRIGHT.petDelay / base : PEOPLE.sepGap;
+    return out;
   }
   /* follow the leader, waiting (s = the read delay): while the pet at delay d would close in on the runner
      (a tumble's knock-back, a slip) and its point of the path is on the ground, its read time stands still
@@ -923,6 +972,7 @@
     worldX: worldX, worldY: worldY, petX: petX, feetH: feetH, obsCentreX: obsCentreX, kindSizes: kindSizes, look3d: look3d,
     /* light + camera */
     showMix: showMix, lightAt: lightAt, fovFor: fovFor, followCam: followCam, halfWidthAt: halfWidthAt, lookAhead: lookAhead, shakeAt: shakeAt, kickAt: kickAt,
+    UPRIGHT: UPRIGHT, uprightFrame: uprightFrame, sidekickFollow: sidekickFollow,
     moveK: moveK, menuOrbit: menuOrbit, RESULTS: RESULTS, resultsFrame: resultsFrame,
     /* juice + pet + props */
     newJuice: newJuice, resetJuice: resetJuice, juiceEvent: juiceEvent, juiceStep: juiceStep, juiceCam: juiceCam,

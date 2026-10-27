@@ -210,6 +210,7 @@
      - on the test copy (window.SL_QA_COPY) a finished course round is not saved. */
   function onStart(cfg) {
     syncDef();
+    injectPadCss();                                                    /* crit-games #1: the pads fit an upright phone */
     if (!cfg || cfg._kartStart || !coursesOn()) return;
     cfg._kartStart = true;
     hookVariant(cfg);
@@ -297,6 +298,11 @@
   }
 
   function ordinal(n) { return n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'); }
+  /* crit-games #2 (27 Oct 2026): a place never wears a medal icon. '🥈 2nd place!' sat over a '🥉 Bronze' time badge,
+     and 🥉 meant 3rd place, a Bronze time and a Rookie show at once: the medals 🥉 🥈 🥇 are for times only, and a
+     place is '2nd place 🏁' (the place chip in the race already says 'P2/6'). A win is '1st place! 🏁' (it was
+     '1st place: centre stage! 🏁', which wrapped onto two lines on a 390 px phone: the review) */
+  function placeTitle(p) { return p === 1 ? '1st place! 🏁' : ordinal(p) + ' place 🏁'; }
   /* the next step after a first Classic finish (V4.55 fix run B1): the line, and its button */
   var REMIX_NEXT = 'Try the Remix: more obstacles!', REMIX_GO = '🔀 Try the Remix: more obstacles', REMIX_AGAIN = '↻ Race Classic again';
   function TIME_UP(laps) { return 'Time’s up — great driving! Finish all ' + laps + ' laps to set a time.'; }
@@ -373,8 +379,9 @@
     var kartCol = hex((arts.KARTS || {})[cfg.kart], '#e94b4b');
     var sigCol = hex(cfg.user && cfg.user.color, '#6C5CE7');
     var petCol = hex(((arts.PETCOL || {})[cfg.pet && cfg.pet.id] || (arts.PETCOL3 || {})[cfg.pet && cfg.pet.id] || {}).body, STAR_GOLD);
-    /* KU-CH19b: the child at the wheel in 2D, their pet behind (null: V4.55's pet-coloured head) */
-    var drv2d = driverLook(cfg), rider2d = drv2d ? riderLook(cfg, arts) : null;
+    /* KU-CH19b: the child at the wheel in 2D, their pet behind (null: V4.55's pet-coloured head). crit-games #6: with no
+       character (or a look that can't be drawn) the classic avatar drives, as in 3D: its hood from above */
+    var drv2d = driverLook(cfg) || (demo ? null : classicDriver(sigCol)), rider2d = drv2d ? riderLook(cfg, arts) : null;
     var held = {}, fxq = [], realT = 0, later = [], lastSkid = -9, lastChip = -9, lastPip = 0, purrN = 0, lastGap = null;
     var cam = { x: 0, y: 0 };
     function camTarget() { return [Math.max(0, Math.min(L.WW - LW, k.x + Math.cos(k.h) * 90 - LW / 2)), Math.max(0, Math.min(L.WH - LH, k.y + Math.sin(k.h) * 60 - LH / 2))]; }
@@ -515,7 +522,7 @@
         if (autoOnly()) return '🏁 Race complete!';
         var p = placeNow();
         if (!race.rivals.length || p == null) return '🏁 Race complete!';
-        return p === 1 ? '🎤 1st — centre stage!' : p === 2 ? '🥈 2nd place!' : p === 3 ? '🥉 3rd place!' : '💖 Fan Favourite!';
+        return p <= 3 ? placeTitle(p) : '💖 Fan Favourite!';
       },
       /* QA 25 Oct #7: the place is said once on the results: in the title from 1st to 3rd ('🥈 2nd
          place!'), else here ('4th · 1:45.19') */
@@ -918,6 +925,15 @@
       try { Promise.resolve(W.slLoadPeople()).then(fromArt, function () {}); } catch (e) { /* the palette's colour stays */ }
     }
     return m;
+  }
+  /* crit-games #6 (27 Oct 2026): a child with no character drove nobody in 2D (the head was the pet's colour) while
+     3D shows the classic avatar (models-characters makeAvatar: the hoodie in the member colour, an emoji face). From
+     above that is the hood in the member colour with the white of the face at the front, the pet behind as with a
+     character. Only on a page with the games' people helper, as in 3D (without it the pet drives: V4.55) */
+  function classicDriver(col) {
+    var W = win(), GP = W && W.SLGamePeople;
+    if (!GP || typeof GP.charOf !== 'function') return null;
+    return { key: 'classic', face: '#FFFFFF', top: (hexOk(col) || '#6C5CE7').toUpperCase(), art: false, classic: true };
   }
   /* the pet behind the driver: its shape from above and its colours (PETCOL / PETCOL3), or null */
   function riderLook(cfg, arts) {
@@ -1579,6 +1595,34 @@
   }
 
   /* ---------- shell hooks ---------- */
+  /* crit-games #1 (27 Oct 2026): on an upright phone the five pads (⬅ ➡ · ⬇ Brake ✨ GO) were 64 px each and
+     GO 110 px with 10 px gaps, 426 px in all, so GO ran past a 390 px screen (its right edge at 416 px). Up to
+     PADS.maxW wide and upright, a pad is sized to the screen: (100vw − PADS.fixed) / PADS.units, between PADS.min
+     and PADS.max (never under a comfortable 44 px tap), the wide pad PADS.wideK of it, with tighter gaps. The
+     row is PADS.fixed + PADS.units × pad wide, so it fits from 320 px up. Sideways, on an iPad and on a desktop
+     nothing changes (the shell's sizes). Scoped to the kart by the shell's data-game. */
+  /* fontK: under ~61 px the brake pad's words shrink with it ('⬇ Brake' filled a 56 px pad edge to edge at 360 px: the review) */
+  var PADS = { maxW: 440, min: 46, max: 64, wideK: 1.5, side: 8, gap: 6, groupGap: 8, fontK: 0.23 };
+  PADS.units = 4 + PADS.wideK;                                         /* 4 round pads and the wide one (Easy Drive off) */
+  PADS.fixed = 2 * PADS.side + 3 * PADS.gap + PADS.groupGap + 10;      /* both sides, the gaps, and 10 px to spare */
+  function padCss() {
+    var S = 'html body .slg[data-game="kart"] ', P = PADS;
+    return '@media (orientation: portrait) and (max-width: ' + P.maxW + 'px){' +
+      S + '.slg-touch{gap:' + P.groupGap + 'px;padding-left:max(' + P.side + 'px, env(safe-area-inset-left));padding-right:max(' + P.side + 'px, env(safe-area-inset-right));}' +
+      S + '.slg-touch .grp{gap:' + P.gap + 'px;}' +
+      S + '.slg-pad{--slk-pad:clamp(' + P.min + 'px, calc((100vw - ' + P.fixed + 'px) / ' + P.units + '), ' + P.max + 'px);width:var(--slk-pad);height:var(--slk-pad);padding:0;flex:0 0 auto;}' +
+      S + '.slg-pad.wide{width:calc(var(--slk-pad) * ' + P.wideK + ');}' +
+      /* the one pad with a word in it (the arrows, ✨ and GO / ✨ DRIFT keep the shell's 14 px) */
+      S + '.slg-pad[data-ctl="down"]{font-size:min(14px, calc(var(--slk-pad) * ' + P.fontK + '));}' +
+      '}';
+  }
+  function injectPadCss() {
+    if (typeof document === 'undefined' || !document.head || document.getElementById('slkPadCss')) return;
+    var st = document.createElement('style');
+    st.id = 'slkPadCss';
+    st.textContent = padCss();
+    document.head.appendChild(st);
+  }
   /* the brake pad says what it does (V4.55 fix run B11: a bare ⬇ read as 'down') */
   function controlsFor(cfg) {
     var o = loadOpts(cfg);
@@ -1709,7 +1753,7 @@
       buildTrack: KL.buildTrack, newRound: newRound, newProgress: KL.newProgress, updateProgress: KL.updateProgress, nearest: KL.nearest,
       TRACKS: KL.TRACKS, LAPS: KL.LAPS, CHECKS: KL.CHECKS, WALL: KL.WALL, VMAX: KL.VMAX,
       def: def, loadOpts: loadOpts, controlsFor: controlsFor, menuOptions: menuOptions, setOption: setOption, pbText: pbText,
-      COACH: COACH, DUEL: DUEL
+      COACH: COACH, DUEL: DUEL, PADS: PADS, padCss: padCss, placeTitle: placeTitle
     };
   }
 })();

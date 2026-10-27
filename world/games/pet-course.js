@@ -1112,9 +1112,9 @@
      With the games' people helper and a character (cfg.char), the character runs as its side-view frames
      (SLPeopleArt GAME_SPRITES.run: 96 × 120, the foot on the hitbox's foot) and the pet (cfg.pet, none when
      null) follows its recorded path 0.35 s behind at 0.6 scale. The frames are made once per look and colour
-     and kept in memory only (the menu backdrop asks first). Until they arrive, or with no character (the
-     classic avatar has no 2D frames) or no helper, today's pet runs. Drawing only: nothing here reads or
-     writes a rule, a timing, a hitbox or a score. */
+     and kept in memory only (the menu backdrop asks first). Until they arrive, or with no character, the classic
+     avatar runs instead (classicFigure, crit-games #6); with no helper (an older page) today's pet runs alone.
+     Drawing only: nothing here reads or writes a rule, a timing, a hitbox or a score. */
   var FIG2D = { w: 96, h: 120, foot: [48, 116], mid: 58, petScale: 0.6, endGap: 70, flyLift: 20, promptLift: 24,
     /* the pet waits on its own point of the path while its leader tumbles or slips (as in 3D, course-3d-math
        sidekickDelay): closer than sepGap px it stands still, up to waitMax s behind, then hurries back */
@@ -1125,12 +1125,87 @@
     if (!GP || typeof GP.sprites !== 'function' || cfg.demo || !ch || typeof ch !== 'object' || !ch.look || typeof ch.look !== 'object') return null;
     try { key = [ch.lk || JSON.stringify(ch.look), ch.wr || JSON.stringify([ch.wear || {}, ch.vr || {}]), color].join('|'); } catch (e) { return null; }
     for (var i = 0; i < figMemo.length; i++) if (figMemo[i].key === key) return figMemo[i];
-    var m = { key: key, frames: null };
+    var m = { key: key, frames: null, ready: null };
     figMemo.unshift(m);
     if (figMemo.length > 2) figMemo.length = 2;
-    try { Promise.resolve(GP.sprites(cfg, 'run', { game: 'run', color: color })).then(function (f) { if (f && f.run1) m.frames = f; }, function () {}); }
-    catch (e) { /* no figure: the pet runs as before */ }
+    /* ready: settles with the frames (null when none came), for the menu's picture (menuArt) */
+    try { m.ready = Promise.resolve(GP.sprites(cfg, 'run', { game: 'run', color: color })).then(function (f) { if (f && f.run1) m.frames = f; return m.frames; }, function () { return null; }); }
+    catch (e) { m.ready = Promise.resolve(null); /* no figure: the classic avatar runs */ }
     return m;
+  }
+  /* ---------------- the classic avatar in 2D (crit-games #6, 27 Oct 2026) ----------------
+     A child with no character vanished from the 2D Debut Run (the pet ran alone) while 3D shows the classic avatar
+     (models-characters makeAvatar: a hoodie in the member colour with the child's emoji for a face). In 2D the same
+     figure now runs, side on, and the pet follows it exactly as it follows a character: also while a character's
+     frames are still on their way, or never come. Drawn with a few strokes in the frames' place (feet on the
+     hitbox's foot, about as tall as a 96 × 120 frame). Drawing only. A pose: lean (rad, + leans forward), the
+     front and back leg and arm (rad from straight down, + is forward), and an optional squash. */
+  var CLASSIC2D = {
+    leg: 26, torso: 36, head: 24, face: 17, faceX: 4, emojiPx: 24, limb: 9, arm: 26, cheerArm: 40, ink: 3,
+    legCol: '#3B2F4A', faceCol: '#FFFFFF',
+    poses: {
+      run1: { lean: 0.14, legs: [0.6, -0.55], arms: [-0.9, 0.9] },
+      run2: { lean: 0.14, legs: [0.08, -0.08], arms: [0.2, -0.2], bob: 3 },
+      jump: { lean: 0.06, legs: [1.25, 0.7], arms: [-2.2, 2.2] },
+      slide: { lean: -1.4, legs: [1.5, 1.32], arms: [0.5, 0.9], sy: 0.8 },
+      tumble: { lean: 0.3, legs: [1.7, 1.3], arms: [1.5, 1.1] },
+      finish: { lean: 0, legs: [0.16, -0.16], arms: [2.35, -2.35], cheer: true }
+    }
+  };
+  /* the hip's height for a pose: the lower foot on the ground (bob lifts a running stride's passing step) */
+  function classicHip(p) { return CLASSIC2D.leg * Math.max(Math.cos(p.legs[0]), Math.cos(p.legs[1]), 0.15) + (p.bob || 0); }
+  function classicFigure(ctx, name, col, emoji) {
+    var C = CLASSIC2D, p = C.poses[name] || C.poses.run1, hip = classicHip(p), arm = p.cheer ? C.cheerArm : C.arm, sh = -C.torso + 8;
+    function limb(x, y, a, len, colour) {
+      var ex = x + Math.sin(a) * len, ey = y + Math.cos(a) * len;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = INK; ctx.lineWidth = C.limb + 2 * C.ink; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.strokeStyle = colour; ctx.lineWidth = C.limb; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+    ctx.save();
+    if (p.sy) ctx.scale(1, p.sy);
+    ctx.translate(0, -hip);
+    limb(-3, 0, p.legs[1], C.leg, C.legCol);                                 /* the legs, under the hoodie */
+    limb(3, 0, p.legs[0], C.leg, C.legCol);
+    ctx.rotate(p.lean);                                                      /* the body leans; the arms keep their own angle */
+    limb(p.cheer ? -6 : 0, sh, p.arms[1] + p.lean, arm, col);               /* the arms, behind the body and the head: */
+    limb(p.cheer ? 6 : 0, sh, p.arms[0] + p.lean, arm, col);                /* they never cross the face */
+    ctx.fillStyle = col; ctx.strokeStyle = INK; ctx.lineWidth = C.ink; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(-17, 4); ctx.lineTo(17, 4); ctx.lineTo(13, -C.torso); ctx.quadraticCurveTo(0, -C.torso - 7, -13, -C.torso); ctx.closePath(); ctx.fill(); ctx.stroke();
+    var hy = -C.torso - C.head + 8;
+    ctx.beginPath(); ctx.arc(0, hy, C.head, 0, 7); ctx.fill(); ctx.stroke();                 /* the hood */
+    ctx.fillStyle = C.faceCol; ctx.beginPath(); ctx.arc(C.faceX, hy + 2, C.face, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = C.emojiPx + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = INK; ctx.fillText(emoji, C.faceX, hy + 3);
+    ctx.restore();
+  }
+  /* ---------------- the 2D stage on an upright phone (crit-games #5, 27 Oct 2026) ----------------
+     Upright on a phone the 960 × 540 stage was letterboxed into a strip a quarter of the screen high (390 × 219 on a
+     390 × 784 game), dark above and below. On a screen narrower than FIT2D.maxAspect (a phone held upright; never an
+     iPad, nor any screen held sideways, which keep the letterbox) the sky above and the ground below now carry on to
+     the screen's edges, and the stage is cropped on the left only: the runner keeps FIT2D.behind logic px behind it
+     (its sidekick whole, 0.35 s behind at the fastest part) and ALL the runway ahead the letterbox showed (725 px, about
+     2 s of warning: the first version zoomed 1.35× and cut that to 536 px, the review's finding), so it is drawn
+     960 / 900 ≈ 1.07× bigger with the runner ~19% in. More zoom would cost runway ahead or the pet.
+     Drawing only: the logic, its timing and its 960 px of course are the same. */
+  var FIT2D = { maxAspect: 0.65, behind: 175 };
+  function fit2d(w, h) {
+    if (!(w > 0 && h > 0) || w / h >= FIT2D.maxAspect) return null;
+    var x0 = Math.max(0, PET_CX - FIT2D.behind), vw = LW - x0, sc = w / vw, oy = (h - LH * sc) / 2;
+    if (!(sc >= Math.min(w / LW, h / LH)) || oy < 0) return null;       /* never smaller than the letterbox, never cut top or bottom */
+    return { scale: sc, ox: -x0 * sc, oy: oy, clip: [x0, -oy / sc, vw, h / sc] };
+  }
+  /* the logic rectangle on screen now (the canvas through the shell's transform); the stage alone without one */
+  var VIS0 = { x: 0, y: 0, w: LW, h: LH };
+  function visibleRect(ctx) {
+    var m = null, cv = null;
+    try { m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null; cv = ctx.canvas; } catch (e) { m = null; }
+    if (!m || !cv || !(m.a > 0) || !(m.d > 0) || !(cv.width > 0) || !(cv.height > 0)) return VIS0;
+    return { x: -m.e / m.a, y: -m.f / m.d, w: cv.width / m.a, h: cv.height / m.d };
+  }
+  function classicEmoji(cfg) {
+    var who = (cfg && (cfg.member || cfg.user)) || {};
+    return typeof who.avatar === 'string' && who.avatar ? who.avatar : '🙂';
   }
   /* the menu's title: '{name} and {pet}' when the child's figure runs with a sidekick (the start card) */
   function titleFor(cfg) {
@@ -1151,14 +1226,16 @@
     var pop = FX ? FX.banner(reduced) : null;
     var s = round.state, course = round.course, th = round.theme, user = round.user;
     var ucol = /^#[0-9a-f]{6}$/i.test(user.color || '') ? user.color : '#6C5CE7';
-    var lastT = s.t, camY = 0, ledDark = 0, landSq = 0, ooh = 0, perfectT = -9, lastHurtT = -9, starsBg = [];
+    var lastT = s.t, camY = 0, ledDark = 0, landSq = 0, ooh = 0, perfectT = -9, lastHurtT = -9, starsBg = [], vis = VIS0;
     var r = xorshift(17);
     for (var i = 0; i < 46; i++) starsBg.push([r() * LW, r() * (GROUND - 170), 0.6 + r() * 1.6, r() * 6]);
     var petCol = (HAS_WIN && window.SLWorldArt && ((window.SLWorldArt.PETCOL || {})[round.pet.id] || (window.SLWorldArt.PETCOL3 || {})[round.pet.id])) || { body: '#e3b077', dark: '#b8834f' };
     var archCols = (HAS_WIN && window.SLWorldArt && window.SLWorldArt.THEME && window.SLWorldArt.THEME[round.variant]) || [th.hill, STAR_GOLD];
     /* the child's figure (KU-CH18): its frames, the sidekick (careRunner's pet; null → none) and its trail */
     var GPw = HAS_WIN ? window.SLGamePeople : null;
-    var fig = GPw && typeof GPw.petTrail === 'function' ? figureFrames(cfg, ucol) : null;
+    /* crit-games #6: no character (or its frames not in, or never coming) → the classic avatar runs (frames null) */
+    var fig = GPw && typeof GPw.petTrail === 'function' && !cfg.demo ? (figureFrames(cfg, ucol) || { key: 'classic', frames: null }) : null;
+    var emoji = classicEmoji(cfg);
     var side = fig && typeof GPw.petOf === 'function' ? GPw.petOf(cfg) : null;
     var trail2 = fig ? GPw.petTrail({ size: FIG2D.ring, delay: FIG2D.reach }) : null, TR2 = {}, flier2 = !!(side && typeof GPw.flies === 'function' && GPw.flies(side.id));
     var baseD = GPw && GPw.TRAIL ? GPw.TRAIL.delay : 0.35, sideD = baseD, sideT = s.t;
@@ -1233,7 +1310,7 @@
       var g = ctx.createLinearGradient(0, 0, 0, GROUND);
       g.addColorStop(0, mix(th.sky[0], NIGHT_TOP, k)); g.addColorStop(0.6, mix(th.sky[1], NIGHT_MID, k * 0.9));
       g.addColorStop(1, mix(th.sky[1], NIGHT_HORIZON, k * 0.6));
-      ctx.fillStyle = g; ctx.fillRect(0, 0, LW, LH);
+      ctx.fillStyle = g; ctx.fillRect(vis.x, vis.y, vis.w, vis.h);   /* the gradient's ends carry on above and below (fit2d) */
       if (k < 0.75) {                                      /* sun / sunset disc */
         ctx.globalAlpha = 1 - k / 0.75; ctx.fillStyle = mix('#FFF096', '#FF9E6B', Math.min(1, k * 2));
         ctx.beginPath(); ctx.arc(820, 90 + k * 160, 44, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
@@ -1293,7 +1370,7 @@
       ctx.restore();
     }
     function runway(ctx, cam, k) {
-      ctx.fillStyle = mix(th.soil, '#2A1B5E', k * 0.45); ctx.fillRect(cam - 40, GROUND, LW + 80, LH - GROUND + 400);
+      ctx.fillStyle = mix(th.soil, '#2A1B5E', k * 0.45); ctx.fillRect(cam - 40, GROUND, LW + 80, Math.max(LH - GROUND + 400, vis.y + vis.h - GROUND));
       ctx.fillStyle = mix(th.ground, '#3B1E6E', k * 0.35); ctx.fillRect(cam - 40, GROUND, LW + 80, 18);
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
       for (var gx = Math.floor(cam / 60) * 60; gx < cam + LW + 60; gx += 60) ctx.fillRect(gx, GROUND + 30, 30, 6);
@@ -1416,7 +1493,7 @@
     }
     function prompt(ctx, o) {
       var txt = o.kind === 'bar' ? '⬇ SLIDE!' : 'TAP to jump!';
-      var big = s.t - lastHurtT < 1.6, x = o.cueX, y = GROUND - (big ? 190 : 150) - (fig && fig.frames ? FIG2D.promptLift : 0);   /* clear of a figure's head */
+      var big = s.t - lastHurtT < 1.6, x = o.cueX, y = GROUND - (big ? 190 : 150) - (fig ? FIG2D.promptLift : 0);   /* clear of a figure's head */
       ctx.save(); ctx.font = '800 ' + (big ? 26 : 20) + 'px "Baloo 2", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       var w = ctx.measureText(txt).width + 26;
       ctx.fillStyle = 'rgba(255,255,255,0.92)'; rr(ctx, x - w / 2, y - 20, w, 40, 20); ctx.fill();
@@ -1475,13 +1552,14 @@
       if (landSq > 0 && !reduced && !s.sliding) { sx *= 1.08; sy *= 0.9; }
       if (s.phase === 'curtain' && s.endT > 1.0 && !reduced) rot = 0.25 * Math.min(1, (s.endT - 1.0) / 0.4);      /* a little bow */
       if (s.phase === 'finish' && s.endT > 0.5 && !reduced) sy *= 1 + 0.04 * Math.sin(s.endT * 8);               /* a happy bop */
-      var img = F[name] || F.run1;
+      var img = F ? F[name] || F.run1 : null;                 /* no frames: the classic avatar (crit-games #6) */
       ctx.save();
       ctx.fillStyle = 'rgba(40,30,60,0.18)'; ctx.beginPath(); ctx.ellipse(px, GROUND + 2, 30 * Math.max(0.4, 1 - (-s.y) / 400), 6, 0, 0, 7); ctx.fill();
       ctx.translate(px, feet);
       if (rot) { ctx.translate(0, -FIG2D.mid); ctx.rotate(rot); ctx.translate(0, FIG2D.mid); }
       ctx.scale(sx, sy);
-      ctx.drawImage(img, -FIG2D.foot[0], -FIG2D.foot[1], FIG2D.w, FIG2D.h);
+      if (img) ctx.drawImage(img, -FIG2D.foot[0], -FIG2D.foot[1], FIG2D.w, FIG2D.h);
+      else classicFigure(ctx, name, ucol, emoji);
       ctx.restore();
       if (s.eff === 'tumble' && s.onGround && s.effT < 1.4 && !ending) {   /* dizzy ✦ round the head after a tumble lands */
         ctx.save(); ctx.fillStyle = STAR_GOLD; ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
@@ -1500,7 +1578,7 @@
     }
     function pet(ctx) {
       if (trail2) trail2.push(s.t, s.dist, -s.y, s.sliding, !s.onGround);   /* fed every frame, so the pet is on the path when the frames land */
-      if (fig && fig.frames) { figure(ctx); return; }
+      if (fig) { figure(ctx); return; }
       var px = s.dist + PET_CX, feet = GROUND + s.y;
       var imgs = petImages, frame = s.sliding ? 0 : s.onGround ? (Math.floor(s.t * 7.5 * schedV(s.sched) / 300) & 1) : 1;   /* slide = frame 0 squashed */
       if (s.phase === 'finish' || s.phase === 'curtain' || s.phase === 'done') frame = 0;
@@ -1553,15 +1631,20 @@
     }
     function curtains(ctx) {
       if (s.phase !== 'curtain' && !(s.curtain && s.phase === 'done')) return;
-      var k = reduced ? 1 : Math.min(1, s.endT / 1.0), w = LW * 0.42 * k;
+      /* they close on the stage that is on screen: all 960 px in the letterbox, the cropped stage on an upright phone
+         (fit2d), so they meet in the middle of the screen there too (crit-games review) */
+      var x0 = Math.max(0, vis.x), x1 = Math.min(LW, vis.x + vis.w);
+      if (!(x1 - x0 > 1)) { x0 = 0; x1 = LW; }
+      var k = reduced ? 1 : Math.min(1, s.endT / 1.0), w = (x1 - x0) * 0.42 * k;
       for (var side = 0; side < 2; side++) {
         ctx.save();
+        ctx.translate(side ? x1 : x0, 0);
+        if (side) ctx.scale(-1, 1);
         var g = ctx.createLinearGradient(0, 0, 60, 0); g.addColorStop(0, '#FFB3E6'); g.addColorStop(1, '#E8A6FF');
         ctx.fillStyle = g;
-        if (side) { ctx.translate(LW, 0); ctx.scale(-1, 1); }
-        ctx.fillRect(0, 0, w, LH);
+        ctx.fillRect(0, vis.y, w, vis.h);                 /* the whole height on screen (an upright phone's too, fit2d) */
         ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3;
-        for (var f = 20; f < w; f += 34) { ctx.beginPath(); ctx.moveTo(f, 0); ctx.lineTo(f, LH); ctx.stroke(); }
+        for (var f = 20; f < w; f += 34) { ctx.beginPath(); ctx.moveTo(f, vis.y); ctx.lineTo(f, vis.y + vis.h); ctx.stroke(); }
         ctx.restore();
       }
     }
@@ -1590,7 +1673,7 @@
         ctx.fillStyle = got ? '#2B2140' : 'rgba(255,255,255,0.6)'; ctx.font = '800 15px "Baloo 2", sans-serif'; ctx.fillText(LETTERS[l], lx, 72);
       }
       ctx.textAlign = 'right'; ctx.font = '800 20px "Baloo 2", sans-serif'; ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = 'rgba(26,18,64,0.6)'; ctx.lineWidth = 4;
-      var txt = round.treatIcon + ' ' + s.treats + ' · ✦ ' + s.stars + ' · ' + fmt(Math.max(0, Math.round(s.score)));
+      var txt = round.treatIcon + ' ' + s.treats + ' · ✦ ' + s.stars + ' · Score\u00a0' + fmt(Math.max(0, Math.round(s.score)));   /* as the HTML HUD's counter (crit-games #3) */
       ctx.strokeText(txt, LW - 18, 28); ctx.fillText(txt, LW - 18, 28);
       ctx.fillStyle = 'rgba(26,18,64,0.45)'; rr(ctx, 280, LH - 22, 400, 10, 5); ctx.fill();
       ctx.fillStyle = STAR_GOLD; rr(ctx, 280, LH - 22, Math.max(10, 400 * s.progress), 10, 5); ctx.fill();
@@ -1601,6 +1684,7 @@
     return {
       draw: function (ctx) {
         var dt = Math.max(0, Math.min(0.1, s.t - lastT)); lastT = s.t;
+        vis = visibleRect(ctx);
         events();
         if (fx) fx.step(dt); if (shaker) shaker.step(dt); if (pop) pop.step(dt);
         ledDark = Math.max(0, ledDark - dt); landSq = Math.max(0, landSq - dt); ooh = Math.max(0, ooh - dt);
@@ -1672,6 +1756,49 @@
     hudLive++;                                         /* no canvas HUD behind the menu */
     try { r.render(ctx); } finally { hudLive--; }
   }
+  /* ---------------- the menu's picture (crit-games #7, 27 Oct 2026) ----------------
+     The menu was a dark screen with a 🐾 over the title. With the games' people helper on the page it shows who is
+     running instead, as the results do: the child's figure cheering (its own 'finish' frame, or the classic avatar
+     with no character) and the sidekick beside it at the run's 0.6 scale, on a soft shadow. Until a character's frames
+     arrive the 🐾 stays (if they never come, the classic avatar, as in the run); a page without the helper and the
+     shop preview keep the 🐾. Drawn once on a small canvas: no animation. */
+  /* its height: about the 🐾's on a short screen (a phone held sideways: ▶ Play stays where it was), a little more elsewhere */
+  var MENU_ART = { w: 220, h: 132, ground: 124, figX: 142, petX: 64, petScale: 0.6,
+    css: '.slg-emo .slc-menuart{display:block;margin:0 auto;width:auto;height:clamp(54px,12vh,120px);}' +
+      '@media (max-height: 520px){.slg-emo .slc-menuart{height:38px;}}' };
+  function menuArtCss() {
+    if (document.getElementById('slcMenuArtCss') || !document.head) return;
+    var st = document.createElement('style'); st.id = 'slcMenuArtCss'; st.textContent = MENU_ART.css;
+    document.head.appendChild(st);
+  }
+  function menuArt(el, cfg) {
+    var GP = HAS_WIN ? window.SLGamePeople : null;
+    if (!el || !cfg || cfg.demo || !GP || typeof GP.petTrail !== 'function' || typeof document === 'undefined' || typeof document.createElement !== 'function') return;
+    var who = cfg.member || cfg.user || {}, col = /^#[0-9a-f]{6}$/i.test(who.color || '') ? who.color : '#6C5CE7';
+    var pet = typeof GP.petOf === 'function' ? GP.petOf(cfg) : null, m = figureFrames(cfg, col);
+    function paint(frames) {
+      if (el.isConnected === false) return;
+      var A = MENU_ART, cv = document.createElement('canvas'), dpr = Math.min(2, (window.devicePixelRatio || 1)), ctx = cv.getContext && cv.getContext('2d');
+      if (!ctx) return;
+      cv.width = Math.round(A.w * dpr); cv.height = Math.round(A.h * dpr);
+      cv.className = 'slc-menuart'; cv.setAttribute('aria-hidden', 'true');
+      try { menuArtCss(); } catch (e) { /* the canvas keeps its own size */ }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = 'rgba(255,210,63,0.16)'; ctx.beginPath(); ctx.ellipse(A.w / 2, A.ground + 1, 96, 7, 0, 0, 7); ctx.fill();
+      var img = pet && petImages && petImages[0];
+      if (img) { ctx.save(); ctx.translate(A.petX, A.ground); ctx.scale(A.petScale, A.petScale); ctx.drawImage(img, -66, -101, 132, 110); ctx.restore(); }
+      ctx.save(); ctx.translate(A.figX, A.ground);
+      var fr = frames && (frames.finish || frames.run1);
+      if (fr) ctx.drawImage(fr, -FIG2D.foot[0], -FIG2D.foot[1], FIG2D.w, FIG2D.h);
+      else classicFigure(ctx, 'finish', col, classicEmoji(cfg));
+      ctx.restore();
+      el.textContent = '';
+      el.appendChild(cv);
+    }
+    if (!m) { paint(null); return; }                     /* no character: the classic avatar now */
+    if (m.frames) { paint(m.frames); return; }
+    if (m.ready) m.ready.then(function (f) { paint(f || null); });
+  }
 
   /* ---------------- shell wiring ---------------- */
   function mountHud(mid, cfg, api) {
@@ -1716,10 +1843,24 @@
   }
   /* the How-to-play cards for this child: 3 hearts that never come back, and Timing rings (while
      they are on: a new child's first shows, or the child's own pick) get their own card */
+  /* crit-games #4 (27 Oct 2026): the first card said 'Tap or Space to jump' on a phone or an iPad, which has no Space
+     bar. 'Space' is named only on a device with a fine pointer and no touch at all (a computer); a touch screen
+     (a phone, an iPad, a laptop with a touch screen) is told to tap. Space still jumps everywhere. */
+  function keyboardFirst(w) {
+    if (w === undefined) w = HAS_WIN ? window : null;
+    if (!w) return false;
+    try {
+      var nav = w.navigator || {};
+      if ((nav.maxTouchPoints | 0) > 0 || 'ontouchstart' in w) return false;
+      if (typeof w.matchMedia !== 'function' || w.matchMedia('(any-pointer: coarse)').matches) return false;
+      return !!w.matchMedia('(pointer: fine)').matches;
+    } catch (e) { return false; }
+  }
+  var JUMP_CARD = { touch: 'Tap to jump. Tap again in the air to double jump.', keys: 'Tap or Space to jump. Tap again in the air to double jump.' };
   function tutorialFor(cfg) {
     var n = T.HEARTS;
     var cards = [
-      ['👆', 'Tap or Space to jump. Tap again in the air to double jump.'],
+      ['👆', keyboardFirst() ? JUMP_CARD.keys : JUMP_CARD.touch],
       ['⬇️', 'LED gate ahead? Hold ⬇ SLIDE to slip under it.'],
       ['💔', 'You get ' + n + ' hearts and a lost heart never comes back. Bumps cost a heart and spill snacks. Lose all ' + n + ' and the show ends!'],
       ['💗', 'Bounce on pink cushions. Jump on the beat for PERFECT!']
@@ -1882,6 +2023,7 @@
     resultsGlass: true,
     menuOptions: menuOptions, setOption: setOption, pbText: pbText, titleFor: titleFor,
     menuButtons: menuButtons, onMenuButton: onMenuButton,
+    fit2d: fit2d, menuArt: menuArt,                    /* crit-games #5 / #7 (shell hooks; an older shell never asks) */
     preload: preload, idle: idle, newRound: newRound
   };
 
@@ -1891,6 +2033,8 @@
     decodeExtra: decodeExtra, encodeExtra: encodeExtra, medal: medal, MEDALS: MEDALS, autopilotWants: autopilotWants,
     tierOf: tierOf, tumbleL: tumbleL, speedNow: speedNow, ringsFor: ringsFor, ringsByDefault: ringsByDefault, RINGS_KEY: PREF_KEY, def: def, FIG2D: FIG2D, titleFor: titleFor,
     COURSE_RULES: COURSE_RULES, COACH: COACH, RINGS_TRY: RINGS_TRY, DUEL: DUEL, DUEL_FILES: DUEL_FILES, OUT_OF_HEARTS: OUT_OF_HEARTS, SHOWN_FIRST: SHOWN_FIRST,
+    CLASSIC2D: CLASSIC2D, classicFigure: classicFigure, keyboardFirst: keyboardFirst, JUMP_CARD: JUMP_CARD, FIT2D: FIT2D, fit2d: fit2d, visibleRect: visibleRect,
+    MENU_ART: MENU_ART, menuArt: menuArt,
     _session: sess                                     /* test seam: this child's session memory (migrated on read) */
   };
   if (HAS_WIN) window.SLCourse = API;

@@ -328,7 +328,9 @@ function dressGeo(G, kind) {
 }
 export function makeApron(ctx) {
   const K = ctx.K, G = K.G, M = ctx.M, lk = ctx.look;
-  const fgeo = G.paint(G.t(G.normalise(new THREE.PlaneGeometry(140, 26, 14, 4)), { r: [-90, 0, 0] }), col(lk.apron));
+  /* the floor runs from z −15 (as before) to z 25 (it stopped at 11): an upright phone's camera stands back up to
+     z 15 (course-3d-math UPRIGHT, crit-games #5) and the foot of its picture must still be floor */
+  const fgeo = G.paint(G.t(G.normalise(new THREE.PlaneGeometry(140, 40, 14, 6)), { r: [-90, 0, 0], p: [0, 0, 7] }), col(lk.apron));
   const floor = single(fgeo, K.mat('toon'), 'apron');
   const dgeo = dressGeo(G, lk.dress), N = 22, SP = 1.15;
   const dress = im(dgeo, K.mat('toon'), N * 2, 'dress');
@@ -390,9 +392,12 @@ export function makeRunway(ctx) {
   let lastBase = NaN, lastS0 = NaN, lastS1 = NaN;
   return {
     group: group,
-    /* bridge = [x0, x1] world (deck skin), stage = [x0, x1] (catwalk skin) */
-    update: function (camX, bridge, stage) {
-      const base = M.ringBase(camX, SP, 5);
+    /* bridge = [x0, x1] world (deck skin), stage = [x0, x1] (catwalk skin); halfW (optional): the half-width the
+       camera sees at the runway. The 17 tiles (34 u) started 5-7 u behind the camera, so on a wide screen (a phone
+       held sideways: 7 u each side) the runway began ~1.5 u inside the picture's left edge (crit-games review): they
+       start at least halfW + 1.5 u behind it (the runway's far edge sits further back, so it is a little wider there) */
+    update: function (camX, bridge, stage, halfW) {
+      const base = M.ringBase(camX, SP, Math.max(5, (halfW > 0 && isFinite(halfW) ? halfW : 0) + 1.5));
       if (base === lastBase && stage[0] === lastS0 && stage[1] === lastS1) return;
       lastBase = base; lastS0 = stage[0]; lastS1 = stage[1];
       skins[0].count = skins[1].count = skins[2].count = 0;
@@ -1109,6 +1114,8 @@ export function makeBridge(ctx) {
   const water = col(lk.water), deep = col(lk.waterDeep);
   const wgeo = G.merge([
     G.paintBy(G.t(G.normalise(new THREE.PlaneGeometry(1, 5.2, 1, 4)), { r: [-90, 0, 0], p: [0, 0, 3.8] }), function (v) { return water.clone().lerp(deep, M.clamp01((v.z - 1.2) / 6)); }),
+    /* … on to z 25 in the deep colour: an upright phone's camera stands back far enough to see past z 6.4 (crit-games #5) */
+    G.paintBy(G.t(G.normalise(new THREE.PlaneGeometry(1, 18.6, 1, 6)), { r: [-90, 0, 0], p: [0, 0, 15.7] }), function (v) { return water.clone().lerp(deep, M.clamp01((v.z - 1.2) / 6)); }),
     G.paintBy(G.t(G.normalise(new THREE.PlaneGeometry(1, 6.0, 1, 4)), { r: [-90, 0, 0], p: [0, 0, -4.2] }), function (v) { return water.clone().lerp(deep, M.clamp01((-v.z - 1.2) / 6)); })
   ]); own.push(wgeo);
   const waterMesh = single(wgeo, K.mat('toon'), 'water');

@@ -29,7 +29,7 @@
    is used only if it is at most 1,200 characters and holds exactly
    its listed fields, each in range.
 
-     PROTO, GAMES, GAME_IDS        protocol 1; {course: {max 5, rules 2}, penalty: {max 2, rules 2}}
+     PROTO, GAMES, GAME_IDS        protocol 1; {course: {max 5, rules 2}, penalty: {max 2, rules 3}}
      WORDS, OLD_WORDS, isWord(w), word(text), spell(w), newWord(rand, avoid), newSeed(rand)
                                    (OWLS replaced OWL2; OLD_WORDS ['OWL2'] still taken, never drawn)
      ROOM_KINDS, RESERVED_KINDS    ['family', 'class']; ['code'] (refused everywhere)
@@ -37,7 +37,6 @@
      roomId(kind, key, game, w)    'ttq-duel-…' (the room's address on the link-up server)
      eligibility(env)              {family, class, code: false, reason: null | {code, text}}
      parse(data), check(msg, fromHost, game)    a received message, or null
-     dives(seed, n)                the Shootout keeper's pre-rolled moves
      validScore(game, variant, v)  SLBoardsCore.validValue on the board key (a mirror when not loaded)
      standings(rows, game, variant) rows with place, shared, last, rank (ties share; every round ranked)
      rank(place, last, shared)     '1st' · 'Shared 2nd' · '3rd — great effort!' (the last place)
@@ -63,7 +62,7 @@
   var MAX_CHARS = 1200;          /* a message longer than this is never parsed */
   var TEAM_TRIES = 3;            /* shared by everyone in a challenge session */
   var KICKS = 8, DECIDERS = 5;   /* the Shootout: 8 kicks, then up to 5 decider kicks */
-  var DIVE_KICKS = KICKS + DECIDERS;
+  var DIVE_KICKS = KICKS + DECIDERS;   /* the kick numbers a Shootout challenge can use (0 to 12) */
   var NEAR_PART = 0.1;           /* a near miss: within 10% of the score above */
   var RINGS_BIT = 65536;         /* pet-course's PB extra: bit 16 = Timing rings were on (🎯 beside the name) */
   var KEY_RE = /^[0-9a-f]{32}$/; /* a race key, as the Control Centre writes it */
@@ -86,7 +85,7 @@
      variants = the game's board variants in board order (a test pins them to SLBoardsCore) */
   var GAMES = {
     course: { max: 5, rules: 2, name: 'Debut Run', emoji: '🐾', variants: ['course_meadow', 'course_beach', 'course_snow', 'course_candy'] },
-    penalty: { max: 2, rules: 2, name: 'Encore Shootout', emoji: '⚽', variants: ['std', 'rival_bop', 'rival_glowy', 'rival_flip'] }
+    penalty: { max: 2, rules: 3, name: 'Encore Shootout', emoji: '⚽', variants: ['std', 'rival_bop', 'rival_glowy', 'rival_flip'] }
   };
   var GAME_IDS = ['course', 'penalty'];
   /* the board limits of each game, the same on every board of it (validScore's mirror, for a
@@ -104,8 +103,6 @@
   var ROOM_ST = ['lobby', 'playing', 'results'];
   var INFO_ST = ['lobby', 'playing', 'full'];
   var KICK_RES = ['goal', 'save', 'miss'];
-  var DIVES = ['left', 'stay', 'right'];
-  var DIVE_W = [0.36, 0.28, 0.36];            /* the adaptive keeper's starting weights, in its own order */
 
   function isObj(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
   function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
@@ -173,7 +170,7 @@
       aiming: 'aiming',
       decider: '⚡ Decider kicks! Next goal decides.',
       tries: '🤝 Team tries: if you both miss, you both kick again.',
-      /* a retake faces the next pre-rolled keeper move, the same for both (shootout() below) */
+      /* a retake is the next kick number: the same marker starts and the same keeper for both (shootout() below) */
       usedTry: 'You both missed — a team try! Next kick.'
     },
     results: {
@@ -245,7 +242,7 @@
     if (!pool.length) pool = WORDS;
     return pool[Math.floor(draw(rand) * pool.length)];
   }
-  /* a 32-bit seed for a Debut Run stage or a Shootout's keeper moves and marker starts */
+  /* a 32-bit seed for a Debut Run stage or a Shootout's marker starts (its keeper draws nothing: he reacts to the ball) */
   function newSeed(rand) {
     var hi = Math.floor(draw(rand) * 65536), lo = Math.floor(draw(rand) * 65536);
     return ((hi << 16) | lo) >>> 0;
@@ -397,19 +394,8 @@
     } catch (e) { return null; }
   }
 
-  /* ---------- the Shootout keeper ---------- */
-  /* n keeper moves from the challenge seed: xorshift32 (the shell's rng) from seed ^ 0x9E3779B9,
-     with the adaptive keeper's starting weights (left 0.36, stay 0.28, right 0.36, drawn in
-     its own order). Both devices get the same moves; nothing adapts to the shooter. */
-  function dives(seed, n) {
-    var s = ((isInt(seed) ? seed : 0) ^ 0x9E3779B9) >>> 0 || 1, out = [], count = isInt(n) && n > 0 ? Math.min(n, 64) : DIVE_KICKS;
-    for (var i = 0; i < count; i++) {
-      s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
-      var x = s / 4294967296;
-      out.push(x < DIVE_W[0] ? DIVES[0] : x < DIVE_W[0] + DIVE_W[1] ? DIVES[1] : DIVES[2]);
-    }
-    return out;
-  }
+  /* (the Shootout keeper has no pre-rolled moves since PENALTY_RULES 3: he reacts to the ball, so
+     both children face the same keeper without anything being handed over) */
 
   /* ---------- scores and standings ---------- */
   /* a score the game's board would take (SLBoardsCore.validValue on 'game:variant'); an
@@ -542,8 +528,8 @@
        'decider'  level after 8 kicks, or both scored a decider: decider kick m.kick
        'retake'   both missed a decider: a team try is used, decider kick m.kick
        'end'      over: see outcome()
-     Goals level after kick 8 → deciders (up to 5 kicks, retakes included: the round has 13
-     pre-rolled keeper moves, so a retake faces the next one, the same for both). One scores
+     Goals level after kick 8 → deciders (up to 5 kicks, retakes included: the round has 13 kick
+     numbers, so a retake is the next one, with that kick's marker starts for both). One scores
      and the other does not → over. Both miss and no team try is left → a shared top spot, as
      when the 5 deciders run out. stop(why) ends it at once (a stall or a device gone): never
      a forfeit, a level or unfinished shoot-out has no top. Decider kicks never touch a score. */
@@ -652,16 +638,16 @@
     return Object.freeze(o);
   }
   [T, GAMES, LIMITS, EXTRA_MAX, MODES].forEach(deepFreeze);
-  [WORDS, OLD_WORDS, GAME_IDS, ROOM_KINDS, RESERVED_KINDS, SHOW_ST, ROW_ST, SEAT_ST, ROOM_ST, INFO_ST, KICK_RES, DIVES, KART_VARIANTS, BOARD_MAP].forEach(Object.freeze);
+  [WORDS, OLD_WORDS, GAME_IDS, ROOM_KINDS, RESERVED_KINDS, SHOW_ST, ROW_ST, SEAT_ST, ROOM_ST, INFO_ST, KICK_RES, KART_VARIANTS, BOARD_MAP].forEach(Object.freeze);
 
   var API = {
     PROTO: PROTO, GAMES: GAMES, GAME_IDS: GAME_IDS, WORDS: WORDS, OLD_WORDS: OLD_WORDS, T: T, LIMITS: LIMITS, EXTRA_MAX: EXTRA_MAX,
     MAX_CHARS: MAX_CHARS, TEAM_TRIES: TEAM_TRIES, KICKS: KICKS, DECIDERS: DECIDERS, DIVE_KICKS: DIVE_KICKS, NEAR_PART: NEAR_PART,
     RINGS_BIT: RINGS_BIT, ROOM_KINDS: ROOM_KINDS, RESERVED_KINDS: RESERVED_KINDS,
-    SHOW_ST: SHOW_ST, ROW_ST: ROW_ST, SEAT_ST: SEAT_ST, ROOM_ST: ROOM_ST, INFO_ST: INFO_ST, KICK_RES: KICK_RES, DIVES: DIVES,
+    SHOW_ST: SHOW_ST, ROW_ST: ROW_ST, SEAT_ST: SEAT_ST, ROOM_ST: ROOM_ST, INFO_ST: INFO_ST, KICK_RES: KICK_RES,
     MODES: MODES, BOARD_MAP: BOARD_MAP,
     fill: fill, isWord: isWord, word: word, spell: spell, newWord: newWord, newSeed: newSeed, isKind: isKind,
-    roomText: roomText, roomId: roomId, eligibility: eligibility, parse: parse, check: check, dives: dives,
+    roomText: roomText, roomId: roomId, eligibility: eligibility, parse: parse, check: check,
     validScore: validScore, standings: standings, rank: rank, line: line, shootout: shootout, debutTry: debutTry, ringsOn: ringsOn,
     boardKey: boardKey
   };
