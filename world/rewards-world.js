@@ -757,10 +757,13 @@
   function anchors3D() {
     var w = W(), list = [], k = isleNow();
     visTagAt = false;
-    if (mode === 'play' && !skyMapOn && badgeOn(w, me())) {   /* the ✎ over you while there is no character (KU-CH17) */
+    /* the ✎ over you while there is no character (KU-CH17). It steps aside while a game or a show plays, as the 📋 sign
+       does (the post-merge QA, 28 Oct: over the house in hide and seek's last round it took the look behind the house,
+       and its sheet ended the game); a press on one still on screen waits for the game, as a tap on the figure does */
+    if (mode === 'play' && !skyMapOn && !activity && badgeOn(w, me())) {
       var mb = document.createElement('div'); mb.className = 'slw-tag3d';
       mb.innerHTML = '<button type="button" class="slw-mebadge3d" aria-label="' + esc(tx('char.badge')) + '">' + PENCIL() + '</button>';
-      mb.querySelector('button').addEventListener('click', function () { openMyChar(); });
+      mb.querySelector('button').addEventListener('click', function () { if (!activity) openMyChar(); });
       list.push({ el: mb, me: true, dy: 0.12 });
     }
     if (mode === 'play' && !skyMapOn) {
@@ -1878,8 +1881,14 @@
     actTap(uid, it, el);                                  /* island activities (IA-5): stamps, the visitor's tour, wishes, I spy, hide and seek */
     if (shakeTree(uid, it, el)) return;                   /* a Home tree: its season's burst */
     /* in I spy, hide and seek or fetch the house is one more thing to tap (the biggest thing, a hiding place, a throw):
-       it plays, and its sheet waits for the next tap after the game, so the game never ends under the child's finger */
-    if (it.act === 'home' && (actLive('spy') || actLive('hide') || actLive('fetch'))) { if (use3D && stage3d) s3('act', uid, 'home'); else if (el) fx(el, '✦'); return; }
+       it plays, and its sheet waits for the next tap after the game, so the game never ends under the child's finger.
+       A game's ▶ sign the same (the post-merge QA, 28 Oct: a throw at the Debut Run gate opened its lobby and ended
+       fetch): the stage's squish and the game's own answer (the throw, the look, the clue) only, no 'launch' push-in;
+       its game waits for a tap after this one */
+    if ((it.act === 'home' || it.act === 'launch') && (actLive('spy') || actLive('hide') || actLive('fetch'))) {
+      if (it.act === 'home' && use3D && stage3d) s3('act', uid, 'home'); else if (el) fx(el, '✦');
+      return;
+    }
     if (use3D && stage3d) {
       /* the 3D act plays its own animation and sounds; app-level effects stay here */
       switch (it.act) {
