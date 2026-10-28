@@ -5440,7 +5440,11 @@ function updatePointsDisplay() {
      slRoundMark()              the lifetime ⭐ now (a round's start)
      slRoundCoins(mark)         N for a round that started at mark (0 without the core or a mark)
      slRoundCoinsNode(n)        the line, <div class="sl-fin-coins"> (null for 0)
-     slRoundIslandBtn(close, cls)  the 🏝️ My Island button: close() the card, then My Island
+     slRoundGoal()              IA-7 (Island activities §4.5): the goal line beside it, {node, id, enough} or null,
+                                from the learning screens' line ([W3-LEARN] window.slLearnStrip.finish; null without it)
+     slRoundIslandBtn(close, cls)  the 🏝️ My Island button: close() the card, then My Island; IA-7: when the goal line
+                                says 'you have enough now', that item's sheet on My Island (window.slIslandItem); a
+                                trip the island might drop, its sheet by name ([W3-NAV] window.slTripBack)
      slOpenIsland()             My Island: SLWorld.go('island'), else (no island yet, or it said no) setActiveApp('world') */
 function slFinWord(key, fallback, vars) {
   var s = fallback;
@@ -5473,12 +5477,22 @@ function slOpenIsland() {
   if (r === false) { try { setActiveApp('world'); } catch (e) {} }
   return r;
 }
+function slRoundGoal() {
+  try { var S = window.slLearnStrip; return S && typeof S.finish === 'function' ? S.finish() || null : null; } catch (e) { return null; }
+}
 function slRoundIslandBtn(close, cls) {
   var b = document.createElement('button');
   b.type = 'button';
   b.className = cls || 'btn btn-primary';
   b.textContent = slFinWord('finish.island', '🏝️ My Island');
-  b.addEventListener('click', function () { try { if (typeof close === 'function') close(); } catch (e) {} slOpenIsland(); });
+  b.addEventListener('click', function () {
+    try { if (typeof close === 'function') close(); } catch (e) {}
+    var g = slRoundGoal();   /* IA-7: the goal line said 'you have enough now': that item's sheet */
+    if (g && g.enough && typeof g.id === 'string' && g.id && typeof window.slIslandItem === 'function') { try { window.slIslandItem(g.id); return; } catch (e) {} }
+    /* a trip the island might drop (past 3 hours, [W3-NAV] slTripBack): its sheet by name */
+    try { if (typeof window.slTripBack === 'function' && window.slTripBack()) return; } catch (e) {}
+    slOpenIsland();
+  });
   return b;
 }
 /* [/D-INDEX-FIN] */
@@ -6108,6 +6122,8 @@ function finishLightning() {
   const coinLine = slRoundCoinsNode(slRoundCoins(lr.mark));
   const celeEl = document.querySelector('#lrFeedback .golden-celebration');
   if (coinLine && celeEl) celeEl.appendChild(coinLine);
+  const goal = slRoundGoal();   /* [IA-7] the goal line beside it; 🏝️ My Island opens the goal once there is enough */
+  if (goal && celeEl) celeEl.appendChild(goal.node);
 
   const actions = document.getElementById('lrActions');
   actions.innerHTML = `
@@ -9391,6 +9407,8 @@ function finishDailyDrill() {
   const coinLine = slRoundCoinsNode(slRoundCoins(dd.mark));
   const sumEl = document.querySelector('#ddFeedback .dd-summary');
   if (coinLine && sumEl) sumEl.appendChild(coinLine);
+  const goal = slRoundGoal();   /* [IA-7] the goal line beside it; 🏝️ My Island opens the goal once there is enough */
+  if (goal && sumEl) sumEl.appendChild(goal.node);
   if (score === total && !alreadyDone) popConfetti();
   if (score >= 7) playSfx('fanfare');
 
@@ -9618,13 +9636,53 @@ function slDrawIfBlank(id, render) {
      window.slIslandGo(to, o)   My Island, then SLWorld.go(to, o) once the island has loaded (the island's own,
                                 W3-3); without SLWorld.go, My Island alone → Promise<its answer, or false>
      window.slIslandItem(id)    an item's sheet on My Island. A learn-and-come-back trip for that item brings
-                                its sheet back by itself when My Island opens, so then just My Island
-     window.slLearnTripNow()    window.slLearnTrip (contract 1: written by the island, in memory only) while it
-                                is this player's and at most 3 hours old, else null. One that is another
-                                player's or too old has ended, so it goes (WAVE3-PLAN §7)
+                                its sheet back by itself when My Island opens, so then just My Island, while the
+                                island will take it back (slTripHanded, below); else SLWorld.go('item', {id})
+     window.slTripBack()        My Island from the learning screens with a live trip the island might not take
+                                back itself: that trip's sheet (slIslandItem) → its promise; else null, and the
+                                caller opens My Island as it always has (the top bar's My Island, the line's
+                                '🏝️ Back to my island', a finish card's 🏝️ My Island)
+     window.slLearnTripNow()    window.slLearnTrip (contract 1: written by the island) while it is this player's
+                                and live, else null. One that is another player's or over has ended, so it goes
+                                (WAVE3-PLAN §7: a trip ends with a profile change). With no trip in memory, this
+                                player's trip kept on this device comes back first (below)
+   Island activities §4.1 (IA-7; ISLAND-ACTIVITIES-PLAN §4, James 25-26 Oct 2026: a learn-and-come-back trip lasts
+   until the end of the island day on this device, including after a reload; it was 3 hours, in memory only):
+     live                       a trip that names its island day (day 'YYYY-MM-DD', the island's careDay) while
+                                that is today's island day here and it is at most SL_TRIP_KEEP_MS (12 hours, a
+                                backstop) old; a trip without one (an older island's) at most SL_TRIP_MS (3 hours)
+                                old, as before. The same rule as SLNextStep.tripLive(t, who, now, t.day ? today :
+                                undefined). A trip whose time or day is still to come here (this clock behind the
+                                island's) is kept but not shown yet, here and after a reload alike
+     the island's own check     the island takes a trip back by itself (its learn.trip, on any My Island open) while
+                                rewards-world tripOn() keeps it, and every island keeps one up to SL_TRIP_MS (3 hours)
+                                old (slTripHanded). A trip live here for longer (one that names its island day) could
+                                be dropped by an island that still counts 3 hours, so its sheet is asked for by name
+                                instead: SLWorld.go('item', {id}), which opens it and ends the trip, as the island's
+                                own way back does (IA-7 skeptic round; the island's tripOn reading the day is IA-5's)
+     today's island day here    SLWorldCore.dayKey(Date.now(), tz) when the core is in, else the same Intl en-CA
+                                format, in the island's time zone (the family's arcade setting, then the save's,
+                                then Europe/London)
+     this device's copy         localStorage 'ttq_trip' = {<player>: {v: 1, who, id, name, price, wallet, at, from,
+                                day}}: the trip's own fields only (a day that is not one stays not one: never cut
+                                down to a day), read and written in try/catch (a private window
+                                keeps it in memory only, as before). A UI convenience on this device: never the
+                                save, never sent; older versions never read it
+     window.slLearnTrip         an accessor over the trip in memory, so every write, whichever build of the island
+                                made it, is mirrored here: a trip is kept, anything else (null) means that trip has
+                                ended and its copy goes. Memory and this device never disagree
+     window.slTripSave(t|null)  the island's seam (the plan's contract): the same as writing window.slLearnTrip →
+                                true when this device now matches (kept, or let go), false without storage
+     the way back               once a page session per player (the first look: the page's own start, else
+                                slLearnTripNow), with no trip in memory, that player's kept trip comes back while it
+                                is not over. Kept trips of other players go then: theirs ended with the profile
+                                change. So a reload restores the trip for the same child, never another child's or
+                                yesterday's
    Nothing here writes the save. */
 var SL_LEARN_APPS = ['maths', 'spell', 'flags', 'mysteries', 'onepct'];
 var SL_TRIP_MS = 3 * 60 * 60 * 1000;
+var SL_TRIP_KEEP_MS = 12 * 60 * 60 * 1000;
+var SL_TRIP_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 var slNavNow = null, slNavApp = null, slLastLearnMem = null, slGamesSeq = 0;
 /* the Games open still waiting for its sheet to close (its seq), else 0. While it waits, My Island coming up under it
    keeps 'Games' current: the island's own SLWorld.go opens My Island again (setActiveApp('world')) when it has not
@@ -9694,14 +9752,127 @@ SL_NAV_ROWS.forEach(function (id) {
 function slNavEdgesAll() { SL_NAV_ROWS.forEach(function (id) { slNavEdges(document.getElementById(id)); }); }
 try { window.addEventListener('resize', slNavEdgesAll); } catch (e) {}
 try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(slNavEdgesAll, function () {}); } catch (e) {}
+/* the learn-and-come-back trip on this device (IA-7; see the note above) */
+function slTripPlain(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+/* a trip worth keeping: contract 1's shape */
+function slTripIs(t) {
+  return slTripPlain(t) && t.v === 1 && typeof t.who === 'string' && !!t.who && typeof t.id === 'string' && !!t.id &&
+    typeof t.at === 'number' && isFinite(t.at);
+}
+/* the island's time zone (rewards-world careDay's order): the family's arcade setting, then the save's */
+function slTripTz() {
+  var a = null, u = null;
+  try { a = window.slFamilyCfg && window.slFamilyCfg.arcade; } catch (e) { a = null; }
+  if (!slTripPlain(a)) {
+    try { u = typeof currentUser === 'function' ? currentUser() : null; } catch (e) { u = null; }
+    a = u && slTripPlain(u.world) && slTripPlain(u.world.arcadeCfg) ? u.world.arcadeCfg : null;
+  }
+  return a && typeof a.tz === 'string' && a.tz ? a.tz.slice(0, 64) : 'Europe/London';
+}
+function slTripToday() {
+  var now = Date.now(), tz = slTripTz(), C = window.SLWorldCore, k = null;
+  try { if (C && typeof C.dayKey === 'function') k = C.dayKey(now, tz); } catch (e) { k = null; }
+  if (typeof k === 'string' && SL_TRIP_DAY_RE.test(k)) return k;
+  var zones = [tz, 'Europe/London'];
+  for (var i = 0; i < zones.length; i++) {
+    try {
+      k = new Intl.DateTimeFormat('en-CA', { timeZone: zones[i], year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
+      if (SL_TRIP_DAY_RE.test(k)) return k;
+    } catch (e) {}
+  }
+  return new Date(now).toISOString().slice(0, 10);
+}
+/* 'live', 'early' (its time or island day is still to come on this clock: kept, not shown yet) or 'over' */
+function slTripState(t, now) {
+  var age = now - t.at;
+  if (typeof t.day === 'string') {
+    if (!SL_TRIP_DAY_RE.test(t.day) || age > SL_TRIP_KEEP_MS) return 'over';
+    var today = slTripToday();
+    if (t.day < today) return 'over';
+    return t.day > today || age < 0 ? 'early' : 'live';
+  }
+  if (age > SL_TRIP_MS) return 'over';
+  return age >= 0 ? 'live' : 'early';
+}
+/* this device's copies: {player: trip}, or null when there is no storage (a private window) */
+function slTripRead() {
+  var raw = null, m = null;
+  try { raw = localStorage.getItem('ttq_trip'); } catch (e) { return null; }
+  try { m = raw ? JSON.parse(raw) : {}; } catch (e) { m = {}; }
+  return slTripPlain(m) ? m : {};
+}
+function slTripWrite(m) {
+  try {
+    if (Object.keys(m).length) localStorage.setItem('ttq_trip', JSON.stringify(m));
+    else localStorage.removeItem('ttq_trip');
+    return true;
+  } catch (e) { return false; }
+}
+/* the trip's own fields only (contract 1), never anything else an object might carry. A day is kept as it is: one
+   that is not a day (over in memory) stays not one on this device, bounded to 16 characters (never 10: a cut could
+   make it a day, and a reload would bring back a trip memory had as over) */
+function slTripCopy(t) {
+  var c = { v: 1, who: t.who, id: t.id, at: t.at };
+  if (typeof t.name === 'string') c.name = t.name.slice(0, 120);
+  if (typeof t.price === 'number' && isFinite(t.price)) c.price = t.price;
+  if (t.wallet === 'coins' || t.wallet === 'stars') c.wallet = t.wallet;
+  if (typeof t.from === 'string') c.from = t.from.slice(0, 16);
+  if (typeof t.day === 'string') c.day = SL_TRIP_DAY_RE.test(t.day) ? t.day : t.day.slice(0, 16);
+  return c;
+}
+/* memory changed from old to t: this device keeps t (a trip), or lets old's copy go (anything else: it has ended; the
+   player on now's too, so a trip ended before it came back from this device never comes back) → true when this
+   device now matches */
+function slTripKeep(old, t) {
+  var m = slTripRead();
+  if (!m) return false;
+  var before = JSON.stringify(m), p = null;
+  if (slTripIs(old) && !(slTripIs(t) && t.who === old.who)) delete m[old.who];
+  if (slTripIs(t)) m[t.who] = slTripCopy(t);
+  else { try { p = state.activeUser || null; } catch (e) { p = null; } if (p) delete m[p]; }
+  return JSON.stringify(m) === before ? true : slTripWrite(m);
+}
+var slTripMem = null, slTripHooked = false, slTripOk = false, slTripTried = {};
+try {
+  slTripMem = window.slLearnTrip === undefined ? null : window.slLearnTrip;
+  Object.defineProperty(window, 'slLearnTrip', { configurable: true, enumerable: true,
+    get: function () { return slTripMem; },
+    set: function (t) { var old = slTripMem; slTripMem = t === undefined ? null : t; slTripOk = slTripKeep(old, slTripMem); } });
+  slTripHooked = true;
+} catch (e) { slTripHooked = false; }
+window.slTripSave = function (t) {
+  if (t === undefined) t = null;
+  if (slTripHooked) { window.slLearnTrip = t; return slTripOk; }
+  var old = window.slLearnTrip;
+  window.slLearnTrip = t;
+  return slTripKeep(old, t);
+};
+/* the way back after a reload: once a page session per player, with no trip in memory */
+function slTripRestore(p) {
+  if (!p || slTripTried[p]) return;
+  slTripTried[p] = true;
+  var m = slTripRead();
+  if (!m) return;
+  var before = JSON.stringify(m), now = Date.now(), back = null;
+  Object.keys(m).forEach(function (k) {
+    var t = m[k];
+    if (k === p && slTripIs(t) && t.who === p && slTripState(t, now) !== 'over') back = t;
+    else delete m[k];                     /* another player's (it ended with the profile change), or over */
+  });
+  if (JSON.stringify(m) !== before) slTripWrite(m);
+  if (!back || window.slLearnTrip != null) return;
+  if (slTripHooked) slTripMem = back; else window.slLearnTrip = back;
+}
 window.slLearnTripNow = function () {
-  var t = window.slLearnTrip, p = null;
-  if (!t || typeof t !== 'object') return null;
+  var p = null;
   try { p = state.activeUser || null; } catch (e) {}
-  if (!p || t.v !== 1 || typeof t.id !== 'string' || !t.id || typeof t.at !== 'number') return null;
-  var age = Date.now() - t.at;
-  if (t.who !== p || age > SL_TRIP_MS) { window.slLearnTrip = null; return null; }
-  return age >= 0 ? t : null;
+  if (p && window.slLearnTrip == null) slTripRestore(p);
+  var t = window.slLearnTrip;
+  if (!t || typeof t !== 'object') return null;
+  if (!p || t.v !== 1 || typeof t.id !== 'string' || !t.id || typeof t.at !== 'number' || !isFinite(t.at)) return null;
+  var s = t.who === p ? slTripState(t, Date.now()) : 'over';
+  if (s === 'over') { window.slTripSave(null); return null; }
+  return s === 'live' ? t : null;
 };
 window.slGoLearn = function (o) {
   var app = o && SL_LEARN_APPS.indexOf(o.app) >= 0 ? o.app : slLastLearn();
@@ -9718,10 +9889,17 @@ window.slIslandGo = function (to, o) {
     return W && typeof W.go === 'function' ? W.go(to, o || {}) : false;
   }).then(function (r) { return r; }, function () { return false; });
 };
+/* the island takes this live trip back by itself (its learn.trip): every island does up to SL_TRIP_MS old (the note
+   above, 'the island's own check') */
+function slTripHanded(t) { var age = Date.now() - t.at; return age >= 0 && age <= SL_TRIP_MS; }
 window.slIslandItem = function (id) {
   var t = window.slLearnTripNow();
-  if (t && t.id === id) { if (slNavApp !== 'world') setActiveApp('world'); return Promise.resolve(true); }
+  if (t && t.id === id && slTripHanded(t)) { if (slNavApp !== 'world') setActiveApp('world'); return Promise.resolve(true); }
   return window.slIslandGo('item', { id: id });
+};
+window.slTripBack = function () {
+  var t = window.slLearnTripNow();
+  return t && !slTripHanded(t) ? window.slIslandItem(t.id) : null;
 };
 /* Games: My Island with the Games sheet over it. 'Games' stays the current place until the sheet closes (its
    onClose; and, in case a sheet closes without saying so, once the open sheet's .slw-games has gone), then
@@ -9750,11 +9928,15 @@ function slNavGo(to) {
   var app = to === 'island' ? 'world' : to === 'rewards' ? 'shop' : null;
   if (!app) return null;
   if (slNavApp === app) return slNavSync(app);   /* already there: nothing to redraw */
+  if (app === 'world') { var back = window.slTripBack(); if (back) return back; }   /* a trip the island might drop: its sheet */
   return setActiveApp(app);
 }
 document.querySelectorAll('#slNav .sl-nav-btn').forEach(function (b) {
   b.addEventListener('click', function () { slNavGo(b.getAttribute('data-nav')); });
 });
+/* IA-7: the way back first, so a reload straight onto My Island finds this player's trip in memory (the island reads
+   window.slLearnTrip itself) */
+try { window.slLearnTripNow(); } catch (e) {}
 slNavSync(getActiveApp());   /* the first paint already shows the right place (setActiveApp runs a moment later) */
 /* [/W3-NAV] */
 /* [D-INDEX-HDR] The slim phone header (James, 25 Oct). Up to 600px wide the header is one row (the stylesheet's
@@ -33296,6 +33478,11 @@ window.SL_WORLD_TRIAL = true;
   #slLearnStrip button:focus-visible { outline: 3px solid #2b2140; outline-offset: 2px; }
   #slCareBanner ~ #slLearnStrip[data-kind="goal"] { display: none; }
   html[data-sl-nav="island"] #slLearnStrip, html[data-sl-nav="games"] #slLearnStrip, html[data-sl-nav="rewards"] #slLearnStrip { display: none; }
+  /* IA-7: the finish cards' goal line, under '+N 🪙 for your island' (its own pale pill, so it reads on the Daily 30's
+     dark board as on the light cards) */
+  .sl-fin-goal { display: table; max-width: 100%; box-sizing: border-box; margin: 6px auto 2px;
+    padding: 5px 14px; border-radius: 14px; background: #f4f1ff; border: 2px solid #d9d2ee; color: #2b2140;
+    font-weight: 800; font-size: 15px; line-height: 1.35; text-align: center; overflow-wrap: anywhere; }
   /* phones: the words and ✕ on the first row, the button under them */
   @media (max-width: 560px) {
     #slLearnStrip { font-size: 14px; padding-left: 12px; }
@@ -33307,12 +33494,23 @@ window.SL_WORLD_TRIAL = true;
 <script>
 /* [W3-LEARN] The learning screens' quiet line (wave 3, WAVE3-PLAN §2 and contract 1). One line under the
    subject row (under the hungry-pet reminder when that shows) while a learn-and-come-back trip runs
-   (window.slLearnTrip, through window.slLearnTripNow: this player's, under 3 hours) or a savings goal is set:
+   (window.slLearnTrip, through window.slLearnTripNow: this player's and live, to the end of its island day since
+   IA-7, kept on this device across a reload) or a savings goal is set:
      saving   'Saving for {item}. Need {n} more {sym}.' and a thin bar ('{item}: {have} of {price} coins'); the
               shortfall is the island's one wording, 'Need N more 🪙' (James, 25 Oct 2026; it was '{n} more {sym} to go.')
-              on a trip the button '🏝️ Back to my island' (the island brings the item's sheet back itself)
+              on a trip the button '🏝️ Back to my island' (the island brings the item's sheet back itself; a
+              trip past the island's 3 hours asks for that sheet by name, [W3-NAV] window.slTripBack).
+              IA-7 (Island activities §4.5): + ' Today: +{n}' after the sentence when the player's points for
+              today (u.pointsByDay[todayKey()], what learning added today; the same coins came with them) are
+              more than 0. No emoji in that part
      enough   '{item}: you have enough {sym} now.' and '🏝️ Get it' → that item's sheet on My Island
-   ✕ 'Not now' hides it for this app session (a trip started after that shows again) and ends the trip.
+   ✕ 'Not now' hides it for this app session (a trip started after that shows again) and ends the trip (through
+   window.slTripSave(null), so this device lets it go too).
+   IA-7, the learning rounds' finish cards (Today's 10, Lightning and the Daily 30's end; Island activities §3/§4.5,
+   oracle activities.json copy.indexHtml): finish() → {node, id, enough} or null, the goal line beside the card's
+   '+N 🪙 for your island': 'Saving for {item}. Need {n} more {sym}.' while short, '{item}: you have enough now.' (the
+   island's next.enough) when not; then the card's 🏝️ My Island opens that item. The same trip or goal as the line
+   above, by the same rules: never in test mode, nothing after ✕, nothing for a pet the cap shuts out.
    Never in free test mode (nothing there is short), never off the learning screens, nothing for a pet the pet
    cap shuts out (as the goal toast). The goal-only line needs the world core for the goal's island price:
    with a goal set and no core yet, the line asks for it as the learning screen opens (window.slLoadCore, the
@@ -33320,9 +33518,9 @@ window.SL_WORLD_TRIAL = true;
    own name and price.
    {sym} is 🪙 with the island's coin wallet, ⭐ with the stars wallet. Its words are its own table (the
    learning screens run without the world scripts, like the reminder's). Built from DOM nodes and text only;
-   nothing here writes the save or any storage.
-   window.slLearnStrip = {check, hide, model, TEXT}: check() draws, updates or removes the line; hide() removes
-   it until the next check. */
+   nothing here writes the save or any storage (the trip's copy on this device is [W3-NAV]'s).
+   window.slLearnStrip = {check, hide, model, finish, TEXT}: check() draws, updates or removes the line; hide()
+   removes it until the next check; finish() is the finish cards' goal line. */
 (function () {
   'use strict';
   var TEXT = Object.freeze({
@@ -33332,7 +33530,9 @@ window.SL_WORLD_TRIAL = true;
     getIt: '🏝️ Get it',
     later: 'Not now',
     bar: '{item}: {have} of {price} coins',
-    barStars: '{item}: {have} of {price} stars'   /* [W3-1 fallback] not in the plan's table: the ⭐ wallet's bar */
+    barStars: '{item}: {have} of {price} stars',  /* [W3-1 fallback] not in the plan's table: the ⭐ wallet's bar */
+    today: 'Today: +{n}',                          /* IA-7: oracle copy.indexHtml strip.today */
+    finEnough: '{item}: you have enough now.'      /* IA-7: oracle copy.indexHtml finish.goalEnough (world-copy next.enough) */
   });
   var SYM = Object.freeze({ coins: '🪙', stars: '⭐' });
   var dismissed = {};   /* player → when ✕ was tapped (memory only, this app session) */
@@ -33395,6 +33595,17 @@ window.SL_WORLD_TRIAL = true;
     if (it.kind === 'pet' && C.CARE && C.CARE.ownCap !== 'home' && typeof C.petRoom === 'function' && !C.petRoom(w).canAdopt) return null;
     return make('goal', gid, it.name, C.priceOf(gid, { wallet: wallet }), balance(u, wallet, C), wallet);
   }
+  /* IA-7: the points learning added today (u.pointsByDay, keyed by the app's own todayKey: this device's date), 0 when
+     none or unreadable */
+  function dayKeyHere() {
+    try { if (typeof todayKey === 'function') { var k = todayKey(); if (typeof k === 'string' && k) return k; } } catch (e) {}
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function todayPoints(u) {
+    var by = plain(u.pointsByDay) ? u.pointsByDay : null, n = by ? by[dayKeyHere()] : 0;
+    return num(n) && n > 0 ? Math.floor(n) : 0;
+  }
   /* what the line says now for this player, or null */
   function model() {
     var p = who(), u = user();
@@ -33403,6 +33614,7 @@ window.SL_WORLD_TRIAL = true;
     try { m = t ? tripModel(t, u, C) : C ? goalModel(u, C) : null; } catch (e) { m = null; }
     if (!m) return null;
     if (dismissed[p] != null && !(t && t.at > dismissed[p])) return null;
+    m.today = todayPoints(u);
     return m;
   }
   /* a goal set and no world core yet (a fresh app open straight onto a learning screen, before the first ⭐): the
@@ -33429,7 +33641,7 @@ window.SL_WORLD_TRIAL = true;
     var p = who(), t = typeof window.slLearnTripNow === 'function' ? window.slLearnTripNow() : null;
     var a = document.activeElement, had = !!(el && a && a !== document.body && el.contains(a));
     if (p) dismissed[p] = Date.now();
-    if (t) window.slLearnTrip = null;
+    if (t) { if (typeof window.slTripSave === 'function') window.slTripSave(null); else window.slLearnTrip = null; }
     hide();
     if (had) {
       var to = [document.querySelector('#appTabs .app-tab.active'), document.querySelector('#slNav .sl-nav-btn[aria-current="page"]'),
@@ -33441,12 +33653,20 @@ window.SL_WORLD_TRIAL = true;
       }
     }
   }
+  /* 'Get it': that item's sheet. 'Back to my island': My Island, where the island brings the trip's sheet back itself,
+     unless it is a trip the island might drop ([W3-NAV] slTripBack: then its sheet by name) */
   function go(m) {
     if (m.enough && typeof window.slIslandItem === 'function') { window.slIslandItem(m.id); return; }
+    if (typeof window.slTripBack === 'function' && window.slTripBack()) return;
     if (typeof setActiveApp === 'function') setActiveApp('world');
   }
+  /* 'Saving for {item}. Need {n} more {sym}.' (+ ' Today: +{n}' on the learning screens' line) */
+  function savingText(m, today) {
+    var s = fill(TEXT.saving, { item: m.name, n: fmt(m.need), sym: m.sym });
+    return today && m.today > 0 ? s + ' ' + fill(TEXT.today, { n: fmt(m.today) }) : s;
+  }
   function paint(m) {
-    el.querySelector('.sl-ls-text').textContent = fill(m.enough ? TEXT.enough : TEXT.saving, { item: m.name, n: fmt(m.need), sym: m.sym });
+    el.querySelector('.sl-ls-text').textContent = m.enough ? fill(TEXT.enough, { item: m.name, sym: m.sym }) : savingText(m, true);
     var bar = el.querySelector('.sl-ls-bar');
     if (bar) {
       bar.setAttribute('aria-label', fill(m.wallet === 'stars' ? TEXT.barStars : TEXT.bar, { item: m.name, have: fmt(m.have), price: fmt(m.price) }));
@@ -33494,7 +33714,19 @@ window.SL_WORLD_TRIAL = true;
     else build(m, p);
     return m;
   }
-  window.slLearnStrip = { check: check, hide: hide, model: model, TEXT: TEXT };
+  /* IA-7: the finish cards' goal line, beside '+N 🪙 for your island' (index.html slRoundGoal) → {node, id, enough}
+     or null. Text only (a name the child typed stays text); still, no sound */
+  function finish() {
+    var m = null;
+    try { m = model(); } catch (e) { m = null; }
+    if (!m) return null;
+    var d = document.createElement('div');
+    d.className = 'sl-fin-goal';
+    d.setAttribute('data-kind', m.kind);
+    d.textContent = m.enough ? fill(TEXT.finEnough, { item: m.name }) : savingText(m, false);
+    return { node: d, id: m.id, enough: m.enough };
+  }
+  window.slLearnStrip = { check: check, hide: hide, model: model, finish: finish, TEXT: TEXT };
   check();
   setTimeout(check, 0);
 })();
@@ -36232,6 +36464,9 @@ window.SL_WORLD_TRIAL = true;
         if (typeof slRoundCoinsNode === 'function') {
           var coinLine = slRoundCoinsNode(slCoinCore() ? earned : 0);
           if (coinLine) { coinLine.style.marginTop = '8px'; xtraEl.appendChild(document.createElement('br')); xtraEl.appendChild(coinLine); }
+          /* [IA-7] the goal line beside it; 🏝️ My Island opens the goal once there is enough */
+          var goal = typeof slRoundGoal === 'function' ? slRoundGoal() : null;
+          if (goal) xtraEl.appendChild(goal.node);
           if (!el.querySelector('.sl-fin-island')) {
             var isl = slRoundIslandBtn(function () { try { el.remove(); } catch (e) {} }, 'btn btn-ghost sl-fin-island');
             isl.style.cssText = 'margin:8px 0 0 8px;padding:12px 20px;';

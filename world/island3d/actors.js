@@ -137,6 +137,41 @@
                   nodding 12° at 1.5 Hz, 'munch'), pops out; one sparkle ring at the end (bigger and
                   rainbow for a favourite). Reduced motion: an empty bowl for FEED.still s, no pop.
                   info().bowl: the bowl is out (one more draw call while it is).
+
+   ISLAND ACTIVITIES v1 (IA-3; chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §2 A2 / A5, §5 IA-3). Free play: nothing here
+   earns, spends or decays; no chance (pets-brain's pure geometry).
+     setVisitor(v | null) → bool   v = {id, name?, color?, emoji?, look, wear, vr, sig, lk, wr, isle?, instant?} (an
+                  SLPeopleCore.avatarInfo-style record): today's visitor on Home. The brain gives it the free cell
+                  nearest the house entrance (pets-brain setVisitor / visitorSpot) and it walks in from Home's gate
+                  for its land (v.isle, else the pier's) with one sparkle where it starts; the same id again keeps
+                  it where it is, and a visitor already met in this actors' life (or instant, or reduced motion)
+                  appears on its cell at once with one sparkle. Its rig is the child's kind of figure (makeAvatar /
+                  px-people, the classic stand-in until SLPxPeople's shapes are in, rebuilt then); it counts against
+                  CAP.land on Home (the land guests' slot, unused there), never CAP.rigs: no rig when CAP.land is 0,
+                  nor on LOW before the shapes are loaded (the host then shows SLPeopleArt's portrait tag at
+                  anchorOf('visitor')). It shows on Home in play mode only (never on a visited land, in edit or
+                  place mode); false = no visitor (null, or no free cell).
+     emote('visitor', 'wave' | 'hello' | 'cheer' | 'move' | 'sig', at?) → bool: the visitor waves (1.6 s), cheers
+                  (AV_TAP.cheer s) or plays its signature move (the character's sig clip, its end pose held SIG.hold s,
+                  a 'tada' and a rainbow pop; false without a sig or a rig); at = {x, z} (world) turns it to face a
+                  thing for the moment, then back to the camera. tap('visitor') → its wave.
+     hits() adds {kind: 'visitor', id, x, y, z, r, pickable} while it is shown (a rig or not); anchorOf('visitor').
+     fetch(petId, x, z) → the seconds until the pet has the ball | -1 (x, z world: the tap; the pet not out on the
+                  island shown, a guest, eating, a fetch already on, nowhere to land, or no ball to draw: no
+                  SL3D.vox.makeBall). The brain plays the pet (pets-brain fetch); here the ball (px-care's makeBall:
+                  one SkinnedMesh, made on the first throw and kept) flies from the child's raised hand (the figure's
+                  throw: the mic-point arm, THROW.dur s), bounces twice with a dust puff each (a sea throw: a splash
+                  ring and 'splash' instead of the first), rests, rides in the pet's mouth while it is carried back
+                  and lies at the child's feet once dropped (and before the first throw), until endPlay(). Reduced
+                  motion: the end state at once, no puffs.
+     hide(petId, uid, camYaw?) → the hiding cell | -1 · unhide(petId) → bool (a sparkle ring and a 'pop' as it comes
+                  out) · stopPlay(petId) → bool (a fetch is cut where it is; a hiding pet comes out as unhide) ·
+                  throwSpot(k) → {x, z} (world) | null: the k-th automatic throw's spot in front of the child ·
+                  startPlay(kind 'fetch' | 'hide', petId) → bool · endPlay() → bool (stops the pet's play, the ball
+                  goes) · playInfo() → {kind, id, phase, held, hidden, cell, thrown, caught, fetched, cut, hid, found}
+                  | null. The brain's 'caught' / 'fetched' / 'fetchCut' / 'hidden' / 'found' events are counted there.
+     info() adds visitor {id, shown, rig, person, act} | null, ball (the ball is out: one more draw call while it
+                  is) and play {kind, id} | null.
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -198,6 +233,10 @@
   var AV_TAP = { wave: 1.0, heart: 1.2, vsign: 1.2, micpoint: 1.2, cheer: 1.9 };
   var AV_TAP_SFX = { heart: 'pop', vsign: 'chip', micpoint: 'beep' };
   var AV_CYCLE_A = ['vsign', 'micpoint'], AV_CYCLE_B = ['micpoint', 'vsign'];
+  /* island activities v1 (IA-3): the child's throw for fetch (the mic-point's arm forward, no cue) and the visitor's
+     wave (s); the ball held in a pet's mouth (u forward of its root, its height as a share of the species' topY) and
+     the ball's size on the island (× the crew's scale: a 0.3 u ball reads on a phone) */
+  var THROW = { dur: 0.7, clip: 'micpoint' }, VISITOR = { wave: 1.6, mouthFwd: 0.22, mouthUp: 0.55, ballK: 1.35 };
   var AV_EMOTE = { wave: 'wave', fingerHeart: 'heart', heart: 'heart', vSign: 'vsign', vsign: 'vsign', micPoint: 'micpoint', micpoint: 'micpoint', cheer: 'cheer',
                    move: 'sig', sig: 'sig' };
   /* the photo booth's three poses */
@@ -374,6 +413,7 @@
     var DANCE = Brain ? Brain.DANCE : { bpm: 118, beat: 60 / 118, dur: 8 * 60 / 118, hold: 0.6, reducedDur: 2.2 };
     var WALK = Brain ? Brain.WALK : { speed: 1.0 };
     var FEED = Brain && Brain.FEED ? Brain.FEED : { pop: 0.2, drops: [0.2, 0.35, 0.5, 0.65], hop: [0.65, 1.0], eat: 2.0, out: 0.2 };
+    var FETCH = Brain && Brain.FETCH ? Brain.FETCH : { pick: 0.25, ballR: 0.09 };
     var MOOD = Brain && Brain.MOOD ? Brain.MOOD : { sadIntensity: 0.4 };
     /* the buildings' live anchors come from the island (its itemPoint hook) until setAnchorFn() */
     var anchorFnSet = null, activeRec = null;
@@ -386,7 +426,7 @@
     group.name = 'actors';
     if (opts.scene && typeof opts.scene.add === 'function') opts.scene.add(group);
     var VB = R && K.vox && typeof K.vox.blobs === 'function' ? K.vox : null;
-    var NBLOB = Math.max(8, CAP.rigs + 1);                       /* the shown crew and the avatar */
+    var NBLOB = Math.max(8, CAP.rigs + 2);                       /* the shown crew, the avatar and the visitor (IA-3) */
     var blobs = VB ? VB.blobs(NBLOB) : typeof K.blobs === 'function' ? K.blobs(NBLOB) : null;
     if (blobs) { blobs.mesh.name = 'actor-blobs'; group.add(blobs.mesh); }
     var fxPool = typeof K.billboards === 'function' ? K.billboards({ capacity: FX_CAP, texture: 'sparkles', additive: false, name: 'actor-fx', renderOrder: 6 }) : null;
@@ -599,6 +639,7 @@
       syncCrew(world || { placed: placed }, world || lastView || { placed: [] });
       avatarSpot = !avatarInfo ? null : isleBrain ? isleBrain.dockSpot({}) : homeSpot;
       syncAvatar();
+      syncVisitor();
       drainEvents();
       if (reduced) poseAll(0);              /* reduced motion renders on demand: pose once now */
     }
@@ -725,6 +766,7 @@
         else if (e.type === 'emote' && a) emoteSprite(a, e.kind, 0);
         else if (e.type === 'land' && a && !reduced) a.landT = b.now;
         else if (e.type === 'fed') sparkles(e.x + ox, e.y + oy + 0.25 * CREW, e.z + oz, e.fav ? 12 : 7, e.fav ? EMOTE.rainbow : EMOTE.colors.sparkle, e.fav ? 1.1 : 0.7);   /* a bigger ring for a favourite */
+        else playEvent(e, ox, oy, oz);                         /* island activities v1 (IA-3) */
       }
       b.events.length = 0;
     }
@@ -843,6 +885,12 @@
           P.sampleClip('idle', a.idleT, pose, o);
           o.intensity = MOOD.sadIntensity; P.sampleClip('sad', t, a.tmp, o); o.intensity = undefined;
           mixIn(a, pose, 0.75 * env(t, d, 0.35, 0.4));
+          break;
+        case 'peek':                                              /* IA-3 hide and seek: crouched low behind a thing, ears and tail up */
+          P.sampleClip('sit', a.idleT, pose, o);
+          e = red ? 1 : smooth01(t / 0.3);
+          pose.y -= 0.05 * e; pose.sy *= 1 - 0.12 * e; pose.headPitch += 12 * e; pose.earL -= 12 * e; pose.earR -= 12 * e; pose.tailPitch += 15 * e;
+          if (!red) pose.tailYaw += 10 * Math.sin(TAU * 0.5 * t) * e;            /* a slow wag, 0.5 Hz */
           break;
         case 'signature':                                         /* a very happy pet: its dance's counts 5–6, in place */
           P.sampleClip('idle', a.idleT, pose, o);
@@ -1124,6 +1172,7 @@
       }
       else if (!red && now - p.tapT < 0.45) { key = 'hop'; bd = BLEND.hop; }
       else if (p.state === 'act') { key = ACT_KEY[p.action] || (ACT_KEY[p.action] = 'act:' + p.action); bd = BLEND.act; }
+      else if (p.state === 'hide' && p.action === 'peek') { key = 'hide:peek'; bd = BLEND.act; }      /* IA-3: crouched behind a thing */
       else key = 'loco';
       setKey(a, key, bd);
       if (key !== 'perf:bounce') a.lastBounce = null;
@@ -1138,6 +1187,9 @@
         o.bpm = undefined;
       } else if (key.charAt(0) === 'p') perfPose(a, p, pose);
       else actPose(a, p, pose, red);
+      /* IA-3: the head dips to take the ball (the last FETCH.pick s of the race) */
+      var fq = p.state === 'fetch' ? p.fetch : null;
+      if (fq && fq.phase === 'run' && fq.pickAt > 0 && now >= fq.pickAt - FETCH.pick && now < fq.pickAt) pose.headPitch += 24 * (red ? 1 : smooth01((now - fq.pickAt + FETCH.pick) / FETCH.pick));
 
       /* happy tail (after a tap, at Showtime, while dancing) — tails may beat faster than 2 Hz */
       var sp = P.SPECIES && P.SPECIES[a.species];
@@ -1344,6 +1396,7 @@
     }
     function tapDur(kind) {
       if (kind === 'sig') return avatar && avatar.sig ? sigDur(avatar.sig) + SIG.hold : 0;
+      if (kind === 'throw') return THROW.dur;
       return kind === 'wave' ? AV_TAP.wave + AV_TAP.heart : AV_TAP[kind] || AV_TAP.heart;
     }
     /* the move's own length (s) and how far it travels (u), from the clip layer's table */
@@ -1388,6 +1441,7 @@
         clip = 'dance'; ct = ab.danceReduced ? td : Math.min(td, DANCE.dur - 1e-3);
         P.sampleAvatar(clip, ct, pose, o);
       } else if (k === 'wave' || k === 'cheer' || k === 'vsign' || k === 'micpoint') { clip = k; ct = tap; P.sampleAvatar(k, tap, pose, o); }
+      else if (k === 'throw') { clip = THROW.clip; ct = tap; P.sampleAvatar(THROW.clip, tap, pose, o); }      /* IA-3: the fetch throw */
       else if (k === 'heart') { clip = 'heart'; ct = tk === 'wave' ? tap - AV_TAP.wave : tap; P.sampleAvatar('heart', ct, pose, o); }
       else if (k === 'sig') {
         /* the signature move (the clip holds its end pose after its length); a travelling move stays near the spot */
@@ -1477,7 +1531,9 @@
         else if (!a.seen && a.hosted) hideActor(a);
       }
       updateAvatar(dt);
+      updateVisitor(dt);
       updateBowl();
+      updateBall();
       if (blobs) blobs.commit();
     }
     function poseOf(b, dt) {
@@ -1571,6 +1627,321 @@
     }
 
     /* ================================================================
+       ISLAND ACTIVITIES v1 (IA-3): the visitor, fetch's ball, hide and seek (see the header)
+       ================================================================ */
+    var visitor = null, visitorInfo = null, visitorSeen = {}, ball = null, play = null;
+    var vHit = { kind: 'visitor', id: '', x: 0, y: 0, z: 0, r: HIT_R, pickable: true }, _bb = { x: 0, y: 0, z: 0, phase: '' };
+    function grid3() { return sib('SLGrid3D', './grid3d.js'); }
+    /* the visitor shows on Home in play mode, standing on (or walking to) its cell in Home's brain */
+    function visitorShown() {
+      var bv = brain && brain.visitor;
+      return !!(visitorInfo && bv && bv.id === visitorInfo.id && bv.cell >= 0 && bv.state !== 'none' && !isleBrain && mode === 'play' && !disposed);
+    }
+    /* a rig for it: the land guests' slot on Home (CAP.land), and on LOW only once the people shapes are in */
+    function canRigVisitor() { return CAP.land >= 1 && !(String(tier).toUpperCase() === 'LOW' && !peopleReady()); }
+    /* where it walks in from: Home's gate for its own land (v.isle), else the pier's (world = Home's local) */
+    function gateFrom(info) {
+      var G = grid3(), k = info && SKY_ISLES.indexOf(info.isle) >= 0 ? info.isle : SKY_ISLES[0], p = null;
+      try { p = G && G.V3 && typeof G.V3.gate === 'function' ? G.V3.gate(k) : null; } catch (e) { p = null; }
+      return p && isFinite(p.x) && isFinite(p.z) ? { x: p.x, z: p.z } : null;
+    }
+    function setVisitor(v) {
+      if (disposed) return false;
+      var info = v && typeof v === 'object' && typeof v.id === 'string' && v.id ? v : null;
+      if (!info) {
+        if (brain && brain.visitor) brain.setVisitor(null);
+        visitorInfo = null; dropVisitor();
+        return false;
+      }
+      var same = !!(visitorInfo && visitorInfo.id === info.id);
+      visitorInfo = info;
+      if (!brain || typeof brain.setVisitor !== 'function') return false;
+      var bv = brain.visitor, cell = bv && bv.id === info.id ? bv.cell : -1;
+      if (!same || cell < 0) {
+        var inst = !!info.instant || reduced || !!visitorSeen[info.id];
+        cell = brain.setVisitor({ id: info.id }, { from: inst ? null : gateFrom(info), instant: inst });
+        if (cell >= 0) visitorSeen[info.id] = true;
+      }
+      syncVisitor();
+      drainEvents();
+      if (reduced) poseAll(0);
+      return cell >= 0;
+    }
+    function visitorKey(info) { return info.id + '|' + avatarKeyOf(info); }
+    function dropVisitor() {
+      if (!visitor) return;
+      visitor.gone = true;
+      try { visitor.rig.dispose(); } catch (e) { /* gone */ }
+      if (blobs && visitor.blob >= 0) blobs.free(visitor.blob);
+      visitor = null;
+    }
+    /* build (or rebuild) the visitor's figure as the child's own is built (makeAvatar / px-people) */
+    function syncVisitor() {
+      var info = visitorInfo, bv = brain && brain.visitor;
+      var want = !!(info && bv && bv.id === info.id && canRigVisitor()), key = want ? visitorKey(info) : '';
+      if (visitor && (!want || visitor.key !== key)) dropVisitor();
+      if (visitor && !visitor.person && !visitor.ready && lookOf(info) && peopleReady()) dropVisitor();   /* the stand-in until the shapes came */
+      if (visitor && visitor.person && visitor.shapes !== shapesTag()) dropVisitor();
+      if (!want || visitor) return;
+      var lk = lookOf(info), mo = { color: info.color || '#FFB74D', emoji: info.emoji || '' }, rig = null;
+      if (lk) { mo.look = lk; mo.wear = plainObj(info.wear) ? info.wear : {}; mo.vr = plainObj(info.vr) ? info.vr : {}; }
+      try { if (R && typeof R.makeAvatar === 'function') rig = R.makeAvatar(mo, tier); } catch (e0) { rig = null; }
+      try { if (!rig && typeof SL3D.makeAvatar === 'function') rig = SL3D.makeAvatar(mo, tier); } catch (e) { rig = null; }
+      if (!rig) { try { rig = placeholderAvatar(K, mo.color); } catch (e2) { rig = null; } }
+      if (!rig || !rig.root) return;
+      if (CREW !== 1 && rig.root.scale) rig.root.scale.set(CREW, CREW, CREW);
+      rig.root.name = 'actor-visitor';
+      rig.root.visible = false;                                   /* shown on its first pose */
+      group.add(rig.root);
+      var top = num(rig.h, AV_TOP);
+      top = top >= 0.5 && top <= 2 ? top : AV_TOP;
+      visitor = {
+        id: info.id, rig: rig, key: key, x: 0, y: 0, z: 0, yaw: 0, ax: 0, ay: 0, az: 0, gone: false, shown: false,
+        pose: P.restAvatar({}), from: P.restAvatar({}), blend: 1, blendDur: BLEND.dflt, akey: '',
+        idleT: 0, gaitT: 0, tapT: -99, tapKind: '', look: null, sigCue: true, burst: true, ex: {},
+        sig: sigOf(info, P), top: top, hitY: AV_HIT_Y * top / AV_TOP, blob: blobs ? blobs.alloc() : -1,
+        hit: { kind: 'visitor', id: info.id, x: 0, y: 0, z: 0, r: HIT_R, pickable: true },
+        o: { reduced: false, seed: hash('visitor:' + info.id) >>> 0, phase: (hash(info.id) % 997) / 997, bpm: undefined, speed: undefined },
+        po: { reduced: false, clock: 0, speed: 0, bpm: undefined },
+        person: !!lk && (rig.person === true || typeof rig.lk === 'string'), ready: peopleReady(), shapes: shapesTag()
+      };
+      if (typeof rig.setShow === 'function') rig.setShow(showK);
+    }
+    function visitorDur(k) {
+      if (k === 'sig') return visitor && visitor.sig ? sigDur(visitor.sig) + SIG.hold : 0;
+      return k === 'wave' ? VISITOR.wave : k === 'cheer' ? AV_TAP.cheer : 0;
+    }
+    function visKey(V, k, dur) {
+      if (V.akey === k) return;
+      if (V.akey && !reduced) { copyPose(AV_KEYS, V.pose, V.from); V.blend = 0; V.blendDur = dur || BLEND.dflt; }
+      else V.blend = 1;
+      V.akey = k;
+    }
+    function updateVisitor(dt) {
+      var V = visitor;
+      if (!V) return;
+      var rig = V.rig, bv = brain && brain.visitor;
+      if (!visitorShown()) {
+        if (V.shown) { V.shown = false; rig.root.visible = false; if (blobs && V.blob >= 0) blobs.set(V.blob, 0, 0, 0, 0, 0); }
+        return;
+      }
+      if (!V.shown) { V.shown = true; rig.root.visible = true; }
+      var red = reduced, o = V.o, pose = V.pose, tap = brain.now - V.tapT, tk = V.tapKind, walking = bv.state === 'walk', k, clip, ct;
+      o.reduced = red;
+      V.idleT += dt;
+      if (walking) V.gaitT += dt;
+      if (tk && tap >= 0 && tap < visitorDur(tk)) k = tk;
+      else { if (tk) { V.tapKind = ''; V.look = null; } k = walking && !red ? 'walk' : 'idle'; }
+      visKey(V, k, V.akey === 'sig' ? SIG.back : BLEND.dflt);
+      if (k === 'walk') { o.speed = Math.max(0.3, num(bv.speed, 1)); P.sampleAvatar('walk', V.gaitT, pose, o); o.speed = undefined; clip = 'walk'; ct = V.gaitT; }
+      else if (k === 'wave' || k === 'cheer') { clip = k; ct = tap; P.sampleAvatar(k, tap, pose, o); }
+      else if (k === 'sig') {
+        clip = V.sig; ct = tap;
+        P.sampleAvatar(V.sig, tap, pose, o);
+        var tr = sigTravel(V.sig);
+        if (tr > SIG.travel) pose.z = num(pose.z, 0) * SIG.travel / tr;
+        sigMoments(V, tap, o);
+      } else { clip = 'idle'; ct = V.idleT; P.sampleAvatar('idle', V.idleT, pose, o); }
+      if (V.blend < 1) { V.blend = Math.min(1, V.blend + dt / V.blendDur); mixAv(P, V.from, pose, smooth01(V.blend), pose); }
+      if (V.person && typeof rig.play === 'function') { var po = V.po; po.reduced = red; po.clock = now; po.bpm = o.bpm; rig.play(clip, ct, po); }
+      rig.setPose(pose);
+      var fr = brain.frame || ZERO, face;
+      if (walking && !red) face = bv.yaw;
+      else if (V.look && tk) face = Math.atan2(V.look.x - bv.x, V.look.z - bv.z);
+      else face = yawToCam(bv.x + fr.ox, bv.z + fr.oz);
+      V.yaw = red ? face : wrap(V.yaw + wrap(face - V.yaw) * clamp01(dt * 8));
+      V.x = bv.x + fr.ox; V.y = bv.y + fr.oy; V.z = bv.z + fr.oz;
+      rig.root.position.set(V.x, V.y, V.z);
+      rig.root.rotation.set(0, V.yaw, 0);
+      V.ax = V.x; V.ay = V.y + (num(pose.y, 0) + V.top) * CREW; V.az = V.z;
+      var h = V.hit; h.x = V.x; h.y = V.y + (V.hitY + num(pose.y, 0)) * CREW; h.z = V.z; h.pickable = mode === 'play'; h.r = HIT_R * CREW;
+      if (blobs && V.blob >= 0) { var sc = BLOB.avatar * CREW; blobs.set(V.blob, V.x, V.y, V.z, sc, sc * 0.85); }
+    }
+    /* the visitor's tap sphere and label point: its rig's, else (the host's portrait tag) its cell's */
+    function visitorHit() {
+      if (!visitorShown()) return null;
+      if (visitor && visitor.shown) return visitor.hit;
+      var bv = brain.visitor, fr = brain.frame || ZERO;
+      vHit.id = visitorInfo.id; vHit.x = bv.x + fr.ox; vHit.y = bv.y + fr.oy + AV_HIT_Y * CREW; vHit.z = bv.z + fr.oz; vHit.r = HIT_R * CREW; vHit.pickable = mode === 'play';
+      return vHit;
+    }
+    function visitorAnchor(out) {
+      if (!visitorShown()) return null;
+      if (visitor && visitor.shown) { out.x = visitor.ax; out.y = visitor.ay; out.z = visitor.az; return out; }
+      var bv = brain.visitor, fr = brain.frame || ZERO;
+      out.x = bv.x + fr.ox; out.y = bv.y + fr.oy + AV_TOP * CREW; out.z = bv.z + fr.oz;
+      return out;
+    }
+    /* 'wave' | 'hello' | 'cheer' | 'move' | 'sig'; at {x, z} (world): turn to it for the moment */
+    function visitorEmote(kind, at) {
+      if (!visitorShown() || !visitor) return false;
+      var k = kind === 'hello' || kind === 'wave' ? 'wave' : kind === 'cheer' ? 'cheer' : kind === 'move' || kind === 'sig' ? 'sig' : '';
+      if (!k || (k === 'sig' && !visitor.sig)) return false;
+      var fr = brain.frame || ZERO;
+      visitor.tapT = brain.now; visitor.tapKind = k;
+      visitor.look = at && typeof at === 'object' && isFinite(at.x) && isFinite(at.z) ? { x: at.x - fr.ox, z: at.z - fr.oz } : null;
+      if (k === 'sig') { visitor.sigCue = false; visitor.burst = false; }
+      if (visitor.akey === k) visitor.akey = 'again';            /* a replay eases in */
+      if (k === 'cheer') sfx('cheer', visitor.x, 0.5);
+      if (reduced) poseAll(0);
+      return true;
+    }
+
+    /* ---------- fetch's ball (px-care makeBall) and the play counts ---------- */
+    function ballMaker() { return R && typeof R.makeBall === 'function' ? R.makeBall : SL3D.vox && typeof SL3D.vox.makeBall === 'function' ? SL3D.vox.makeBall : null; }
+    function ballFor() {
+      if (ball) return ball;
+      var mk = ballMaker();
+      if (!mk) return null;
+      try { ball = mk(null, tier); } catch (e) { ball = null; }
+      if (!ball || !ball.root) { ball = null; return null; }
+      ball.root.visible = false; ball.root.name = 'actor-ball';
+      group.add(ball.root);
+      return ball;
+    }
+    function dropBall() { if (ball) { try { ball.dispose(); } catch (e) { /* gone */ } } ball = null; }
+    function ballBottom() { var PX = sib('SLPxCare', './px-care.js'); return PX && PX.BALL ? PX.BALL.bottom : 0.0625; }
+    function ballMid() { var PX = sib('SLPxCare', './px-care.js'); return PX && PX.BALL ? PX.BALL.size / 2 - PX.BALL.bottom : 0.03125; }
+    function newPlay(kind, id, hb) { return { kind: kind, id: id, b: hb, cue: 0, n: -1, thrown: 0, caught: 0, fetched: 0, cut: 0, hid: 0, found: 0 }; }
+    function startPlay(kind, petId) {
+      if (disposed || !brain || (kind !== 'fetch' && kind !== 'hide')) return false;
+      var id = petIdOf(petId), hb = id && hostOf(id), p = hb && hb.pet(id);
+      if (!p || p.guest || (kind === 'fetch' && !ballFor())) return false;
+      if (play && (play.id !== id || play.kind !== kind)) endPlay();
+      if (!play) play = newPlay(kind, id, hb);
+      return true;
+    }
+    /* the pet's play ends: a fetch is cut where it is, a hiding pet comes out; the ball goes */
+    function endPlay() {
+      if (!play) return false;
+      var hb = hostOf(play.id);
+      if (hb && typeof hb.stopPlay === 'function') hb.stopPlay(play.id);
+      play = null;
+      drainEvents();
+      if (ball && ball.root.visible) ball.root.visible = false;
+      if (reduced) poseAll(0);
+      return true;
+    }
+    function stopPlay(petId) {
+      var id = petIdOf(petId), hb = id && hostOf(id);
+      var ok = !!(hb && typeof hb.stopPlay === 'function' && hb.stopPlay(id));
+      drainEvents();
+      return ok;
+    }
+    function fetch(petId, x, z) {
+      if (disposed || !brain) return -1;
+      var id = petIdOf(petId), hb = id && hostOf(id), p = hb && hb.pet(id);
+      if (!p || p.guest || typeof hb.fetch !== 'function' || !ballFor()) return -1;
+      if (!play || play.id !== id || play.kind !== 'fetch') { if (play) endPlay(); play = newPlay('fetch', id, hb); }
+      play.b = hb;
+      var fr = hb.frame || ZERO, from = null;
+      /* the child's raised hand on the island being shown */
+      if (avatar && avatarSpot) from = { x: avatar.x - fr.ox, y: avatar.y - fr.oy + 0.62 * avatar.top * CREW, z: avatar.z - fr.oz };
+      var lead = hb.fetch(id, num(x, NaN) - fr.ox, num(z, NaN) - fr.oz, { from: from });
+      if (!(lead >= 0)) return -1;
+      play.thrown++; play.cue = 0; play.n = p.fetch ? p.fetch.n : -1;
+      if (avatar && !reduced) { avatar.tapT = brain.now; avatar.tapKind = 'throw'; avatar.cueShown = true; }      /* the child's throw */
+      if (!reduced) sfx('whoosh', num(x, 0), 0.45);
+      drainEvents();
+      poseAll(0);
+      return lead;
+    }
+    function hide(petId, uid, camYaw) {
+      if (disposed || !brain) return -1;
+      var id = petIdOf(petId), hb = id && hostOf(id), p = hb && hb.pet(id);
+      if (!p || p.guest || typeof hb.hide !== 'function' || !hb.graph || !hb.graph.objects[uid]) return -1;
+      if (!play || play.id !== id || play.kind !== 'hide') { if (play) endPlay(); play = newPlay('hide', id, hb); }
+      play.b = hb;
+      var yaw = num(camYaw, NaN);
+      if (!isFinite(yaw)) { var c = camPos(), fr = hb.frame || ZERO; yaw = Math.atan2(c.x - fr.ox, c.z - fr.oz); }
+      var cell = hb.hide(id, uid, yaw);
+      drainEvents();
+      if (reduced) poseAll(0);
+      return typeof cell === 'number' ? cell : -1;
+    }
+    function unhide(petId) {
+      var id = petIdOf(petId), hb = id && hostOf(id);
+      var ok = !!(hb && typeof hb.unhide === 'function' && hb.unhide(id));
+      drainEvents();
+      if (reduced) poseAll(0);
+      return ok;
+    }
+    /* the k-th automatic throw's spot (world), on the island the play's pet is out on */
+    function throwSpot(k) {
+      var id = play ? play.id : crewActive(), hb = id ? hostOf(id) : brain;
+      if (!hb || typeof hb.throwSpot !== 'function') return null;
+      var s = hb.throwSpot(k, {}), fr = hb.frame || ZERO;
+      return s ? { x: s.x + fr.ox, z: s.z + fr.oz } : null;
+    }
+    function playInfo() {
+      if (!play) return null;
+      var hb = hostOf(play.id), p = hb ? hb.pet(play.id) : null, f = p && p.fetch, h = p && p.hide;
+      return { kind: play.kind, id: play.id, out: !!p, phase: f && f.on ? f.phase : '', fetching: !!(f && f.on), held: !!(f && f.held),
+               hidden: !!(h && h.on && p.action === 'peek'), hiding: !!(h && h.on), cell: h && h.on ? h.cell : -1,
+               thrown: play.thrown, caught: play.caught, fetched: play.fetched, cut: play.cut, hid: play.hid, found: play.found };
+    }
+    /* the brains' play events: the counts, the found ring, the visitor's sparkle */
+    function playEvent(e, ox, oy, oz) {
+      var mine = play && e.id === play.id;
+      if (e.type === 'caught') { if (mine) play.caught++; }
+      else if (e.type === 'fetched') { if (mine) play.fetched++; if (!reduced) sfx('chip', e.x + ox, 0.4); }
+      else if (e.type === 'fetchCut') { if (mine) play.cut++; }
+      else if (e.type === 'hidden') { if (mine) play.hid++; }
+      else if (e.type === 'found') {
+        if (mine) play.found++;
+        sparkles(e.x + ox, e.y + oy + 0.2 * CREW, e.z + oz, 10, EMOTE.rainbow, 1);      /* the sparkle ring */
+        sfx('pop', e.x + ox, 0.6);
+      } else if (e.type === 'visitor') {
+        if (e.x0 != null) sparkles(e.x0 + ox, e.y0 + oy, e.z0 + oz, 6, EMOTE.colors.sparkle, 0.7);
+        sparkles(e.x + ox, e.y + oy, e.z + oz, 8, EMOTE.rainbow, 0.8);                   /* one sparkle where it arrives */
+      }
+    }
+    function updateBall() {
+      if (!ball) return;
+      var pl = play && play.kind === 'fetch' ? play : null, hb = pl ? hostOf(pl.id) : null, p = hb ? hb.pet(pl.id) : null, f = p && p.fetch;
+      if (!pl || !hb || !p || mode !== 'play') { if (ball.root.visible) ball.root.visible = false; return; }
+      var fr = hb.frame || ZERO, s = CREW * VISITOR.ballK, a = byId[pl.id], x, y, z, spin = 0;
+      if (f && f.held && a && a.hosted && a.rig) {                 /* in its mouth */
+        var rp = a.rig.root.position, yaw = a.yawShown, top = topOf(a.species) * CREW;
+        x = rp.x + Math.sin(yaw) * VISITOR.mouthFwd * CREW; z = rp.z + Math.cos(yaw) * VISITOR.mouthFwd * CREW;
+        y = a.ay - top * (1 - VISITOR.mouthUp) - ballMid() * s;
+      } else if (f && isFinite(f.t0) && (f.on || f.dropped)) {
+        var B = opts.Brain || root.SLPetBrain;
+        B.ballAt(f, hb.now, _bb);
+        x = _bb.x + fr.ox; z = _bb.z + fr.oz; y = _bb.y + fr.oy - FETCH.ballR + ballBottom() * s;
+        if (!reduced && (_bb.phase === 'fly' || _bb.phase === 'bounce')) spin = (hb.now - f.t0) * TAU * 1.2;
+        ballCues(pl, f, hb, fr);
+      } else if (avatar && avatarSpot) {                           /* before the first throw: at the child's feet */
+        var fy = avatar.yaw;
+        x = avatar.x + Math.sin(fy) * 0.35 * CREW; z = avatar.z + Math.cos(fy) * 0.35 * CREW; y = avatar.y + ballBottom() * s;
+      } else { if (ball.root.visible) ball.root.visible = false; return; }
+      ball.root.position.set(x, y, z);
+      ball.root.rotation.set(spin, 0, 0);
+      ball.root.scale.set(s, s, s);
+      ball.root.visible = true;
+    }
+    /* the throw's moments: the first touch (a dust puff, or a splash ring off the beach), the bounce (a smaller puff) */
+    function ballCues(pl, f, hb, fr) {
+      if (reduced || !f.on || pl.n !== f.n) { if (pl.n !== f.n) { pl.n = f.n; pl.cue = 0; } if (reduced || !f.on) return; }
+      var t = hb.now;
+      if (pl.cue === 0 && t >= f.land1) {
+        pl.cue = 1;
+        if (f.splash) {
+          var G = grid3(), F = null;
+          try { F = G && G.V3 && typeof G.V3.frame === 'function' ? G.V3.frame(hb.isle || 'home') : null; } catch (e) { F = null; }
+          var sy = F && isFinite(F.seaY) ? F.seaY : f.ry + fr.oy - FETCH.ballR - 0.3;
+          splashAt(f.splash.x + fr.ox, sy, f.splash.z + fr.oz);
+          sfx('splash', f.splash.x + fr.ox, 0.5);
+        } else { dust(f.lx + fr.ox, f.ly + fr.oy - FETCH.ballR, f.lz + fr.oz, 3); sfx('bump', f.lx + fr.ox, 0.35); }
+      }
+      if (pl.cue === 1 && t >= f.mid) { pl.cue = 2; if (!f.splash && f.kind !== 'bounce') dust(f.mx + fr.ox, f.my + fr.oy - FETCH.ballR, f.mz + fr.oz, 2); }
+    }
+    function splashAt(x, y, z) {
+      if (typeof opts.emit === 'function') { try { opts.emit('splash', [x, y, z], 1, { reduced: reduced }); return; } catch (e) { /* our own */ } }
+      sparkles(x, y + 0.05, z, 6, EMOTE.colors.sparkle, 0.6);
+    }
+
+    /* ================================================================
        PUBLIC
        ================================================================ */
     function petIdOf(target) {
@@ -1587,6 +1958,7 @@
     function tap(target) {
       if (disposed) return false;
       if (isMe(target)) return avatarTap('cycle');
+      if (target === 'visitor') return visitorEmote('wave', null);
       var id = petIdOf(target), a = id && byId[id], hb = id && hostOf(id), p = hb && hb.pet(id);
       if (!a || !p) return false;
       var kind = hb.tap(id) || 'star', f = hb.frame || ZERO, hungry = p.tapKind === 'hungry';
@@ -1597,8 +1969,9 @@
       if (reduced) poseAll(0);
       return true;
     }
-    function emote(target, kind) {
+    function emote(target, kind, at) {
       if (disposed) return false;
+      if (target === 'visitor') return visitorEmote(kind, at);
       kind = kind || 'star';
       if (target === 'all' || target === 'pets') {
         var any = false;
@@ -1734,10 +2107,13 @@
       out.length = 0;
       for (var i = 0; i < actors.length; i++) if (actors[i].rig && actors[i].hosted) out.push(actors[i].hit);
       if (avatar) out.push(avatar.hit);
+      var vh = visitorHit();                                      /* IA-3: the visitor (a rig or the host's portrait tag) */
+      if (vh) out.push(vh);
       return out;
     }
     function anchorOf(target, out) {
       out = out || {};
+      if (target === 'visitor') return visitorAnchor(out);
       var me = isMe(target), a = me ? avatar : byId[petIdOf(target)];
       if (!a || (!me && !a.hosted)) return null;
       out.x = a.ax; out.y = a.ay; out.z = a.az;
@@ -1756,6 +2132,9 @@
       if (fxPool) calls++;
       var bowlOn = !!(bowl && bowl.root && bowl.root.visible);
       if (bowlOn) { calls++; tris += num(bowl.tris, 0); }
+      var ballOn = !!(ball && ball.root && ball.root.visible), vOn = visitorShown();
+      if (ballOn) { calls++; tris += num(ball.tris, 0); }
+      if (visitor && visitor.shown) count(visitor.rig);
       var shown = 0, guests = [];
       actors.forEach(function (a) { if (a.hosted) shown++; });
       if (isleBrain) isleBrain.pets.forEach(function (q) { if (q.guest) guests.push(q.id); });
@@ -1765,7 +2144,10 @@
                /* KU-CH12: the figure is a character's person rig, its signature move (null: none), what it is doing (idle, show, dance, heart, vsign, micpoint, wave, cheer, sig) */
                person: !!(avatar && avatar.person), sig: avatar ? avatar.sig : null, act: avatar ? avatar.akey || null : null,
                /* P2.5: the feeding bowl is out (one draw while it is) */
-               bowl: bowlOn };
+               bowl: bowlOn,
+               /* IA-3: today's visitor, the fetch ball (one draw while it is out), the play on now */
+               visitor: visitorInfo ? { id: visitorInfo.id, shown: vOn, rig: !!visitor, person: !!(visitor && visitor.person), act: visitor ? visitor.akey || null : null } : null,
+               ball: ballOn, play: play ? { kind: play.kind, id: play.id } : null };
     }
     function dispose() {
       if (disposed) return;
@@ -1775,6 +2157,7 @@
       for (var k in byId) delete byId[k];
       dropAvatar();
       dropBowl();
+      dropVisitor(); dropBall(); play = null; visitorInfo = null;
       for (var i = 0; i < fx.length; i++) fx[i].on = false;
       if (fxPool) fxPool.dispose();
       if (blobs) blobs.dispose();
@@ -1796,6 +2179,9 @@
       follow: follow, setIsle: setIsle, poseScale: poseScale,
       /* the kids update (P2.5): feed(petId, foodId, {fav}) → seconds | -1 */
       feed: feed,
+      /* island activities v1 (IA-3) */
+      setVisitor: setVisitor, fetch: fetch, hide: hide, unhide: unhide, stopPlay: stopPlay, throwSpot: throwSpot,
+      startPlay: startPlay, endPlay: endPlay, playInfo: playInfo,
       petsApi: { active: function () { return active(); }, perform: function (kind, uid) { return perform(kind, uid); },
                  poseScale: function (petId, sx, sy) { return poseScale(petId, sx, sy); } }
     };

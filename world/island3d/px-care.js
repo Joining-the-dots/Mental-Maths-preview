@@ -21,6 +21,12 @@
    makeBowl(food, tier) (SL3D.vox.makeBowl; actors.js holds it while a pet eats) → {root, mesh, tris,
      food, setLevel(n 0–4), setFood(food) → false (make a new one), dispose()}: ONE SkinnedMesh in the
      pixel-vox program (bones 'bowl' and 'pile'); setLevel scales the pile in 4 steps (PILE_SCALE).
+   ISLAND ACTIVITIES v1 (IA-3; ISLAND-ACTIVITIES-PLAN §5 IA-3): makeBall(colour, tier) (SL3D.vox.makeBall,
+     beside makeBowl; actors.js holds it for fetch) → {root, mesh, tris, colour, dispose()}: the fetch ball, a
+     3 × 3 × 3 G16 block with its 8 corners cut round (19 voxels, BALL.size u across: the pet carries it in its
+     mouth), in colour (a palette token; default PX Sunny) with a PX Cream seam round its middle; ≤ BALL.tris on
+     every tier; ONE SkinnedMesh (bone 'ball', its centre at the bone's origin) in the pixel-vox program. Never a
+     catalogue item, never placed or sold (no LOOK row, no defineVox model: only this api).
    ================================================================ */
 (function (root, factory) {
   var node = typeof module === 'object' && !!module.exports;
@@ -61,6 +67,9 @@
   var BOWL = { r: 4, floor: 3, tris: { LOW: 120, MID: 220, HIGH: 220 }, coral: 'PX Coral', rim: 'PX Glint', paw: 'paw' };
   /* the pile's scale at each level (setLevel): empty, then the 4 steps up to full */
   var PILE_SCALE = [0, 0.45, 0.65, 0.83, 1];
+  /* the fetch ball (IA-3): its colour, its seam, its size (u across), how far its bottom is under the root (the grid's
+     layers stand on y = j × G16: the ball's rows run -1 … 1) and its triangle cap on every tier */
+  var BALL = { colour: 'PX Sunny', seam: 'PX Cream', size: 3 * G16, bottom: G16, tris: 48 };
   /* the memory star: a 4-point star (never 5-pointed), steady glow in Star Gold at 0.6, drifting ±10 % at 0.3 Hz */
   var STAR = { rows: ['..x..', '..x..', 'xxxxx', '..x..', '..x..'], token: 'Star Gold', glow: 0.6, driftHz: 0.3, driftAmp: 0.1 };
 
@@ -269,7 +278,31 @@
   }
 
   /* ================================================================
-     FACTORY — SL3D.defineVox('care', K → {id: {voxels}}) · SL3D.defineVoxApi('makeBowl')
+     THE FETCH BALL (IA-3) — 3 × 3 × 3 G16, the corners cut, a seam round the middle; one bone 'ball'
+     ================================================================ */
+  function ballVoxels(colour) {
+    var o = vox().grid({ grid: G16 }), i, j, k;
+    for (j = -1; j <= 1; j++) for (k = -1; k <= 1; k++) for (i = -1; i <= 1; i++) {
+      if (Math.abs(i) + Math.abs(j) + Math.abs(k) === 3) continue;                   /* a corner: cut round */
+      o.set(i, j, k, j === 0 && (Math.abs(i) === 1 || Math.abs(k) === 1) ? 's' : 'b');
+    }
+    var tok = typeof colour === 'string' && colour ? colour : BALL.colour;
+    return o.model({ id: 'care_ball', palette: { b: tok, s: BALL.seam }, cull: [], ao: false });
+  }
+  function makeBall(SL3D, colour, tier) {
+    var K = SL3D.kit(tier), V = K && K.vox;
+    if (!V || typeof V.rig !== 'function') return null;
+    var model = ballVoxels(colour);
+    var rig = V.rig({ name: 'care-ball', bones: [{ name: 'ball', origin: [0, 0, 0] }], voxelsPerBone: { ball: model } });
+    rig.mesh.castShadow = false;
+    return {
+      root: rig.root, mesh: rig.mesh, tris: rig.tris, colour: typeof colour === 'string' && colour ? colour : BALL.colour,
+      dispose: function () { rig.dispose(); }
+    };
+  }
+
+  /* ================================================================
+     FACTORY — SL3D.defineVox('care', K → {id: {voxels}}) · SL3D.defineVoxApi('makeBowl') · ('makeBall')
      ================================================================ */
   function factory() {
     var out = {};
@@ -280,11 +313,14 @@
     if (!SL3D || typeof SL3D.defineVoxApi !== 'function' || SL3D.__slPxCare) return false;
     SL3D.__slPxCare = true;
     SL3D.defineVoxApi('makeBowl', function (K, S) { return function (food, tier) { return makeBowl(S || SL3D, food, tier); }; });
+    SL3D.defineVoxApi('makeBall', function (K, S) { return function (colour, tier) { return makeBall(S || SL3D, colour, tier); }; });
     return true;
   }
 
   return {
     VERSION: VERSION, G16: G16, FOODS: FOODS, GROUP: GROUP, COLORS: COLORS, BOWL: BOWL, PILE_SCALE: PILE_SCALE, STAR: STAR,
-    voxels: voxels, bowlParts: bowlParts, starCells: starCells, makeBowl: makeBowl, factory: factory, register: register, oct: oct
+    voxels: voxels, bowlParts: bowlParts, starCells: starCells, makeBowl: makeBowl, factory: factory, register: register, oct: oct,
+    /* island activities v1 (IA-3): the fetch ball */
+    BALL: BALL, ballVoxels: ballVoxels, makeBall: makeBall
   };
 }));

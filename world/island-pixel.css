@@ -143,6 +143,25 @@
                             cards share the row and fill it, wide, icon beside the words
    .slw-plays               an attraction card's game line ('🎮 Encore Shootout: …')
    .slw-carderr             a shop card's own refusal line (a buy that could not go ahead)
+   ISLAND ACTIVITIES v1 (IA-5; rewards-world.js draws them, its injected #slwCss places them, this skin paints them):
+   .slw-todaysign           📋 Today over Home's house (a white block in a 3px line on a sun lip, like a sign; 2D:
+                            .slw-today2d, placed inline over the roof); .slw-tdot = the soft dot in the child's own
+                            colour (--slw-me, inline) while the book has new stamps, never a number
+   .slw-todaysheet          the Today sheet: .slw-tday (Island day N), ul.slw-trows of li.slw-trow (span.ic, span.tx
+                            with .ln and .sub lines, a ✓ .slw-tdone once done today (.done: a mint block), one
+                            .slw-btn), p.slw-tcalm
+   .slw-vissheet            the visitor's card: .slw-vistop (.slw-visface portrait + the hello), .slw-visbtns
+   .slw-visitor2d / .slw-vistag   the visitor in 2D (its figure + span.nm) and its portrait tag on a 3D stage with no
+                            person rig for it
+   #slwPlayBar.slw-playbar  the 48px strip pinned to the stage's top while a show, I spy, fetch or hide and seek is on:
+                            span.slw-pbtx (what is going on) + span.slw-pbbtns (.slw-btn); .slw-pb-<kind>
+   .slw-say2d               a 2D speech bubble (a sign-coloured block, ink words)
+   .slw-petchips            a patted pet's 🎾 / 🙈 chips (.slw-btn)
+   .slw-tag.slw-showtag     the show's island's landmark tag; .slw-chipshow the 'Show today' pill on its chip
+   .slw-flagmark / .slw-flag2d   a completed book page's explorer flag (the land's sign; the 2D dock)
+   .slw-freeplay            the Games sheet's 'Play on your island' block: h3, .slw-freenote, .slw-freelist
+   .slw-looks               ❓ Help's Season looks switch (.slw-switch) and .slw-lookshelp; .slw-helptoday
+   .slw-wx / .slw-wxf       the weather overlay's drifting glyphs (2D, LOW); the drift is #slwCss's (≤ 0.1 Hz)
    Optional custom properties, set from JS:
    --slw-fit                the 3D stage's cap (on #worldView): the window's height below
                             the stage's top (E2)
@@ -418,6 +437,8 @@ html body .slw-goal .gb > i {
   background: repeating-linear-gradient(90deg, var(--px-sun) 0, var(--px-sun) 10px, var(--px-sun-lip) 10px, var(--px-sun-lip) 12px);
   box-shadow: none;
 }
+/* island activities (IA-5, §4.4): the slim 🎯 goal bar under a Next step card that is not about the goal: 6px, a 1px line */
+html body .slw-goal .gb.slw-goalbar, html body .slw-next .gb.slw-goalbar { height: 6px; border-width: 1px; }
 html body .slw-goal.ready,
 html body .slw-goal.slw-trial { background: var(--px-mint); border-color: var(--px-line); }
 html body .slw-goal.ready .gt,
@@ -1360,6 +1381,46 @@ html body .slw-toast {
   font-weight: 700; font-size: 15px; animation: pxToastIn 200ms var(--px-ease) both;
 }
 
+/* ---------------- island activities v1 (IA-5): Today, the visitor, the play strip, bubbles ---------------- */
+/* 📋 Today: a white sign on a sun lip (it opens a sheet; it never moves) */
+html body .slw-todaysign {
+  --sle-ring: 0 0 0 0 transparent; min-width: 44px; min-height: 44px; padding: 6px 12px; gap: 6px;
+  background: var(--px-panel); color: var(--px-ink); border: var(--px-bw) solid var(--px-line);
+  border-radius: var(--px-r-btn); box-shadow: var(--px-lip) var(--px-sun-lip), var(--sle-ring);
+  font-family: var(--sle-ui); font-weight: 800; font-size: 15px;
+}
+html body .slw-todaysign:active { box-shadow: 0 1px 0 0 var(--px-sun-lip), var(--sle-ring); }
+html body .slw-tdot { background: var(--slw-me, var(--px-violet)); border: 2px solid var(--px-panel); box-shadow: 0 0 0 2px var(--px-ink); }
+html body .slw-todaysign:focus-visible, html body .slw-vistag:focus-visible,
+html body .slw-visitor2d:focus-visible { outline: 3px solid var(--px-ink); outline-offset: 3px; }
+/* the Today rows: white blocks in the line colour; a row done today is mint, its ✓ green ink */
+html body .slw-trow { background: var(--px-panel); border: 2px solid var(--px-line); border-radius: var(--px-r-card); }
+html body .slw-trow.done { background: var(--px-mint); }
+html body .slw-trow .ln { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 800; }
+html body .slw-trow .sub, html body .slw-tcalm, html body .slw-freenote, html body .slw-lookshelp { color: var(--px-ink-2); }
+html body .slw-tdone { color: var(--px-ok); font-weight: 800; }
+html body .slw-tday { color: var(--px-ink-2); font-family: var(--sle-ui); font-weight: 800; }
+/* the visitor: its card's portrait well, its 2D name, its portrait tag */
+html body .slw-visface { background: var(--px-well); border: 2px solid var(--px-line); border-radius: var(--px-r-card); }
+html body .slw-visitor2d .nm, html body .slw-vistag .nm {
+  background: var(--px-panel); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 4px;
+  font-family: var(--sle-ui); font-weight: 700;
+}
+html body .slw-vistag { background: var(--px-panel); border: var(--px-bw) solid var(--px-line); border-radius: var(--px-r-btn); box-shadow: var(--px-lip) var(--px-white-lip); }
+/* the play strip pinned to the stage's top: a white band in the line colour, words in ink */
+html body .slw-playbar { background: var(--px-panel); border-bottom: var(--px-bw) solid var(--px-line); box-shadow: 0 4px 0 0 rgba(27, 33, 80, 0.22); }
+html body .slw-playbar .slw-pbtx { color: var(--px-ink); font-family: var(--sle-ui); font-weight: 800; }
+/* a 2D speech bubble: the signs' cream, ink words, a hard lip */
+html body .slw-say2d {
+  background: var(--px-sign); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 6px;
+  box-shadow: 0 3px 0 0 rgba(27, 33, 80, 0.25); font-family: var(--sle-ui); font-weight: 700;
+}
+/* the show's island: its landmark's tag and its chip's pill are sun blocks (no pulse) */
+html body .slw-tag.slw-showtag { background: var(--px-sun); color: var(--px-ink); box-shadow: 0 3px 0 0 var(--px-sun-lip); padding: 1px 8px; }
+html body .slw-chipshow { background: var(--px-sun); color: var(--px-ink); border: 2px solid var(--px-ink); border-radius: 4px; font-weight: 800; }
+/* the Games sheet's free-play block sits under a dotted line, like a shop section */
+html body .slw-freeplay { border-top: 2px dotted var(--px-line); padding-top: 12px; }
+
 /* ---------------- visually hidden (screen readers only) ---------------- */
 html body .slw-vh, html body #slwLive {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
@@ -1446,6 +1507,10 @@ html.sl-low body .slw-cannons::after { content: none; }   /* one burst */
   html body .slw-camctl { top: 8px; bottom: auto; right: 8px; flex-direction: row; }
   html body .slw-camctl button[data-cam="in"],
   html body .slw-camctl button[data-cam="reset"] { margin-top: 0; margin-left: 6px; }
+  /* island activities (IA-5): while the play strip is up it takes the stage's whole top edge, and the camera buttons
+     step down under it (never under the strip, never over the island's middle) */
+  html body .slw-stagewrap.slw-is3d > .slw-playbar { width: 100%; }
+  html body .slw-stagewrap.slw-barup .slw-camctl { top: calc(var(--slw-barh, 56px) + 8px); }
   /* the app's header and tabs fill the top of a phone: the island's own rows sit closer, so once the open lifts
      the island the 3D stage keeps its whole minimum on screen (E2); the test-mode note keeps two short lines */
   html body .slw-hud { margin-bottom: 6px; }

@@ -136,6 +136,7 @@
     }).then(function (res) { afterCommit(); return res; });
   }
   function afterCommit() {
+    commitRev++;                         /* island activities (IA-5): today's island day is worked out again */
     try { if (typeof updatePointsDisplay === 'function') updatePointsDisplay(); } catch (e) {}
   }
 
@@ -161,6 +162,9 @@
   var pendingTx = {};                    /* itemId -> tx kept for retries */
   var buying = false, confirming = false;
   var petTimers = [];
+  /* island activities v1 (IA-5): every commit's number (today's island day is worked out again after one), a real open's
+     island-day count still to do, a feeding moment playing (the visitor steps aside). Memory only */
+  var commitRev = 0, dayOpen = false, feedingNow = false, wxDue = false, metaOpen = false;
   /* "now" for the game-time day: server time (HTTP Date header) or the clock at
      load, carried forward by the monotonic performance clock — so changing the
      device clock while the app is open can't jump to a fresh day */
@@ -431,6 +435,45 @@
       '.slw-togs .slw-more{display:none;}@media (max-width: 400px){.slw-togs .slw-tog[data-act="sound"],.slw-togs .slw-tog[data-act="info"]{display:none;}.slw-togs .slw-tog.slw-more{display:inline-flex;}}',
       /* phones: the HUD's buttons wrap (no sideways strip that hides My pets, QA#6) and the Next step card takes a whole row */
       '@media (max-width:640px){.slw-goal.slw-next{flex:1 1 100%;}}',
+      /* island activities v1 (IA-5; island-pixel.css draws the real look, these keep them usable without it): the 📋 Today
+         sign and its sheet, the visitor (2D, its portrait tag and card), the play strip pinned to the stage's top (sticky, so
+         a phone's sideways 2D island keeps it in view; it takes no row of its own), the HUD's places stepping aside while a
+         pet plays or a show runs (kept in their row: nothing moves), speech bubbles, the 2D fetch and hide, the weather
+         overlay (≤ 0.1 Hz, still under reduced motion), the 'Show today' pill, the explorer flag, the Games sheet's block */
+      '.slw-todaysign{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:6px 12px;border:2px solid #2B3A80;border-radius:12px;background:#fff;color:#1B2150;font:inherit;font-weight:800;font-size:15px;white-space:nowrap;cursor:pointer;position:relative;}',
+      '.slw-stage>.slw-today2d{position:absolute;z-index:905;transform:translate(-50%,-100%);}.slw-todaysign[hidden],.slw-tag3d .slw-tag[hidden]{display:none !important;}',
+      '.slw-tdot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--slw-me,#6c5ce7);border:2px solid #fff;box-shadow:0 0 0 2px #2B3A80;}',
+      '.slw-visitor2d{position:absolute;width:' + pct(70, STAGE_W) + ';padding:0;border:none;background:none;cursor:pointer;}.slw-visitor2d svg{width:100%;height:auto;display:block;}',
+      '.slw-visitor2d .nm,.slw-vistag .nm{display:block;margin:2px auto 0;width:max-content;max-width:140px;padding:1px 8px;border-radius:999px;background:#fff;color:#1B2150;font-size:12px;font-weight:800;}',
+      '.slw-visitor2d.wave{animation:slwHop .6s ease-out;}',
+      '.slw-vistag{display:flex;flex-direction:column;align-items:center;min-width:48px;min-height:48px;padding:4px;border:2px solid #2B3A80;border-radius:12px;background:#fff;cursor:pointer;}.slw-vistag .slw-pc{display:block;width:44px;height:44px;}.slw-vistag svg{width:100%;height:100%;}',
+      '.slw-playbar{position:-webkit-sticky;position:sticky;left:0;top:0;z-index:1100;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-height:48px;margin-bottom:-48px;padding:4px 8px;box-sizing:border-box;width:100%;background:rgba(255,255,255,.95);border-bottom:2px solid #2B3A80;}',
+      /* 3D: over the stage's own layer (.slw-3d, z 1000), clear of its camera buttons down the right-hand side */
+      '.slw-stagewrap.slw-is3d>.slw-playbar{width:calc(100% - 64px);}',
+      '.slw-playbar .slw-pbtx{flex:1 1 12em;min-width:0;font-weight:800;color:#1B2150;font-size:15px;line-height:1.3;}.slw-playbar.slw-pb-spy .slw-pbtx{font-size:17px;}',
+      '.slw-playbar .slw-pbbtns{display:flex;gap:6px;flex-wrap:wrap;}.slw-playbar .slw-btn{min-height:44px;}',
+      '.slw[data-playing] .slw-acts{opacity:.45;}',
+      '.slw-say2d{position:absolute;z-index:970;transform:translate(-50%,-100%);max-width:min(260px,40%);padding:6px 10px;border:2px solid #2B3A80;border-radius:12px;background:#fff;color:#1B2150;font-weight:800;font-size:14px;line-height:1.3;text-align:center;pointer-events:none;}',
+      '.slw-pet.slw-busy{z-index:955;}.slw-pet.slw-hid2d{z-index:auto;}',
+      '.slw-ball2d{position:absolute;z-index:956;transform:translate(-50%,-50%);font-size:clamp(16px,2.4vw,26px);pointer-events:none;}',
+      '.slw-veil{position:absolute;inset:0;z-index:1050;background:#1B2150;opacity:0;pointer-events:none;animation:slwVeil 2s ease-in-out forwards;}@keyframes slwVeil{0%{opacity:0;}25%,75%{opacity:.92;}100%{opacity:0;}}',
+      '.slw-wob2d{animation:slwWob 1.2s ease-out;transform-origin:50% 100%;}@keyframes slwWob{0%,100%{transform:rotate(0);}20%{transform:rotate(-6deg);}50%{transform:rotate(5deg);}80%{transform:rotate(-3deg);}}',
+      '.slw-spyglow{outline:4px solid #FFD23F;outline-offset:2px;border-radius:8px;}',
+      '.slw-wx{position:absolute;inset:0;z-index:890;overflow:hidden;pointer-events:none;}.slw-wx.slw-wx3d{z-index:1040;}.slw-wxf{position:absolute;font-size:clamp(12px,1.8vw,20px);animation:slwWxFall 14s linear infinite;}',
+      '.slw-wxf>i{display:inline-block;font-style:normal;animation:slwWxSway 8s ease-in-out infinite alternate;}@keyframes slwWxFall{from{top:-8%;}to{top:104%;}}@keyframes slwWxSway{from{transform:translateX(-10px);}to{transform:translateX(10px);}}',
+      '.slw-chipshow{background:#FFD23F;color:#1B2150;border-radius:6px;padding:1px 6px;font-size:11px;}',
+      '.slw-tag.slw-showtag{position:static;transform:none;display:inline-block;margin-left:4px;background:#FFD23F;color:#1B2150;}',
+      '.slw-flagmark{margin-right:4px;}.slw-flag2d{position:absolute;z-index:6;font-size:clamp(14px,2vw,24px);pointer-events:none;}',
+      '.slw-petchips{display:flex;gap:6px;}.slw-petchips .slw-btn{min-height:44px;white-space:nowrap;}#slwPets>.slw-petchips{position:absolute;z-index:958;transform:translate(-20%,-120%);}',
+      '.slw-trows{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:8px;}.slw-trow{display:flex;align-items:center;gap:10px;padding:8px;border:2px solid #d9d2ee;border-radius:12px;}',
+      '.slw-trow .ic{flex:none;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;}.slw-trow .ic svg,.slw-trow .ic .slw-pc{width:40px;height:40px;display:block;}',
+      '.slw-trow .tx{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;}.slw-trow .ln{font-weight:800;}.slw-trow .sub{font-size:13px;font-weight:700;color:#4a3f75;}',
+      '.slw-trow .slw-btn{flex:none;min-height:48px;}.slw-tdone{flex:none;font-weight:800;color:#17663A;}.slw-tday{margin:0 0 4px;font-weight:800;}.slw-tcalm{margin:8px 0 0;font-size:13px;font-weight:700;color:#4a3f75;}',
+      '.slw-vistop{display:flex;align-items:center;gap:12px;}.slw-visface{flex:none;width:72px;height:72px;}.slw-visface svg,.slw-visface .slw-pc{width:72px;height:72px;display:block;}',
+      '.slw-visbtns{display:flex;flex-direction:column;gap:8px;margin-top:10px;}.slw-visbtns .slw-btn{min-height:48px;}',
+      '.slw-freeplay{margin:16px 0 0;}.slw-freeplay h3{margin:0 0 4px;}.slw-freenote{margin:0 0 8px;font-size:13px;font-weight:700;}.slw-freelist{display:flex;flex-wrap:wrap;gap:8px;}.slw-freelist .slw-btn{flex:1 1 220px;min-height:48px;}',
+      '.slw-looks{margin:10px 0;}.slw-lookshelp,.slw-helptoday{margin:4px 0;font-size:13px;font-weight:700;}',
+      '@media (prefers-reduced-motion: reduce){.slw-wxf,.slw-wxf>i,.slw-veil,.slw-wob2d,.slw-visitor2d.wave{animation:none !important;}.slw-veil{display:none;}}',
       '@media (prefers-reduced-motion: reduce){.slw-pet.slw-eat,.slw-pet.slw-eat>svg,.slw-feed2d .bit,.slw-feed2d .love i{animation:none !important;}}',
       '@media (prefers-reduced-motion: reduce){.slw-wave,.slw-spin,.slw-flag,.slw-twinkle,.slw-smoke,.slw-tag.play,.slw-new{animation:none !important;}.slw-pet{transition-duration:0s !important;}.slw-cele.pop .ic{animation:none;}}'
     ].join('\n');
@@ -480,12 +523,16 @@
   var showtimeOn = (function () { try { return localStorage.getItem('slwShowtime') === '1'; } catch (e) { return false; } })();
   function s3(method) {
     if (!stage3d || typeof stage3d[method] !== 'function') return undefined;
-    try { return stage3d[method].apply(stage3d, Array.prototype.slice.call(arguments, 1)); }
+    var r;
+    try { r = stage3d[method].apply(stage3d, Array.prototype.slice.call(arguments, 1)); }
     catch (e) { disable3D('call:' + method); return undefined; }
+    if (method === 'sync') visTagCheck();          /* the visitor's figure may have come or gone with it (IA-5) */
+    return r;
   }
   function lowPanels() { try { document.documentElement.classList.add('sl-low'); } catch (e) {} }
   function disable3D(reason) {
     var st = stage3d; stage3d = null; use3D = false;
+    endActivity('stage');                              /* a 3D game in play ends with its stage (IA-5) */
     hudBusy = false;                                   /* the 2D island answers at once */
     lowPanels();
     if (st) { try { st.dispose(); } catch (e) {} }
@@ -591,8 +638,11 @@
           var hungry = !!(o && o.hungry);
           if (!hungry) s3('emote', 'pet:' + petId, 'heart');
           try { if (window.SLSound) SLSound.make({ muted: function () { var u = me(); return !!(u && u.muted); } }).pet(petId, hungry ? 0.6 : 0.8); } catch (e) {}
-          patPet(petId);
+          petTapped(petId);                       /* the pat, and island activities' pet moments (IA-5) */
         },
+        /* island activities (IA-5): today's visitor → its card; a fetch's throw at a land point or into the sea */
+        tapVisitor: function () { if (mode === 'play' && !activity) openVisitor(); },
+        tapSea: function (x, z) { fetchThrow(x, z); },
         /* a memory star (the farewell, a grown-up's switch): its memory card in the Memory Book */
         tapStar: function (petId) { if (mode === 'play' && care()) openMemories({ petId: petId }); },
         tapAvatar: function () { s3('emote', 'me', 'wave'); meTapped(); },
@@ -607,7 +657,11 @@
           if (mode !== 'play' || !C.ISLES[isle]) return;
           if (C.isleUnlocked(W(), isle)) goIsle(isle); else openItem(C.ISLES[isle].unlock);
         },
-        tapCell: function (x, y, isle) { if (mode === 'place' && placing && (isle || 'home') === placing.isle) placeAtCell(x, y); },
+        tapCell: function (x, y, isle) {
+          var pt = arguments[3];                  /* IA-3: the land point of a tap while a play session takes the taps */
+          if (mode === 'place' && placing && (isle || 'home') === placing.isle) placeAtCell(x, y);
+          else if (mode === 'play' && pt && typeof pt.x === 'number') fetchThrow(pt.x, pt.z);      /* IA-5: a fetch's throw */
+        },
         dragStart: function (uid) {
           if (mode !== 'edit') return;
           var f = findPlaced(W(), uid);
@@ -627,7 +681,9 @@
       if (showtimeOn) s3('showtime', true);
       var at = isleNow();
       if (at !== 'home' && !canTravel()) { if (placing) { placing = null; document.removeEventListener('keydown', placeKeys); } mode = 'play'; selectedUid = null; visitIsle = at = 'home'; }
+      endActivity('stage');                       /* a 2D game in play ends: the 3D island takes over (IA-5) */
       draw();
+      applyWeather();                             /* the new sky draws the day's weather itself, or the overlay does (IA-5) */
       /* the 2D island may have travelled while 3D was loading: the scene opens on Home, so it lands there at once */
       if (at !== 'home') {
         var seq = ++travelSeq;
@@ -657,6 +713,8 @@
         return o;
       }),
       avatar: avatarView(w, u),                   /* the classic figure, or the child's character (KU-CH17) */
+      /* island activities (IA-5): today's visitor on Home in play mode (never over a feed, a game, the Sky map or travel) */
+      visitor: visitorView(w),
       mode: mode, selectedUid: selectedUid,
       isle: isleNow(), skyMap: skyMapOn, unlockedIsles: C.unlockedIsles(w), isles: isles,
       placing: placing ? placingView(w) : null,
@@ -698,6 +756,7 @@
   /* HTML labels that float over the 3D items (same markup and classes as 2D) */
   function anchors3D() {
     var w = W(), list = [], k = isleNow();
+    visTagAt = false;
     if (mode === 'play' && !skyMapOn && badgeOn(w, me())) {   /* the ✎ over you while there is no character (KU-CH17) */
       var mb = document.createElement('div'); mb.className = 'slw-tag3d';
       mb.innerHTML = '<button type="button" class="slw-mebadge3d" aria-label="' + esc(tx('char.badge')) + '">' + PENCIL() + '</button>';
@@ -705,16 +764,32 @@
       list.push({ el: mb, me: true, dy: 0.12 });
     }
     if (mode === 'play' && !skyMapOn) {
+      var showK = showToday();
       C.placedOn(w, k).forEach(function (p) {          /* the visited island's tags only */
         var it = C.item(p.id); if (!it) return;
         var inner = '';
         if (it.act === 'launch') inner += playTag(it);
         else if (handDot(it)) inner += '<span class="slw-dot" aria-hidden="true">✋</span>';
         if (window._slwNew && window._slwNew[p.uid]) inner += '<span class="slw-new">NEW!</span>';
+        if (showK === k && it.kind === 'landmark') inner += showTagHtml();            /* the show's island: its landmark (IA-5) */
         if (!inner) return;
         var el = document.createElement('div'); el.className = 'slw-tag3d'; el.innerHTML = inner;
         list.push({ el: el, uid: p.uid });
       });
+      /* island activities (IA-5): 📋 Today over Home's house, the visitor's portrait when the stage has no person for it,
+         and a patted pet's 🎾 / 🙈 chips */
+      var house = k === 'home' ? houseOf(w) : null, sign = house && !activity ? todaySignHtml() : '';
+      if (sign) {
+        /* the stage keeps its island signs clear of a tag that holds a ▶ sign (island3d tagKind 'play', placed first and
+           drawn over the signs): the sign over the house carries an empty, hidden one so the gate signs stand aside too */
+        var te = document.createElement('div'); te.className = 'slw-tag3d slw-todaytag'; te.innerHTML = sign + '<span class="slw-tag play" hidden></span>';
+        te.querySelector('button').addEventListener('click', function () { if (mode === 'play') openToday(); });
+        list.push({ el: te, uid: house.uid, dy: 0.5 });
+      }
+      var vis = k === 'home' ? visitorNow(w) : null;
+      if (vis && visitorTagged()) { list.push({ el: visitorTagEl(vis), visitor: true }); visTagAt = true; }
+      var pc = petChipsAt && petChipsAt.who === state.activeUser && Date.now() < petChipsAt.until && !activity ? petChipsEl(petChipsAt.id) : null;
+      if (pc) list.push({ el: pc, pet: petChipsAt.id, dy: 0.3 });
     }
     /* a peckish or hungry home pet's badge over it (P4.1), on the island being visited */
     if (mode === 'play' && !skyMapOn && care()) {
@@ -822,6 +897,7 @@
     if (mode === 'place' && !opts.force) { toast(tx('isle.finishFirst')); return Promise.resolve(false); }
     if (!canTravel()) return Promise.resolve(k === isleNow() && !skyMapOn);
     if (!on3D() && k === isleNow()) return Promise.resolve(true);     /* 2D: already drawn there */
+    endActivity('travel');                                            /* a game or a show stays on its island (IA-5) */
     /* a forced trip (a purchase, Take, Undo) never carries a half-done placement to another island */
     if (placing && placing.isle !== k) endPlacement(placing.fromBuy ? 'play' : 'edit');
     var seq = ++travelSeq, from = isleNow(), fromMap = skyMapOn;
@@ -861,6 +937,7 @@
     announce(tx(open ? 'isle.arrived' : 'isle.arrivedLocked', { island: isleName(k) }));
     if (!open && mode !== 'play') { if (placing) endPlacement('play'); else { mode = 'play'; draw(); } toast(tx('isle.locked')); return; }
     if (open && k !== 'home' && !w.tutSeen['isle:' + k] && !document.querySelector('.slw-cele')) firstVisit(k);
+    if (open && mode === 'play') arrivedActs(k);       /* island activities (IA-5): the visit stamp, the passport, a visit wish */
   }
   /* the first time on an island you own: a hint for its landmark, with Edit (D47; never on a preview) */
   function firstVisit(k) {
@@ -876,6 +953,7 @@
   function skyMap(on) {
     if (!on3D() || typeof stage3d.skyMap !== 'function') return Promise.resolve(false);
     if (mode === 'place') { toast(tx('isle.finishFirst')); return Promise.resolve(false); }
+    if (on) { endActivity('map'); noteFind({ kind: 'map', isle: 'home' }); }   /* the Sky map stamp (IA-5) */
     var seq = ++travelSeq, was = skyMapOn;
     skyMapOn = !!on; selectedUid = null;
     restage();
@@ -907,11 +985,14 @@
     var html = '<nav class="slw-isles" aria-label="' + esc(tx('isle.nav')) + '"><ul class="slw-islechips">';
     if (mapChip()) html += '<li><button type="button" class="slw-islechip map" data-isle="*" data-fk="isle:*" aria-pressed="' + skyMapOn + '" aria-label="' + esc(tx('isle.mapAria')) + '"' + off + '>' +
       '<span class="ic">' + ico('map') + '</span><span class="tx">' + esc(tx('isle.map')) + '</span></button></li>';
-    /* a preview visit is 'here' AND locked: the state class alone, the lock on the icon */
+    /* a preview visit is 'here' AND locked: the state class alone, the lock on the icon. Island activities (IA-5): the day's
+       show island wears a 'Show today' pill */
+    var showK = showToday(), pill = tx('act.show.pill');
     UI.chips(C, w, k, { t: tx, trial: trial(), skyMap: skyMapOn }).forEach(function (c) {
-      html += '<li><button type="button" class="slw-islechip ' + c.state + (c.isNew ? ' new' : '') + '" data-isle="' + c.isle + '" data-fk="isle:' + c.isle + '" aria-label="' + esc(c.aria) + '"' +
+      var sh = showK === c.isle && !c.locked;
+      html += '<li><button type="button" class="slw-islechip ' + c.state + (c.isNew ? ' new' : '') + '" data-isle="' + c.isle + '" data-fk="isle:' + c.isle + '" aria-label="' + esc(c.aria + (sh ? '. ' + pill : '')) + '"' +
         (c.state === 'here' ? ' aria-current="location"' : '') + off + '><span class="ic">' + ART.isleIcon(c.isle, { locked: c.locked }) + '</span><span class="tx">' + esc(c.short) + '</span>' +
-        (c.isNew ? '<span class="slw-chipnew" aria-hidden="true">' + esc(tx('isle.chipNew')) + '</span>' : '') + '</button></li>';
+        (c.isNew ? '<span class="slw-chipnew" aria-hidden="true">' + esc(tx('isle.chipNew')) + '</span>' : '') + (sh ? '<span class="slw-chipshow" aria-hidden="true">' + esc(pill) + '</span>' : '') + '</button></li>';
     });
     return html + '</ul>' + hereHtml(w, k) + '</nav>';
   }
@@ -1030,8 +1111,10 @@
     /* test mode's price word is the shop's one word, 'Free' (wardrobe.free; R2, QA2A-12), never the isles UI's 'FREE' */
     var free = tx('wardrobe.free'), pt = s.priceText && trial() && !open ? free : s.priceText, aria = trial() ? String(s.aria || '').replace(/\bFREE\b/g, free) : s.aria;
     var el = document.createElement('div'); el.className = 'slw-tag3d';
+    /* island activities (IA-5): a land whose book page is complete has its explorer flag by its bridge (never sold) */
+    var flag = open && ik !== 'home' && pageDone(w, ik) ? '<span class="slw-flagmark" aria-hidden="true">🚩</span>' : '';
     el.innerHTML = '<button type="button" class="slw-sign isle' + (open ? ' open' : '') + (k === 'home' && !skyMapOn ? ' gate' : '') + '" data-isle="' + ik + '" aria-label="' +
-      esc(aria) + '">' + (open ? '' : ico('lock')) + '<span class="nm">' + esc(s.short) + (open && !you ? ' ›' : '') + '</span>' +
+      esc(aria) + '">' + (open ? flag : ico('lock')) + '<span class="nm">' + esc(s.short) + (open && !you ? ' ›' : '') + '</span>' +
       (you ? '<span class="pr">' + esc((u.avatar || '🙂') + ' ' + tx('isle.you')) + '</span>' : pt ? '<span class="pr">' + esc(pt) + '</span>' : '') + '</button>';
     el.querySelector('button').addEventListener('click', function () {
       if (mode !== 'play') return;
@@ -1185,7 +1268,10 @@
     if (!again && !keep) nextOpens++;                     /* and the Next step card's turn (d-island) */
     if (!again && !keep) openPending = true;              /* the island-open queue runs once per real open (KU13) */
     if (!again && !keep) careOpen = kidDue = true;        /* and the pets' island day (P4.1) */
+    if (!again && !keep) { dayOpen = wxDue = true; daysMemo = null; }   /* and the island day's count and weather (IA-5) */
+    if (!again) metaOpen = true;                          /* the goal's saved name and price, after any open commit (R2; IA-5) */
     loadNextStep();                                       /* the Next step card's rules (wave 3; the goal bar until they are in) */
+    loadIslandDays();                                     /* island activities' day rules (IA-5; nothing new shows until they are in) */
     var u = me();
     if (!u) { root.innerHTML = '<div class="slw-loading">' + esc(tx('player.pick')) + '</div>'; return; }
     var w = C.ensureWorld(u);
@@ -1206,21 +1292,25 @@
       return;
     }
     /* the pets' island day (P4.1; pets.json care.careStep): after the repair and before the first draw, once per real
-       open, the grown-up's settings and the day's step in one commit; its card or toast comes with the queue */
-    if (careOpen) {
-      careOpen = false;
-      if (careQueue() && careDue(w)) {
+       open, the grown-up's settings and the day's step in one commit; its card or toast comes with the queue. Island
+       activities (IA-5): the same commit counts the island day (C.countIslandDay, with its own due check), also
+       without pet care */
+    if (careOpen || dayOpen) {
+      var dueCare = careOpen && careQueue() && careDue(w), dueDay = dayOpen && dayDue(w);
+      careOpen = dayOpen = false;
+      if (dueCare || dueDay) {
         var who = state.activeUser;
-        commit(careStep).then(function (res) { careDone(who, res); render(true); }, function () { render(true); });
+        commit(function (fu) { return openStep(fu, dueCare, dueDay); }).then(function (res) { careDone(who, res); render(true); }, function () { render(true); });
         root.innerHTML = '<div class="slw-loading">Building your island…</div>';
         return;
       }
     }
     /* a character goal's saved name and price, as index.html's 'Saving for…' line reads them, put right once (R2) */
-    if (!again && goalMetaStale(w)) commit(function (fu) { return { ok: goalMeta(C.ensureWorld(fu)) }; });
+    if (metaOpen) { metaOpen = false; if (goalMetaStale(w)) commit(function (fu) { return { ok: goalMeta(C.ensureWorld(fu)) }; }); }
     if (dispose3dTimer) { clearTimeout(dispose3dTimer); dispose3dTimer = 0; }
     draw();
     fitStage(openFit); openFit = false;
+    if (wxDue) { wxDue = false; applyWeather(); }         /* the day's weather as the island opens, never mid-visit (IA-5) */
     if (!running) s3('resume');          /* never pull the shared canvas out from under a game */
     maybeIntro();
     var goalCard = checkGoalReached(true);                /* 'Goal reached' is this open's one unasked card (R2) */
@@ -1282,6 +1372,7 @@
     syncNarrow();
     drawStage();
     drawBar();
+    drawActs();                          /* island activities (IA-5): the play strip, the 'playing' look, the 3D weather overlay */
     islandMusic(showtimeOn ? 'island_showtime' : 'island_day');
     fillPhotocards(root.querySelector('.slw-goal'));
     frame2d();
@@ -1371,10 +1462,11 @@
     var top = PAD + (y + fh) * CH - hUnits;
     var isPath = it.kind === 'path';
     if (boxes && !isPath && hUnits > 0) boxes.push([x * 100, top, (x + fw) * 100, top + hUnits]);
-    var interactive = mode !== 'play' || !!it.act;
+    var interactive = mode !== 'play' || !!it.act || shakeable(it);      /* a Home tree shakes (island activities, IA-5) */
     var tag = '';
     if (mode === 'play' && it.act === 'launch') tag = playTag(it);
     else if (mode === 'play' && handDot(it)) tag = '<span class="slw-dot" aria-hidden="true">✋</span>';
+    if (mode === 'play' && it.kind === 'landmark' && showToday() === isleNow()) tag += showTagHtml();   /* the day's show (IA-5) */
     /* NEW! sits on the item's base (sprite boxes are taller than short art); games keep it on top, clear of the ▶ sign */
     var newBadge = (window._slwNew && window._slwNew[p.uid]) ? '<span class="slw-new' + (it.act === 'launch' ? '' : ' base') + '">NEW!</span>' : '';
     var label = it.act === 'launch' ? playLabel(it) : it.name + (it.act ? ' — tap to play with it' : '');
@@ -1436,6 +1528,8 @@
       html += cell(x, y, planks(side, false));
       if (s) html += cell(+s.split(',')[0], +s.split(',')[1], planks(side, true));
     });
+    /* island activities (IA-5): a completed book page's explorer flag by the bridge (HTML, never an item) */
+    if (d.dock.length && pageDone(W(), k)) html += '<div class="slw-flag2d" aria-hidden="true" style="left:' + pct((d.dock[0][0] + o.ox) * 100 + 70, STAGE_W) + ';top:' + pct(PAD + (d.dock[0][1] + o.oy) * CH - 40, STAGE_H) + ';">🚩</div>';
     return html;
   }
   /* 'Back to Home Island' at the dock's outer edge (dockSide), right beside the landing when a spot there
@@ -1545,13 +1639,17 @@
       var house = w.placed.filter(function (p) { return p.id === 'house_cottage'; })[0];
       if (house) html += meHtml(u, house.x * 100 - 62, PAD + (house.y + 2) * CH - 110, 10 + (house.y + 2) * 10 + 4);
       html += stars2dHtml(w);                          /* the memory stars: Home's night sky (pets U11; shown at Showtime) */
+      /* island activities (IA-5): 📋 Today over the house and today's visitor by its door (play mode) */
+      if (mode === 'play') html += today2dHtml(w, st) + (visitorNow(w) ? visitor2dHtml(w, visitorNow(w)) : '');
     } else if (open && C.ISLES[k].dock.length && mode !== 'place') {
       /* you, on the bridge landing (you came over the bridge); while placing, the landing's own square shows instead */
       var dk = C.ISLES[k].dock[0], dx = dk[0] + o.ox, dy = dk[1] + o.oy;
       html += meHtml(u, dx * 100 + 15, PAD + (dy + 1) * CH - 110, 10 + (dy + 1) * 10 + 4);
     }
-    stage.innerHTML = html + '<div id="slwPets"></div><div id="slwPlace"></div>';
+    stage.innerHTML = html + wxHtml() + '<div id="slwPets"></div><div id="slwPlace"></div>';    /* + the day's weather (IA-5) */
     stage.querySelectorAll('[data-uid]').forEach(wireObj);
+    stage.querySelectorAll('[data-today]').forEach(function (el) { el.addEventListener('click', function () { if (mode === 'play') openToday(); }); });
+    stage.querySelectorAll('.slw-visitor2d').forEach(function (el) { el.addEventListener('click', function () { if (mode === 'play' && !activity) openVisitor(); }); });
     stage.querySelectorAll('[data-land]').forEach(function (el) { el.addEventListener('click', function () { openItem(el.dataset.land); }); });
     stage.querySelectorAll('[data-isle2d]').forEach(function (el) { el.addEventListener('click', function () { goIsle(el.dataset.isle2d); }); });
     stage.querySelectorAll('[data-star]').forEach(function (el) { el.addEventListener('click', function () { if (mode === 'play') openMemories({ petId: el.dataset.star }); }); });
@@ -1682,12 +1780,12 @@
         b.classList.add('say'); setTimeout(function () { b.classList.remove('say'); }, 1800);
         fx(b, ['♪', '✦', '★'][Math.floor(Math.random() * 3)]);
         petVoice(p.id, slow < 1 ? 0.6 : 0.8);
-        patPet(p.id);                                  /* the day's pat (P4.1) */
+        petTapped(p.id);                               /* the day's pat (P4.1) and island activities' pet moments (IA-5) */
       });
       host.appendChild(b);
       function wander() {
         if (!document.body.contains(b)) return;
-        if (b.classList.contains('slw-eat')) { petTimers.push(setTimeout(wander, 1500)); return; }   /* eating: stays at its bowl */
+        if (b.classList.contains('slw-eat') || b.classList.contains('slw-busy')) { petTimers.push(setTimeout(wander, 1500)); return; }   /* eating, or in a game (IA-5): stays put */
         var target = roam[Math.floor(Math.random() * roam.length)].split(',');
         var tx = +target[0], ty = +target[1];
         var dist = Math.hypot(tx - pos.x, ty - pos.y);
@@ -1710,6 +1808,7 @@
       }
       if (!reduced) petTimers.push(setTimeout(wander, 800 + i * 900));
     });
+    acts2dPets(); chipsNow();                          /* a game in play keeps its pet where it is; a patted pet's chips (IA-5) */
   }
 
   /* ---------------- HUD actions ---------------- */
@@ -1738,6 +1837,7 @@
       e.currentTarget.innerHTML = lightLabel();
       e.currentTarget.setAttribute('aria-label', lightAria());
       if (showtimeOn) e.currentTarget.setAttribute('data-on', '1'); else e.currentTarget.removeAttribute('data-on');
+      if (showtimeOn) noteFind({ kind: 'showtime', isle: isleNow() });   /* the Showtime stamps (IA-5) */
       return;
     }
     if (a === 'music') {
@@ -1757,6 +1857,7 @@
       }
       if (mode === 'place') cancelPlacement();
       if (skyMapOn) skyMap(false);                          /* edit happens on the island, not over the Sky map */
+      endActivity('edit');                                  /* a game or a show ends with Edit (IA-5) */
       mode = mode === 'edit' ? 'play' : 'edit';
       selectedUid = null;
       draw();
@@ -1774,6 +1875,11 @@
     if (mode === 'edit') { selectedUid = uid; drawStage(); drawBar(); return; }
     if (mode === 'place') return;
     if (window._slwNew && window._slwNew[uid]) { delete window._slwNew[uid]; if (use3D && stage3d) s3('setAnchors', anchors3D()); }
+    actTap(uid, it, el);                                  /* island activities (IA-5): stamps, the visitor's tour, wishes, I spy, hide and seek */
+    if (shakeTree(uid, it, el)) return;                   /* a Home tree: its season's burst */
+    /* in I spy, hide and seek or fetch the house is one more thing to tap (the biggest thing, a hiding place, a throw):
+       it plays, and its sheet waits for the next tap after the game, so the game never ends under the child's finger */
+    if (it.act === 'home' && (actLive('spy') || actLive('hide') || actLive('fetch'))) { if (use3D && stage3d) s3('act', uid, 'home'); else if (el) fx(el, '✦'); return; }
     if (use3D && stage3d) {
       /* the 3D act plays its own animation and sounds; app-level effects stay here */
       switch (it.act) {
@@ -2116,6 +2222,7 @@
      buttons, through ov._close()) */
   function overlay(inner, opts) {
     opts = opts || {};
+    endActivity('sheet');                     /* island activities (IA-5): a sheet over the island ends a game or a show */
     var born = perfNow();
     var ov = document.createElement('div');
     ov.className = 'slw-ov' + (opts.cls ? ' ' + opts.cls : '');
@@ -3052,6 +3159,7 @@
   }
 
   function celebrate(o) {
+    endActivity('sheet');                     /* (IA-5) */
     var cel = document.createElement('div');
     cel.className = 'slw-cele' + (o.cls ? ' ' + o.cls : '') + (reduced ? '' : ' pop');
     cel.setAttribute('role', 'dialog'); cel.setAttribute('aria-live', 'polite'); cel.setAttribute('data-sl-modal', '1');
@@ -3249,10 +3357,11 @@
         (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b>. Nothing is spent.' : '🪙 <b>Spend</b> coins in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) +
         '<br>🎮 <b>Play</b> your island games: playing never costs or earns coins or points.<br>' + esc(promiseLine()) + '<br>⭐ The island never spends your points. They stay for My rewards.</p>'
       : '<p style="font-weight:700;line-height:1.6;">📚 <b>Learn</b> anywhere in the app → you earn ⭐ points.<br>' + (trial() ? '🧪 Everything in the Island Shop is <b>free while we test</b> — your ⭐ stay put.' : '🛍️ <b>Spend</b> them in the Island Shop → your island grows.') + '<br>' + esc(tx('info.sky')) + '<br>🎮 <b>Play</b> your island games — they’re just for fun and never cost or earn points.<br>' +
-      esc(promiseLine()) + (trial() ? '' : '<br>⭐ Spending points never lowers your total-earned score.') + '</p>') + timeHtml(st) +
+      esc(promiseLine()) + (trial() ? '' : '<br>⭐ Spending points never lowers your total-earned score.') + '</p>') + timeHtml(st) + looksHtml() +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="slw-btn" type="button" id="slwReplay">▶ Show the welcome again</button>' +
       (can3DAgain() ? '<button class="slw-btn" type="button" id="slw3dAgain">Try 3D again</button>' : '') + '</div>', { small: true });
     $('#slwReplay', ov).addEventListener('click', function () { ov._close(); showIntro(); });
+    wireLooks(ov);
     var again = $('#slw3dAgain', ov);
     if (again) again.addEventListener('click', function () {
       ov._close();
@@ -3542,7 +3651,12 @@
     var f = window.slLoadPeople;
     if (typeof f !== 'function') return Promise.resolve(!!peopleArt());
     if (!force && Date.now() - peopleFailAt < PEOPLE_RETRY) return Promise.resolve(false);
-    peopleLoad = Promise.resolve().then(function () { return f(); }).then(function () { peopleLoad = null; return !!peopleArt(); }, function () { peopleLoad = null; peopleFailAt = Date.now(); return false; });
+    peopleLoad = Promise.resolve().then(function () { return f(); }).then(function () {
+      peopleLoad = null;
+      var ok = !!peopleArt();
+      if (ok) visitorPeopleIn();                       /* a 3D visitor's portrait becomes its figure (IA-5) */
+      return ok;
+    }, function () { peopleLoad = null; peopleFailAt = Date.now(); return false; });
     return peopleLoad;
   }
   /* a character to draw before its files are in (the classic figure stands in meanwhile): load, then draw it */
@@ -3594,6 +3708,7 @@
     if (!canFindMe()) return;
     (skyMapOn ? skyMap(false) : Promise.resolve(true)).then(function () {
       try { window.SLIsland3D.focusMe({}); } catch (e) {}
+      noteFind({ kind: 'findme', isle: 'home' });                 /* the 'Find yourself' stamp (IA-5) */
       var wrap = root && root.querySelector('.slw-stagewrap'), vh = window.innerHeight || 0;
       if (!wrap || !vh || typeof window.scrollTo !== 'function') return;
       var hd = document.querySelector('header.topbar'), top = hd ? Math.max(0, hd.getBoundingClientRect().bottom) : 0, r = wrap.getBoundingClientRect();
@@ -3650,7 +3765,14 @@
   }
   /* a tap on 'That’s you!': the wave (2D) or the actors' own reaction (3D) is seen first, then My character */
   function meTapped() {
+    /* island activities (IA-5): a tap on 'That’s you!' is finding yourself on the island too (the stamp's only way on the
+       2D island, which has no Find me) */
+    if (mode === 'play') noteFind({ kind: 'findme', isle: 'home' });
     if (!PC() || mode !== 'play' || Date.now() - meTapT < 900) return;
+    /* the integration pass: during I spy, fetch or hide and seek the figure only waves; its sheet (My character, or
+       'Who's going on your island?') would end the game under the child's finger, as the house's would (a show has
+       ended on the tap already) */
+    if (activity) return;
     meTapT = Date.now();
     setTimeout(function () { if (mode === 'play' && !document.querySelector('.slw-ov,.slw-cele')) openMyChar(); }, reduced ? 0 : 600);   /* the hop or the emote reads first */
   }
@@ -3769,7 +3891,7 @@
   var OPEN_MAX = 1, OPEN_POLL = 400, OPEN_WAIT = 300000, OPEN_STAGE = 15000;   /* 1 unasked card; 5 min for a quiet moment */
   function enqueueOpen(e) {
     if (!e || typeof e.id !== 'string' || typeof e.prio !== 'number' || typeof e.when !== 'function' || typeof e.show !== 'function') return false;
-    OPENQ = OPENQ.filter(function (x) { return x.id !== e.id; }).concat([{ id: e.id, prio: e.prio, when: e.when, show: e.show, asked: e.asked === true }]);
+    OPENQ = OPENQ.filter(function (x) { return x.id !== e.id; }).concat([{ id: e.id, prio: e.prio, when: e.when, show: e.show, asked: e.asked === true, quiet: e.quiet === true }]);
     OPENQ.sort(function (a, b) { return a.prio - b.prio; });
     return true;
   }
@@ -3798,7 +3920,9 @@
     var w = W(), ctx = peopleCtx(), e = null, room = unaskedRoom(run);
     for (var i = 0; i < OPENQ.length && !e; i++) {
       var c = OPENQ[i], ok = false;
-      if (run.done[c.id] || (!c.asked && !room)) continue;
+      /* island activities (IA-5, plan §6): a quiet entry (a scene beat, never a sheet, card or toast) never counts toward
+         OPEN_MAX and is skipped on the welcome open */
+      if (run.done[c.id] || (!c.asked && !c.quiet && !room) || (c.quiet && run.welcome)) continue;
       try { ok = !!c.when(w, ctx); } catch (er) { ok = false; }
       if (ok) e = c;
     }
@@ -3811,7 +3935,7 @@
     var p;
     try { p = Promise.resolve(e.show(ctx)); } catch (er) { p = Promise.reject(er); }
     var next = function () { setTimeout(function () { stepOpenQueue(run); }, OPEN_POLL); };
-    p.then(function () { if (!e.asked) run.shown++; next(); }, next);
+    p.then(function () { if (!e.asked && !e.quiet) run.shown++; next(); }, next);
   }
   /* 'Who’s going on your island?' (prio 20): once, until it is answered (people-ui sets tutSeen.chars) */
   enqueueOpen({ id: 'char.meet', prio: 20,
@@ -4089,6 +4213,8 @@
       toast: function (t) { toast(t); }, sound: careSound, trial: trial, reduced: function () { return reduced; },
       use3D: function () { return on3D() && !document.documentElement.classList.contains('sl-low'); },
       stageFeed: stageFeed, buy: buyCare,
+      /* island activities (IA-5): My pets → Play's island moment; the island day's rules and board for the wish lines */
+      stagePlay: stagePlay, D: DAYS() || undefined, days: function () { return dayNow(); }, people: PC() || undefined,
       /* d-pets: the Pet Shop opens on the land the child is on, and its Clothes shelf buys through the ordinary flow */
       here: function () { return isleNow(); }, buyGear: buyGearCare,
       openShop: openPetShop, openMemories: openMemories,
@@ -4197,10 +4323,14 @@
     if (on3D()) {
       if (typeof stage3d.feed !== 'function') return Promise.resolve(false);
       s3('setCovered', false);
+      /* island activities (IA-5): today's visitor steps aside for the feeding moment and comes back after it */
+      var vis = !!visitorNow(W());
+      if (vis) { feedingNow = true; s3('sync', islandView()); }
       var p = s3('feed', petId, foodId, { fav: !!(o && o.fav), reduced: red });
-      if (!p || typeof p.then !== 'function') return Promise.resolve(false);
+      var back = function () { if (feedingNow) { feedingNow = false; if (on3D() && !running) s3('sync', islandView()); } };
+      if (!p || typeof p.then !== 'function') { back(); return Promise.resolve(false); }
       var off = skipHooks(function () { s3('skipFeed'); });
-      return p.then(function (ok) { off(); return ok !== false; }, function () { off(); return false; });
+      return p.then(function (ok) { off(); back(); return ok !== false; }, function () { off(); back(); return false; });
     }
     return feed2d(petId, foodId, red);
   }
@@ -4335,6 +4465,7 @@
     var ov = overlay(html + '</div>');
     /* [V4.55-BOARDS] optional leaderboards (world/games/boards.js); this sheet works without it */
     (window.SLBoards ? Promise.resolve() : loadScript('world/games/boards.js?v=' + (window.SL_WORLD_VER || '1'))).then(function () { if (window.SLBoards && SLBoards.attach) SLBoards.attach(ov, { overlay: overlay, day: st.day }); }).catch(function () {});
+    addFree(ov);                                         /* island activities (IA-5): 'Play on your island' under the games, free play */
     if (typeof o.onClose === 'function') ov._whenClosed(o.onClose);
     ov.querySelectorAll('[data-play]').forEach(function (b) { b.addEventListener('click', function () { if (b.getAttribute('aria-disabled') === 'true') return; ov._close(); launch(b.dataset.play); }); });
     return ov;
@@ -4349,6 +4480,7 @@
     if (!C.owns(w, G.att)) { openItem(G.att); return; }
     if (running) return;
     if (placing) { placing = null; document.removeEventListener('keydown', placeKeys); mode = 'play'; draw(); }
+    endActivity('game');                      /* island activities (IA-5): a game ends a pet game, a show or I spy */
     var st = arcadeState();
     if (C.roundGate(st.status).allowed === false) {
       var ov = overlay('<h2>⏱️ That’s all the game time for today</h2><p style="font-weight:700;">Your grown-up set ' + Math.round(st.status.limitSec / 60) + ' minutes of island games a day. Your games are still yours — come back tomorrow!</p><button class="slw-btn big on" type="button" id="slwToLearn">📚 Learning is open — let’s go</button>', { small: true });
@@ -4459,14 +4591,14 @@
      precached in sw.js). Until it is in, or when no rule fits, the old savings-goal bar / test-mode note stands.
      The host acts on the card's btn.go.to, never on its id alone.
      ================================================================ */
-  var nextCard = null, goalShown = null, TRIP_MS = 3 * 60 * 60 * 1000;
+  var nextCard = null, goalShown = null, TRIP_MS = 3 * 60 * 60 * 1000, TRIP_KEEP_MS = 12 * 60 * 60 * 1000;
   var TRIP_FROM = { item: 1, card: 1, next: 1, hud: 1, petShop: 1, cast: 1 };
   /* d-island: the card's turn (SLNextStep env.turn, the contract): the island day's number plus the real My Island opens
      of this page session (render() moves nextOpens on), so each open, and each new day after a reload, comes round to
      the next island idea; plus the cards acted on (onNext moves nextActs on), so the card after Fly there, ✋ Have a go
      or Open my bag is the next idea, never the same one again. Memory only. qaTurn: a QA script's fixed turn (QA mode
      only). nextLeft: the island the child last flew from in this open (env.left: no visit straight back) */
-  var nextOpens = 0, nextActs = 0, qaTurn = null, nextEnv = null, nextLeft = null;
+  var nextOpens = 0, nextActs = 0, qaTurn = null, nextEnv = null, nextLeft = null, nextHold = null;
   function nextTurn() {
     if (typeof qaTurn === 'number') return qaTurn;
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(careDay() || ''));
@@ -4488,8 +4620,19 @@
         games: C.roundGate(arcadeState().status).allowed !== false, isle: isleNow(), travel: canTravel(), turn: nextTurn(),
         left: nextLeft && nextLeft !== isleNow() ? nextLeft : null, learnHere: !!hereLearn() };
       if (typeof C.walletOf === 'function') env.wallet = C.walletOf();
+      /* island activities (IA-2's env, as built): the island day, the turn without its calendar day (days.n is the day
+         part), the pet that can play here and the card on show (kept while it still fits: the same open, the same turn) */
+      var days = dayNow(u);
+      if (days) {
+        env.days = days;
+        env.turn = typeof qaTurn === 'number' ? qaTurn : nextOpens + nextActs;
+        var pp = playPet();
+        if (pp) env.pet = pp;
+        if (nextHold && nextHold.who === state.activeUser && nextHold.turn === env.turn) env.hold = { id: nextHold.id, go: nextHold.go };
+      }
       nextEnv = env;
       var n = N.island(C, u, env);
+      nextHold = days && n && n.btn && n.btn.go ? { id: n.id, go: n.btn.go, turn: env.turn, who: state.activeUser } : null;
       return n && n.text && typeof n.text.key === 'string' ? n : null;
     } catch (e) { return null; }
   }
@@ -4517,13 +4660,14 @@
     if (!n) return goalHtml(u);
     var w = C.ensureWorld(u), ic = n.icon || {}, pic = '', p = n.progress, label = esc(tx('next.label'));
     if (ic.kind === 'pet' && C.item(ic.id)) pic = iconHtml(ic.id, { acc: C.wornBy(w, ic.id) });
+    else if (ic.kind === 'char' && ic.id) pic = peopleIconHtml(ic.id);                  /* today's visitor (IA-2) */
     else if (ic.kind === 'isle' && C.ISLES[ic.id]) pic = typeof ART.isleIcon === 'function' ? ART.isleIcon(ic.id, { locked: !C.isleUnlocked(w, ic.id) }) : '';   /* an island's own icon (d-island) */
     else if (ic.id && C.item(ic.id)) pic = iconHtml(ic.id, artState(w));
     return '<div class="slw-goal slw-next' + (n.id === 'enough' ? ' ready' : '') + '" role="group" aria-label="' + label + '" data-next="' + esc(n.id) + '">' +
       (pic ? '<span class="gi" aria-hidden="true">' + pic + '</span>' : '') +
       '<span class="nx"><span class="lb" aria-hidden="true">' + label + '</span><span class="gt">' + esc(tx(n.text.key, n.text.params || undefined)) + '</span>' +
       (p ? '<span class="gb" role="progressbar" aria-valuemin="0" aria-valuemax="' + p.price + '" aria-valuenow="' + Math.min(p.have, p.price) + '" aria-label="' +
-        esc(tx(p.key || 'next.progress', { n: fmt(p.have), price: fmt(p.price) })) + '" style="display:block;"><i style="width:' + p.pct + '%"></i></span>' : '') + '</span>' +
+        esc(tx(p.key || 'next.progress', { n: fmt(p.have), price: fmt(p.price) })) + '" style="display:block;"><i style="width:' + p.pct + '%"></i></span>' : '') + goalBarHtml(n.goalBar) + '</span>' +
       (n.btn ? '<button type="button" class="slw-nextbtn" data-fk="hud:next">' + esc(tx(n.btn.key, n.btn.params || undefined)) + '</button>' : '') + '</div>';
   }
   /* the card answers a tap anywhere on it (its button is the keyboard's way in, and the tap stops there: one act per
@@ -4580,21 +4724,26 @@
   /* the trip (contract 1): {v: 1, who, id, name, price, wallet, at (ms), from}, in memory only. Never in test mode (nothing
      is short there): the Learn buttons only ever show with real prices */
   function tripOn(t) {
-    var N = window.SLNextStep, now = Date.now();
-    if (N && typeof N.tripLive === 'function') return N.tripLive(t, state.activeUser, now);
-    return !!t && t.v === 1 && t.who === state.activeUser && typeof t.at === 'number' && now - t.at >= 0 && now - t.at <= TRIP_MS;
+    /* island activities §4.1 (IA-7's contract): a trip that names its island day lasts until that day ends (12 hours at
+       most), whichever way My Island opens; one without a day keeps the 3-hour rule */
+    var N = window.SLNextStep, now = Date.now(), day = t && typeof t.day === 'string' ? careDay() : undefined;
+    if (N && typeof N.tripLive === 'function') return N.tripLive(t, state.activeUser, now, day);
+    if (!t || t.v !== 1 || t.who !== state.activeUser || typeof t.at !== 'number' || now - t.at < 0) return false;
+    return day !== undefined ? t.day === day && now - t.at <= TRIP_KEEP_MS : now - t.at <= TRIP_MS;
   }
   function startTrip(id, from) {
     var it = C.item(id);
     closeAllOverlays();
     if (it && me() && !trial()) {
       window.slLearnTrip = { v: 1, who: state.activeUser, id: id, name: it.name, price: priceOf(it), wallet: coinsOn() ? 'coins' : 'stars', at: Date.now(),
-        from: Object.prototype.hasOwnProperty.call(TRIP_FROM, from) ? from : 'item' };
+        from: Object.prototype.hasOwnProperty.call(TRIP_FROM, from) ? from : 'item', day: careDay() };
+      tripSave(window.slLearnTrip);                 /* kept on this device to the end of its island day (IA-7's seam) */
+      tripGoal(id);                                  /* and 🎯 My goal when there is none (§4.2) */
     }
     goLearn();
     return true;
   }
-  function endTrip(id) { var t = window.slLearnTrip; if (t && (id == null || t.id === id)) window.slLearnTrip = null; }
+  function endTrip(id) { var t = window.slLearnTrip; if (t && (id == null || t.id === id)) tripSave(null); }
   /* a sheet's close as a promise (the island-open queue waits for it) */
   function untilClosed(ov) { return new Promise(function (res) { if (ov && typeof ov._whenClosed === 'function') ov._whenClosed(res); else res(); }); }
   /* 3: the trip's way back. When My Island opens again (any route), the thing's sheet opens first, once: a Pet Shop
@@ -4612,7 +4761,7 @@
     },
     show: function () {
       var t = window.slLearnTrip, it = t && C.item(t.id);
-      window.slLearnTrip = null;                         /* once: the trip ends when the child is back */
+      tripSave(null);                                    /* once: the trip ends when the child is back (and on this device) */
       if (!it) return Promise.resolve();
       /* (d-pets: a piece of pet clothes from the Pet Shop's Clothes shelf comes back there too) */
       if (care() && (it.kind === 'food' || ((it.kind === 'pet' || it.kind === 'acc') && t.from === 'petShop'))) return openPetShop({ filter: it.kind === 'food' ? 'food' : 'all', id: t.id });
@@ -4623,7 +4772,8 @@
      to come the place waits for it, first in the island-open queue. false with nobody signed in or while a game runs */
   /* d-island: + land (fly to o.isle), ride (o.uid on o.isle, framed and played as a tap would) and edit (Edit mode on
      o.isle, the bag in view), the Next step card's island ideas */
-  var GO_TO = { island: 1, games: 1, shop: 1, item: 1, pets: 1, play: 1, learn: 1, char: 1, land: 1, ride: 1, edit: 1 };
+  var GO_TO = { island: 1, games: 1, shop: 1, item: 1, pets: 1, play: 1, learn: 1, char: 1, land: 1, ride: 1, edit: 1,
+    today: 1, visitor: 1, book: 1, show: 1, spy: 1, isle: 1, fetch: 1, hide: 1 };      /* + island activities' places (IA-2 / IA-5) */
   function go(to, o) {
     o = o && typeof o === 'object' ? o : {};
     if (typeof to !== 'string' || !Object.prototype.hasOwnProperty.call(GO_TO, to) || !me() || running) return false;
@@ -4672,7 +4822,8 @@
     else if (to === 'char') return Promise.resolve(openMyChar({}));
     else if (to === 'land') return typeof o.isle === 'string' && C.ISLES[o.isle] ? goIsle(o.isle) : Promise.resolve(false);
     else if (to === 'ride') return rideNow(o.uid, o.isle);
-    else if (to === 'edit') return editNow(o.isle);
+    else if (to === 'edit') return editNow(o.isle, o.id);
+    else if (ACT_GO[to]) return goAct(to, o);
     return untilClosed(ov);
   }
   /* there first: the island o.isle names (the one the child is on when it names none), off the Sky map → Promise<bool> */
@@ -4710,12 +4861,12 @@
   }
   /* 'Your bag has N things to put out.' (d-island): Edit mode on that island, the bag's first thing focused and in view
      (above the Daily 30 pill on a phone) */
-  function editNow(k) {
+  function editNow(k, id) {
     if (mode === 'place') { toast(tx('isle.finishFirst')); return Promise.resolve(false); }
     return landFirst(k).then(function (ok) {
       if (!ok || !root || !C.isleUnlocked(W(), isleNow())) return false;
       if (mode !== 'edit') { mode = 'edit'; selectedUid = null; draw(); }
-      var tray = $('#slwBar .slw-tray', root), first = tray && tray.querySelector('[data-tray]'), vh = window.innerHeight || 0;
+      var tray = $('#slwBar .slw-tray', root), first = tray && ((typeof id === 'string' && tray.querySelector('[data-tray="' + id + '"]')) || tray.querySelector('[data-tray]')), vh = window.innerHeight || 0;
       if (tray && vh && tray.getBoundingClientRect && typeof window.scrollTo === 'function') {
         var r = tray.getBoundingClientRect(), gap = 12 + footChip(vh);
         if (r.height && r.bottom > vh - gap + 4) try { window.scrollTo({ top: (window.pageYOffset || 0) + r.bottom - vh + gap, behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
@@ -4730,6 +4881,7 @@
     try { if (window.SLMusic) SLMusic.stopAll(200); } catch (e) {}   /* never on learning screens */
     closePhoto();                        /* a camera never stays on behind another tab (KU-CH14) */
     if (placing) { placing = null; document.removeEventListener('keydown', placeKeys); }
+    endActivity('hide'); flushFinds(); tourUntil = 0; petChipsAt = null;   /* island activities (IA-5): what was done is kept */
     mode = 'play'; selectedUid = null;
     stopPets();
     renderedFor = null; hudShown = false;
@@ -4750,6 +4902,8 @@
   /* ---------------- profile switches / external changes ---------------- */
   function onUserChanged() {
     var tp = window.slLearnTrip; if (tp && tp.who !== state.activeUser) window.slLearnTrip = null;   /* a trip ends with a profile change (wave 3) */
+    /* island activities (IA-5): a game, a show or I spy ends; the last child's notes are let go (never written on this one) */
+    endActivity('user'); findQ = []; tourUntil = 0; petChipsAt = null; daysMemo = null;
     if (running) { userChangedInGame = true; return; }       /* a game owns the screen: catch up when it ends */
     if (!root || !document.getElementById('worldView') || document.getElementById('worldView').classList.contains('hidden')) {
       renderedFor = null; lit = {}; freshPets = {}; resetIsle(); s3('setUser', userInfo());
@@ -4772,6 +4926,1208 @@
     if (el && u) el.textContent = fmt(balOf(u));
     syncHeadPts();
     syncNext();                                  /* the Next step card (or the goal bar) follows the wallet (wave 3) */
+  }
+
+  /* ================================================================
+     ISLAND ACTIVITIES v1 — THE ISLAND HOST (chunk IA-5; chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §2, §4, §5 IA-5, §6
+     and §7, as James approved it on 25-26 Oct 2026: build all 7; island activities are FREE PLAY and never use the
+     daily island-game time; 'Island day N' is shown; 'Learn and come back' sets 🎯 My goal when none is set; the plan's
+     other §9 questions take their recommended defaults). Built on the decisions build (the rotating Next step card,
+     '🎯 My goal' / 'Need N more 🪙', the named ▶ signs, the slim phone header) and on the chunks merged before it:
+       IA-1  SLIslandDays (world/island-days.js, loaded here like next-step.js) and world-core's w.days3 / w.finds3
+             writers (C.countIslandDay, C.markDid, C.addFinds, C.seeFinds)
+       IA-2  SLNextStep's MIX (env.days, env.turn, env.pet, env.hold; card.goalBar; the new go targets)
+       IA-3  the 3D stage: view.visitor, on.tapVisitor / on.tapSea, say, play, playTaps, throwTo, hideIn, wobble,
+             burst, setWeather (a stub or older stage answers false / null / -1 / 0, and its part steps aside)
+       IA-4  the sky's weather and seasons, through the stage's setWeather({weather, season, looks})
+       IA-6  SLIslandBookUI (world/island-book-ui.js, loaded on its first use)
+       IA-7  index.html's trip seam (window.slTripSave; window.slLearnTrip is mirrored on this device)
+     Without island-days.js nothing here shows (no sign, visitor, chips, book or Today rows): the island works as the
+     decisions build. Nothing here earns or spends ⭐ or 🪙, rolls a number or keeps a clock of its own: the island
+     day is careDay(), every schedule is SLIslandDays' fixed order, and the only writes are world-core's, inside
+     commit(), plus one switch kept on this device (Season looks, localStorage 'slwSeasons').
+       📋 Today      a sign over Home's house in play mode (a soft dot in the child's colour while the book has new
+                     stamps, never a number) → the Today sheet: the weather, who is visiting, the day's show, today's
+                     I spy, a pet's wish, 🎯 My goal and 📖 My island book, each row with one button that goes there
+       the visitor   today's character on Home (3D: Home's land-guest slot; 2D, or a LOW stage with no person
+                     shapes yet: its portrait), a tap → its card: 👋 Say hello, Show me round, Show me your move!
+       activities    one at a time (activity), each with a 48 px strip pinned to the top of the stage
+                     (#slwPlayBar): the show, I spy, 🎾 Fetch and 🙈 Hide and seek. Each ends on its own Done / ✕ /
+                     Skip, Esc, a sheet, Edit, travel, a game, leaving the island or another child
+       stamps        what the child does is noted (noteFind) and written 1.5 s later in one commit
+                     (SLIslandDays.note → C.addFinds); a new stamp or a completed page says so once the island is quiet
+       the weather   the sky's own (3D) or a drifting overlay (2D, LOW): Season looks in ❓ Help switches it off
+   ================================================================ */
+  /* ---------------- the rules (world/island-days.js) and today's island day ---------------- */
+  function DAYS() { var D = window.SLIslandDays; return D && typeof D.today === 'function' && typeof D.note === 'function' && typeof D.book === 'function' ? D : null; }
+  var daysAsked = false;
+  function loadIslandDays() {
+    if (DAYS() || daysAsked) return;
+    daysAsked = true;
+    loadScript('world/island-days.js?v=' + (window.SL_WORLD_VER || '1')).then(function () { daysAsked = false; if (DAYS()) daysArrived(); }, function () { daysAsked = false; });
+  }
+  /* the rules came after the island was drawn: the sign, the visitor, the show's pill, the card and the weather now */
+  function daysArrived() {
+    daysMemo = null;
+    if (!root || renderedFor == null || running) return;
+    if (on3D()) { s3('sync', islandView()); s3('setAnchors', anchors3D()); } else drawStage();
+    drawIsleBar(); syncNext();
+    applyWeather();
+  }
+  /* SLIslandDays.today() for the child on now: worked out once per save revision, island day and loaded module (a
+     commit, another day, the people core or the care rules arriving all make it again) */
+  var daysMemo = null;
+  function dayNow(u) {
+    var D = DAYS();
+    u = u || me();
+    if (!D || !u) return null;
+    var day = careDay(), key = [state.activeUser, day, commitRev, trial(), !!PC(), !!care(), coinsOn()].join('|');
+    if (daysMemo && daysMemo.key === key && daysMemo.u === u) return daysMemo.t;
+    var t = null;
+    try { t = D.today(C, u, { day: day, people: PC(), care: care(), wallet: typeof C.walletOf === 'function' ? C.walletOf() : undefined, trial: trial() }); } catch (e) { t = null; }
+    daysMemo = { key: key, u: u, t: t };
+    return t;
+  }
+  function didSet(t) { var o = {}; ((t && t.did) || []).forEach(function (f) { o[f] = true; }); return o; }
+  /* the island day is counted by the first real My Island open on a new island day (world-core's own rule: a day not
+     after the last one counted changes nothing) */
+  function dayDue(w) {
+    if (typeof C.countIslandDay !== 'function' || !w) return false;
+    var d = typeof C.daysOf === 'function' ? C.daysOf(w) : null;
+    return !(d && typeof d.day === 'string' && d.day >= careDay());
+  }
+  /* inside the open's one commit (render): the pets' step (P4.1) and the island day's count, side by side */
+  function openStep(u, dueCare, dueDay) {
+    var out = dueCare ? careStep(u) : { ok: false, events: [] };
+    if (dueDay) {
+      var r = C.countIslandDay(u, careDay(), nowMs(), typeof C.walletOf === 'function' ? { wallet: C.walletOf() } : undefined);
+      if (r && r.ok && r.changed) { out.ok = true; out.counted = { n: r.n, up: r.up }; }
+    }
+    return out;
+  }
+  /* writes for today's done flags (and what goes with them) in one commit: fn(u, day, ms) → true when it changed
+     something. The Next step card is worked out again afterwards (its card moves on once its thing is done) */
+  function dayWrite(fn) {
+    var day = careDay(), ms = nowMs(), who = state.activeUser;
+    return commit(function (u) { return fn(u, day, ms) ? { ok: true } : { ok: false }; }).then(function (res) {
+      if (res && res.ok && state.activeUser === who) syncNext();
+      return !!(res && res.ok);
+    }, function () { return false; });
+  }
+  function markDay(flag, opts) {
+    if (typeof C.markDid !== 'function') return Promise.resolve(false);
+    return dayWrite(function (u, day, ms) { var r = C.markDid(u, flag, day, ms, opts); return !!(r && r.ok && r.changed); });
+  }
+  /* the pet's once-a-day play (+1 happy, as My pets → Play; James's default §9.9), inside a commit → true when it counted */
+  function playOnce(u, petId, day, ms) {
+    var P = care(), w = C.ensureWorld(u);
+    if (!P || !careStarted(w) || C.petWhere(w, petId) !== 'home') return false;
+    var r = P.play(u, petId, day, ms);
+    return !!(r && r.ok && r.counted);
+  }
+  function happyToast(petId) {
+    var cp = C.crewPet(W(), petId);
+    if (cp && !document.querySelector('.slw-toast button, .slw-ov, .slw-cele')) toast(tx('care.happyUp', { name: cp.name }));
+  }
+
+  /* ---------------- 📋 Today: the sign over the house and its sheet ---------------- */
+  function houseOf(w) { var l = C.placedOn(w, 'home'); for (var i = 0; i < l.length; i++) { var it = l[i] && C.item(l[i].id); if (it && it.act === 'home') return l[i]; } return null; }
+  /* new stamps since the book was last closed (the sign's dot): the core's own count, never shown as a number */
+  function bookNew(w) {
+    var f = w && typeof C.findsOf === 'function' ? C.findsOf(w) : null;
+    return !!f && typeof C.stampCount === 'function' && C.stampCount(f) > (typeof f.seen === 'number' ? f.seen : 0);
+  }
+  function todaySignHtml(cls, style) {
+    var w = W();
+    if (!DAYS() || !w) return '';
+    var dot = bookNew(w);
+    return '<button type="button" class="slw-todaysign' + (cls ? ' ' + cls : '') + '"' + (style ? ' style="' + style + '"' : '') + ' data-today="1" aria-label="' + esc(tx('act.today.title') + (dot ? '. ' + tx('act.today.newStamps') : '')) + '">' +
+      '<span class="tx">' + esc(tx('act.today.sign')) + '</span>' + (dot ? '<span class="slw-tdot" style="--slw-me:' + esc(userInfo().color) + ';"></span>' : '') + '</button>';
+  }
+  /* 2D: the sign stands over the house's roof (the house sprite's own box, as objHtml draws it) */
+  function today2dHtml(w, st) {
+    var h = houseOf(w), it = h && C.item(h.id);
+    if (!it || activity || !DAYS()) return '';
+    var sp = ART.sprite(h.id, Object.assign({ lit: !!lit[h.uid] }, bldState(st, h))), fw = it.fp[0], fh = it.fp[1];
+    var top = PAD + (h.y + fh) * CH - (sp ? sp.h * (fw * 100 / sp.w) : CH * 2);
+    return todaySignHtml('slw-today2d', 'left:' + pct((h.x + fw / 2) * 100, STAGE_W) + ';top:' + pct(Math.max(48, top + 6), STAGE_H) + ';');
+  }
+  function showToday() { var t = DAYS() ? dayNow() : null; return t && t.show ? t.show.isle : null; }
+  function showTagHtml() { return '<span class="slw-tag slw-showtag">' + esc(tx('act.show.pill')) + '</span>'; }
+  /* the dot in place (a stamp found, the book closed), on whichever island picture holds the sign */
+  function syncTodaySign() {
+    var w = W(), dot = bookNew(w);
+    document.querySelectorAll('.slw-todaysign').forEach(function (b) {
+      var d = b.querySelector('.slw-tdot');
+      b.setAttribute('aria-label', tx('act.today.title') + (dot ? '. ' + tx('act.today.newStamps') : ''));
+      if (dot && !d) { d = document.createElement('span'); d.className = 'slw-tdot'; d.setAttribute('style', '--slw-me:' + userInfo().color + ';'); b.appendChild(d); }
+      else if (!dot && d) d.remove();
+    });
+  }
+  var WX_ICON = { sunny: '☀️', breezy: '☁️', starry: '✨', snow: '❄️' };
+  /* one row: its picture, its lines (escaped here), at most one button, a ✓ once its thing is done today */
+  function todayRow(kind, pic, lines, btn, done) {
+    return '<li class="slw-trow' + (done ? ' done' : '') + '" data-row="' + kind + '"><span class="ic" aria-hidden="true">' + pic + '</span><span class="tx">' +
+      lines.filter(Boolean).map(function (l, i) { return '<span class="' + (i ? 'sub' : 'ln') + '">' + esc(l) + '</span>'; }).join('') + '</span>' +
+      (done ? '<span class="slw-tdone" role="img" aria-label="' + esc(tx('act.pet.done')) + '">✓</span>' : '') +
+      (btn ? '<button type="button" class="slw-btn" data-tgo="' + kind + '">' + esc(btn) + '</button>' : '') + '</li>';
+  }
+  /* the first home pet with a wish today (the home order), or null */
+  function firstWish(t, w) {
+    var W0 = t && t.wishes;
+    if (!W0) return null;
+    var list = crewOut(w);
+    for (var i = 0; i < list.length; i++) if (Object.prototype.hasOwnProperty.call(W0, list[i].id)) return W0[list[i].id];
+    return null;
+  }
+  /* the Today sheet (≤ 7 rows, the empty ones left out): the weather, the visitor, the show, I spy, a wish, 🎯 My goal,
+     📖 My island book. Each button goes there (SLWorld.go's island places); free test mode has no goal row */
+  function openToday() {
+    var D = DAYS(), u = me(), w = W(), t = dayNow(u);
+    if (!D || !u || !w || !t || running) return null;
+    var did = didSet(t), rows = [], go = {};
+    if (t.weather) rows.push(todayRow('weather', WX_ICON[t.weather.kind] || '', [tx(t.weather.key), tx(t.weather.nextKey), looksOn() && t.season ? tx('act.wx.' + t.season) : ''], null, false));
+    if (t.visitor) {
+      rows.push(todayRow('visitor', peopleIconHtml(t.visitor.id), [tx('act.today.visitor', { name: t.visitor.name }), t.nextVisitor && t.nextVisitor.id !== t.visitor.id ? tx('act.today.nextVisitor', { name: t.nextVisitor.name }) : ''],
+        tx('act.vis.hello'), !!did.hello));
+      go.visitor = function () { goNow('visitor', {}); };
+    }
+    if (t.show && showCan(t.show.isle)) {
+      rows.push(todayRow('show', typeof ART.isleIcon === 'function' ? ART.isleIcon(t.show.isle) : '', [tx('act.today.show', { island: isleName(t.show.isle) }),
+        t.show.next && t.show.next !== t.show.isle ? tx('act.today.nextShow', { island: isleName(t.show.next) }) : ''], tx('act.today.watch'), !!did['show:' + t.show.isle]));
+      go.show = function () { goNow('show', { isle: t.show.isle }); };
+    }
+    if (t.spy) {
+      rows.push(todayRow('spy', '👀', [tx('act.today.spy', { island: isleName(t.spy.isle) })], tx('isle.goThere'), !!did['spy:' + t.spy.isle]));
+      go.spy = function () { goNow('spy', { isle: t.spy.isle }); };
+    }
+    var wi = firstWish(t, w);
+    if (wi) {
+      var meet = wi.kind === 'meet', wl = wi.done ? tx(wi.doneKey, wi.doneParams) : tx(wi.key, wi.params);
+      rows.push(todayRow('wish', iconHtml(wi.petId, { acc: C.wornBy(w, wi.petId) }), [wl, wi.done ? '' : tx('act.wish.calm')], wi.done ? null : meet ? tx('act.vis.hello') : tx('isle.goThere'), !!wi.done));
+      go.wish = function () { goNow(meet ? 'visitor' : 'isle', meet ? { petId: wi.petId } : { isle: wi.isle, uid: wi.uid, petId: wi.petId }); };
+    }
+    if (t.goal && C.item(t.goal.id)) {
+      var g = t.goal, gs = iState(u, g.id), st = gs && gs.state;
+      rows.push(todayRow('goal', iconHtml(g.id, artState(w)), [tx('act.today.goal', { item: g.name }), g.up > 0 ? tx('act.today.up', { n: fmt(g.up) }) : '',
+        st === 'affordable' ? tx('next.enough', { item: g.name }) : st === 'short' ? needLine(gs.need) : ''], st === 'affordable' ? tx('next.getIt') : st === 'short' ? tx('learn.go') : null, false));
+      go.goal = function () { if (st === 'short') startTrip(g.id, 'item'); else goNow('item', { id: g.id }); };
+    }
+    /* the book: '{n} stamps so far' (never 'x of y'); the soft dot while it has new stamps */
+    var bk = null;
+    try { bk = D.book(C, w, PC()); } catch (e) { bk = null; }
+    rows.push(todayRow('book', bookNew(w) ? '<span class="slw-tdot" role="img" aria-label="' + esc(tx('act.today.newStamps')) + '" style="--slw-me:' + esc(userInfo().color) + ';"></span>' : '📖',
+      [bk ? tx(bk.key, bk.params) : ''], tx('act.book.open'), false));
+    go.book = function () { goNow('book', {}); };
+    var ov = overlay('<h2>' + esc(tx('act.today.title')) + '</h2><p class="slw-tday">' + esc(tx('act.today.day', { n: t.n })) + '</p><ul class="slw-trows" role="list">' + rows.join('') + '</ul>' +
+      '<p class="slw-tcalm">' + esc(tx('act.today.calm')) + '</p>', { small: true, cls: 'slw-todaysheet' });
+    ov.querySelectorAll('[data-tgo]').forEach(function (b) {
+      b.addEventListener('click', function () { var f = go[b.getAttribute('data-tgo')]; ov._close(); if (f) f(); });
+    });
+    fillPhotocards(ov);
+    return ov;
+  }
+
+  /* ---------------- the visitor (A2): who is out on Home, its card and its three things ---------------- */
+  /* today's visitor while it may be out: Home, play mode, never over a feeding moment, a game, the Sky map or travel */
+  function visitorNow(w) {
+    if (!DAYS() || !PC() || !w || mode !== 'play' || skyMapOn || isleNow() !== 'home' || running || feedingNow) return null;
+    var t = dayNow(), v = t && t.visitor;
+    return v && typeof v.id === 'string' ? v : null;
+  }
+  /* islandView().visitor: an SLPeopleCore.avatarInfo-style record (the character's own look and wear), or null */
+  function visitorView(w) {
+    var v = visitorNow(w), P = PC(), d = null;
+    if (!v || typeof P.display !== 'function') return null;
+    try { d = P.display(v.id); } catch (e) { d = null; }
+    if (!d) return null;
+    var o = { id: v.id, name: v.name, look: d.look, wear: d.wear, vr: d.vr || {}, sig: v.sig || null };
+    try { if (typeof P.lookCode === 'function') o.lk = P.lookCode(d.look); if (typeof P.wearCode === 'function') o.wr = P.wearCode(d.wear, d.vr || {}); } catch (e) {}
+    if (reduced) o.instant = true;
+    return o;
+  }
+  /* the stage shows the visitor without a person rig (LOW before the people shapes, an older stage): its portrait tag */
+  function visitorTagged() {
+    var a = (s3('info') || {}).activities, v = a && a.visitor;
+    return !!(v && v.shown !== false && v.rig === false);
+  }
+  /* the portrait tag follows the stage: the anchors last set carry it (visTagAt). The figure comes or goes only with a
+     sync (LOW's people shapes arriving, the visitor stepping aside for a feeding moment and back), so after each one
+     the anchors are set again when the tag's place changed; never a second time otherwise */
+  var visTagAt = false;
+  function visTagCheck() {
+    if (!stage3d || !root || renderedFor == null || running) return;          /* a game's stage is the game's */
+    var want = !!visitorNow(W()) && visitorTagged();
+    if (want !== visTagAt) s3('setAnchors', anchors3D());
+  }
+  /* the people files came in while the 3D visitor stands as its portrait: the stage draws its figure now (the sync
+     takes the tag away) */
+  function visitorPeopleIn() {
+    if (visTagAt && on3D() && root && renderedFor != null && !running) s3('sync', islandView());
+  }
+  function visitorTagEl(v) {
+    var el = document.createElement('div'); el.className = 'slw-tag3d';
+    el.innerHTML = '<button type="button" class="slw-vistag" aria-label="' + esc(tx('act.vis.title', { name: v.name })) + '">' + peopleIconHtml(v.id) + '<span class="nm">' + esc(v.name) + '</span></button>';
+    el.querySelector('button').addEventListener('click', function () { if (mode === 'play' && !activity) openVisitor(); });   /* as the 3D and 2D visitor: never over a game */
+    fillPeople(el);
+    return el;
+  }
+  /* the 2D visitor: a free square nearest the house's front, never the child's own spot */
+  function visitorCell2d(w) {
+    var h = houseOf(w), it = h && C.item(h.id);
+    if (!h || !it) return null;
+    var occ = C.occupancy(w, undefined, 'home'), land = Object.keys(C.landSetOf(w, 'home'));
+    var isFree = function (c) { return !(occ.occ[c] && occ.occ[c].layer !== 'ground') && !occ.reserved[c]; };
+    var free = land.filter(isFree), near = nearestFirst(free, [h.x + it.fp[0], h.y + it.fp[1] - 1]);
+    /* the nearest free square with nothing standing in front of it (a thing's picture there would hide the visitor and
+       take its taps), else the nearest */
+    var front = near.filter(function (c) { var q = c.split(','), f = q[0] + ',' + (+q[1] + 1); return isFree(f) || land.indexOf(f) < 0; });
+    var at = front[0] || near[0];
+    return at ? { x: +at.split(',')[0], y: +at.split(',')[1] } : null;
+  }
+  function visitor2dHtml(w, v) {
+    var at = visitorCell2d(w), A = peopleArt(), P = PC(), fig = '';
+    if (!at) return '';
+    if (A && typeof A.figure === 'function' && P) { try { fig = A.figure(P.display(v.id), {}) || ''; } catch (e) { fig = ''; } }
+    if (!fig) wantPeople();
+    return '<button type="button" class="slw-visitor2d" style="left:' + pct(at.x * 100 + 15, STAGE_W) + ';top:' + pct(PAD + (at.y + 1) * CH - 110, STAGE_H) + ';z-index:' + (10 + (at.y + 2) * 10 + 4) + ';" aria-label="' +
+      esc(tx('act.vis.title', { name: v.name })) + '">' + (fig || peopleIconHtml(v.id)) + '<span class="nm">' + esc(v.name) + '</span></button>';
+  }
+  function openVisitor() {
+    var w = W(), v = visitorNow(w);
+    if (!v) return null;
+    var did = didSet(dayNow());
+    var btn = function (id, label, on) { return '<button type="button" class="slw-btn big' + (on ? ' on' : '') + '" data-vis="' + id + '">' + esc(label) + (on ? ' ✓' : '') + '</button>'; };
+    var ov = overlay('<h2>' + esc(tx('act.vis.title', { name: v.name })) + '</h2><div class="slw-vistop"><span class="slw-visface" aria-hidden="true">' + peopleIconHtml(v.id) + '</span><p>' +
+      esc(tx('act.vis.hi', { name: v.name })) + '</p></div><div class="slw-visbtns">' + btn('hello', tx('act.vis.hello'), !!did.hello) + btn('tour', tx('act.vis.tour'), !!did.tour) +
+      (v.move ? btn('move', tx('act.vis.move'), !!did.move) : '') + '</div>', { small: true, cls: 'slw-vissheet' });
+    ov.querySelectorAll('[data-vis]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-vis');
+        ov._close();
+        if (k === 'hello') sayHello(); else if (k === 'tour') tourStart(); else moveShow();
+      });
+    });
+    fillPhotocards(ov);
+    return ov;
+  }
+  function hop2d(sel) {
+    var el = root && root.querySelector('#slwStage ' + sel);
+    if (!el || reduced) return;
+    el.classList.remove('wave'); void el.offsetWidth; el.classList.add('wave');
+  }
+  /* 👋 Say hello: the child and the visitor wave; the greeting is counted once an island day (days3.met), each home pet's
+     'meet' wish comes true with it (its once-a-day play), and the stamp 'Say hello to a visitor' */
+  var byeSaid = -1;
+  function sayHello() {
+    var w = W(), v = visitorNow(w);
+    if (!v) return false;
+    if (on3D()) { s3('emote', 'me', 'wave'); s3('emote', 'visitor', 'wave'); } else { hop2d('.slw-me'); hop2d('.slw-visitor2d'); }
+    announce(tx('act.vis.waves', { name: v.name }));
+    var t = dayNow(), meets = [], played = [];
+    Object.keys((t && t.wishes) || {}).forEach(function (id) { var wi = t.wishes[id]; if (wi.kind === 'meet' && !wi.done) meets.push(wi); });
+    dayWrite(function (u, day, ms) {
+      var r = C.markDid(u, 'hello', day, ms, { met: v.id }), ch = !!(r && r.ok && r.changed);
+      meets.forEach(function (wi) {
+        var m = C.markDid(u, 'wish:' + wi.petId, day, ms);
+        if (m && m.ok && m.changed) { ch = true; if (playOnce(u, wi.petId, day, ms)) played.push(wi.petId); }
+      });
+      return ch;
+    }).then(function (ok) {
+      if (!ok) return;
+      meets.forEach(function (wi, i) { setTimeout(function () { if (mode === 'play') sayOn('pet:' + wi.petId, tx(wi.doneKey, wi.doneParams)); }, 1200 + i * 4200); });
+      if (played.length) happyToast(played[0]);
+      visitorBye(meets.length ? 4200 * meets.length + 1200 : 1500);
+    });
+    noteFind({ kind: 'hello', isle: 'home' });
+    return true;
+  }
+  /* Show me round: the next acted thing tapped on Home in the next 60 s, the visitor turns to it and cheers */
+  var tourUntil = 0;
+  function tourStart() {
+    var v = visitorNow(W());
+    if (!v) return;
+    tourUntil = Date.now() + 60000;
+    sayOn('visitor', tx('act.vis.tourAsk'));
+    markDay('tour');
+  }
+  function tourTap(uid, it) {
+    if (!tourUntil || Date.now() > tourUntil || isleNow() !== 'home' || !it.act || it.act === 'launch' || it.act === 'home') return;
+    var v = visitorNow(W());
+    tourUntil = 0;
+    if (!v) return;
+    s3('emote', 'visitor', 'cheer', uid);
+    if (!on3D()) hop2d('.slw-visitor2d');
+    setTimeout(function () { if (mode === 'play') sayOn('visitor', tx('act.vis.loved', { name: v.name, item: it.name })); }, 700);
+    visitorBye(5000);
+  }
+  function moveShow() {
+    var v = visitorNow(W());
+    if (!v) return;
+    if (!s3('emote', 'visitor', 'move')) hop2d('.slw-visitor2d');
+    sayOn('visitor', tx('act.vis.moveSay', { move: v.moveKey ? tx(v.moveKey, null, v.moveName || '') : (v.moveName || '') }));
+    markDay('move').then(function () { visitorBye(4500); });
+  }
+  /* after all three: 'Thanks for having me! See you another day.' (once an open) */
+  function visitorBye(ms) {
+    setTimeout(function () {
+      var v = visitorNow(W()), did = didSet(dayNow());
+      if (!v || byeSaid === nextOpens || !did.hello || !did.tour || (v.move && !did.move)) return;
+      byeSaid = nextOpens;
+      sayOn('visitor', tx('act.vis.bye'));
+    }, ms || 0);
+  }
+
+  /* ---------------- speech bubbles: the stage's say(), else a 2D bubble over the picture ---------------- */
+  function el2d(target) {
+    var st = root && $('#slwStage', root);
+    if (!st || typeof target !== 'string') return null;
+    if (target === 'visitor') return st.querySelector('.slw-visitor2d');
+    if (target === 'me') return st.querySelector('.slw-me');
+    if (target.indexOf('pet:') === 0) return pet2d(target.slice(4));
+    if (target.indexOf('u:') === 0) return st.querySelector('[data-uid="' + target.slice(2) + '"]');
+    return null;
+  }
+  /* a 2D picture's placing ('left', 'top', 'width', 'height', 'z-index'), from its style, as drawn inline */
+  function css2d(el, prop) {
+    var v = el && el.style ? el.style[prop === 'z-index' ? 'zIndex' : prop] : '';
+    if (v) return String(v);
+    var m = el && el.getAttribute ? new RegExp('(?:^|;)\\s*' + prop + '\\s*:\\s*([^;]+)').exec(el.getAttribute('style') || '') : null;
+    return m ? m[1].trim() : '';
+  }
+  function bubble2d(el, text, sec) {
+    var st = root && $('#slwStage', root);
+    if (!st || !el) return false;
+    var old = st.querySelector('.slw-say2d'); if (old) old.remove();
+    var b = document.createElement('div'), r = el.getBoundingClientRect(), s = st.getBoundingClientRect();
+    var x = s.width ? (r.left + r.width / 2 - s.left) / s.width * 100 : (parseFloat(css2d(el, 'left')) || 50) + 3, y = s.height ? (r.top - s.top) / s.height * 100 : (parseFloat(css2d(el, 'top')) || 40);
+    b.className = 'slw-say2d'; b.textContent = text;
+    b.style.left = Math.max(14, Math.min(86, isFinite(x) ? x : 50)) + '%';
+    b.style.top = Math.max(16, isFinite(y) ? y : 40) + '%';
+    st.appendChild(b);
+    setTimeout(function () { if (b.parentNode) b.remove(); }, (sec || 4) * 1000);
+    return true;
+  }
+  /* a bubble over target ('visitor' | 'me' | 'pet:<id>' | 'u:<uid>') for sec s, read out for screen readers; → shown */
+  function sayOn(target, text, sec) {
+    if (!text) return false;
+    if (on3D() && typeof stage3d.say === 'function') return s3('say', target, text, { sec: sec || 4 }) === true;
+    var el = el2d(target);
+    announce(text);
+    return el ? bubble2d(el, text, sec) : false;
+  }
+
+  /* ---------------- one activity at a time: the show, I spy, fetch, hide and seek ---------------- */
+  var activity = null, actSeq = 0, actQuiet = false;
+  function actLive(kind) { return !!activity && (!kind || activity.kind === kind); }
+  function startActivity(a) {
+    endActivity('replaced');
+    petChipsAt = null;
+    a.id = ++actSeq; a.who = state.activeUser; a.timers = [];
+    activity = a;
+    document.addEventListener('keydown', actKeys);
+    drawActs();
+    if (on3D()) s3('setAnchors', anchors3D());          /* the 📋 sign and a pet's chips step aside while it plays */
+    return a;
+  }
+  /* why: done, esc, sheet, edit, travel, map, game, hide (the tab), user, tap, replaced … */
+  function endActivity(why) {
+    var a = activity;
+    if (!a) return false;
+    activity = null;
+    document.removeEventListener('keydown', actKeys);
+    a.timers.forEach(function (h) { clearTimeout(h); });
+    try { if (a.stop) a.stop(a, why); } catch (e) {}
+    drawActs();
+    if (on3D() && root && renderedFor != null) s3('setAnchors', anchors3D());
+    return true;
+  }
+  /* a timer that only fires while this activity is still the live one */
+  function later(a, ms, fn) { a.timers.push(setTimeout(function () { if (activity === a) fn(); }, ms)); }
+  function actKeys(e) { if (e.key === 'Escape' && activity && islandOnScreen()) { e.preventDefault(); endActivity('esc'); } }
+  /* the strip pinned to the top of the stage: what is going on and its buttons (≥ 48 px) */
+  function barBtn(id, label, aria) { return '<button type="button" class="slw-btn" data-pb="' + id + '" data-fk="pb:' + id + '"' + (aria ? ' aria-label="' + esc(aria) + '"' : '') + '>' + esc(label) + '</button>'; }
+  function barHtml(a) {
+    var line = '', b = [], k = a.kind, done = barBtn('done', tx('act.pet.done'));
+    if (k === 'show') {
+      line = a.phase === 'end' ? tx('act.show.end') : tx('act.show.open', { island: isleName(a.isle) });
+      b = a.phase === 'end' ? [barBtn('again', tx('act.show.again')), done] : [barBtn('skip', tx('act.show.skip'))];
+    } else if (k === 'spy') {
+      line = a.line || (a.clue ? tx(a.clue.key, a.clue.params || undefined) : '');
+      if (a.line && a.waitNext) b.push(barBtn('next', tx('act.spy.next')));
+      else if (a.clue) {
+        if (speech()) b.push(barBtn('read', tx('act.spy.read')));
+        b.push(a.hint ? barBtn('show', tx('act.spy.show')) : barBtn('clue', tx('act.spy.clue')));
+      }
+      b.push(barBtn('close', '✕', 'Close'));
+    } else if (k === 'fetch') {
+      line = a.phase === 'end' ? tx('act.fetch.done', { name: a.name }) : a.line || tx('act.fetch.how');
+      b = a.phase === 'end' ? [barBtn('again', tx('act.pet.again')), done] : [done];
+    } else if (k === 'hide') {
+      line = a.phase === 'end' ? tx('act.hide.end', { name: a.name, n: a.round }) : a.phase === 'count' ? tx('act.hide.count') : a.line || tx(a.two ? 'act.hide.where2d' : 'act.hide.where', { name: a.name });   /* the 2D island cannot turn */
+      b = a.phase === 'end' ? [barBtn('again', tx('act.pet.again')), done] : a.phase === 'seek' && !a.wob ? [barBtn('clue', tx('act.spy.clue')), done] : [done];
+    }
+    return '<div id="slwPlayBar" class="slw-playbar slw-pb-' + k + '" role="group" aria-label="' + esc(tx('act.free.title')) + '"><span class="slw-pbtx" role="status">' + esc(line) + '</span>' +
+      '<span class="slw-pbbtns">' + b.join('') + '</span></div>';
+  }
+  /* the strip, the HUD's 'playing' look (its places go quiet while a pet plays or a show runs: .slw[data-playing] dims
+     them in their row, so nothing moves; a tap on one still works and ends the game, as a sheet, Edit or a game does),
+     the 3D weather overlay and the 2D fetch taps, after every draw and change */
+  function drawActs() {
+    var wrap = root && root.querySelector('.slw-stagewrap'), slw = root && root.querySelector('.slw');
+    if (!wrap) return;
+    var a = activity && activity.who === state.activeUser ? activity : null;
+    if (slw) { if (a && a.kind !== 'spy') slw.setAttribute('data-playing', a.kind); else slw.removeAttribute('data-playing'); }
+    var old = wrap.querySelector('#slwPlayBar'), fk = old ? focusKey(old) : null;
+    if (old) old.remove();
+    wrap.classList.toggle('slw-barup', !!a);                     /* the camera buttons step under the strip (phones) */
+    wrap.querySelectorAll('.slw-today2d').forEach(function (b) { b.hidden = !!a; });   /* 📋 steps aside while it plays (as in 3D) */
+    if (a) {
+      var box = document.createElement('div'); box.innerHTML = barHtml(a);
+      var bar = box.firstChild;
+      wrap.insertBefore(bar, wrap.firstChild);
+      bar.querySelectorAll('[data-pb]').forEach(function (b) { b.addEventListener('click', function () { barTap(a, b.getAttribute('data-pb')); }); });
+      if (fk && !refocus(bar, fk)) { var first = bar.querySelector('button'); if (first) try { first.focus({ preventScroll: true }); } catch (e) {} }
+      /* the strip lies over the stage's top whatever its height (a phone wraps its buttons onto a second row): the stage
+         never moves, and the camera buttons step under it (--slw-barh, island-pixel.css) */
+      var bh = bar.offsetHeight || 0;
+      if (bh > 0) { bar.style.marginBottom = -bh + 'px'; try { wrap.style.setProperty('--slw-barh', bh + 'px'); } catch (e) {} }
+    }
+    var wx = wrap.querySelector('.slw-wx3d');
+    if (on3D() && wxNow) { if (!wx) { var bx = document.createElement('div'); bx.innerHTML = wxHtml('slw-wx3d'); if (bx.firstChild) wrap.appendChild(bx.firstChild); } }
+    else if (wx) wx.remove();
+    var st = $('#slwStage', root);
+    if (st && !st._slwFetch) { st._slwFetch = true; st.addEventListener('click', fetch2dTap); }
+  }
+  function barTap(a, id) {
+    if (activity !== a) return;
+    if (id === 'done' || id === 'close' || id === 'skip') { endActivity(id); return; }
+    if (a.kind === 'show' && id === 'again') { var k = a.isle; endActivity('again'); startShow(k); return; }
+    if (a.kind === 'spy') { spyBar(a, id); return; }
+    if (a.kind === 'fetch' && id === 'again') { a.n = 0; a.phase = 'throw'; a.line = null; s3('playTaps', true); drawActs(); return; }
+    if (a.kind === 'hide') { if (id === 'again') { a.round = 0; hideRound(a); } else if (id === 'clue') hideClue(a); }
+  }
+
+  /* ---------------- the show (A3): today's island, or the one the child is on, any time ---------------- */
+  function showPlanOf(k) {
+    var D = DAYS(), w = W();
+    if (!D || !w || !C.ISLES[k] || !C.isleUnlocked(w, k)) return null;
+    var info = on3D() ? s3('info') || {} : {};
+    return D.showPlan(C, w, k, info.tier || 'mid');
+  }
+  function showCan(k) { var p = showPlanOf(k); return !!p && (!!p.landmark || p.uids.length > 0 || !!p.finale); }
+  function startShow(isle) {
+    var k = typeof isle === 'string' && C.ISLES[isle] ? isle : isleNow();
+    if (mode !== 'play' || running || skyMapOn || k !== isleNow()) return false;
+    var plan = showPlanOf(k);
+    if (!plan || !(plan.landmark || plan.uids.length || plan.finale)) return false;
+    var steps = (plan.landmark ? [plan.landmark] : []).concat(plan.uids);
+    var a = startActivity({ kind: 'show', isle: k, steps: steps, finale: plan.finale, i: 0, phase: 'on', lit0: {}, stop: showStop });
+    steps.concat(plan.finale ? [plan.finale] : []).forEach(function (uid) { a.lit0[uid] = !!lit[uid]; });
+    document.addEventListener('pointerdown', showTapOff, true);
+    /* show day: its host (Home: today's visitor beside the stage; a land: a bubble over the landmark names its character) */
+    var t = dayNow(), host = t && t.show && t.show.isle === k ? t.show.host : null;
+    if (host && host.name) {
+      var hl = tx('act.show.host', { name: host.name });
+      if (k === 'home') sayOn('visitor', hl); else if (plan.landmark) sayOn('u:' + plan.landmark, hl);
+    }
+    later(a, host ? 2200 : 900, function () { showStep(a); });
+    return true;
+  }
+  /* any tap on the stage ends the show (its strip's own buttons are outside the stage) */
+  function showTapOff(e) {
+    var st = root && root.querySelector('#slwStage');
+    if (actLive('show') && st && e && e.target && st.contains(e.target)) endActivity('tap');
+  }
+  /* a thing plays as a tap would (its sounds, its re-tap guard, reduced motion), framed first */
+  function showPlay(uid) {
+    var el = null;
+    if (on3D()) s3('frameItem', uid);
+    else { el = root && root.querySelector('#slwStage [data-uid="' + uid + '"]'); if (el) show2d(el); }
+    actQuiet = true;
+    try { tapItem(uid, el); } finally { actQuiet = false; }
+  }
+  function relit(uid, v) { lit[uid] = v; if (on3D()) s3('setLit', uid, v); else redrawItem(uid); }
+  function showStep(a) {
+    if (a.i >= a.steps.length) { showFinale(a); return; }
+    var uid = a.steps[a.i++], f = findPlaced(W(), uid), it = f && C.item(f.p.id);
+    if (!f || !it || f.isle !== a.isle || f.isle !== isleNow()) { showStep(a); return; }
+    var ai = C.ACT_INFO && it.act ? C.ACT_INFO[it.act] : null, sec = ai && ai.sec > 0 ? ai.sec : 2;
+    showPlay(uid);
+    later(a, reduced ? 1500 : Math.min(9000, Math.round((sec + 1) * 1000)), function () {
+      if (ai && ai.toggle && it.act !== 'drawbridge' && !!lit[uid] !== a.lit0[uid]) relit(uid, a.lit0[uid]);   /* lit up, then back */
+      showStep(a);
+    });
+  }
+  /* the crew's dance break, then Home's Concert Stage encore when one is placed */
+  function showFinale(a) {
+    if (on3D()) s3('danceNow');
+    later(a, on3D() && !reduced ? 4500 : 600, function () {
+      if (!a.finale) { showEnd(a); return; }
+      showPlay(a.finale);
+      later(a, reduced ? 1500 : 8500, function () { showEnd(a); });
+    });
+  }
+  function showEnd(a) {
+    a.phase = 'end';
+    showRestore(a);
+    drawActs();
+    markDay('show:' + a.isle);
+    noteFind({ kind: 'show', isle: a.isle });
+    later(a, 10000, function () { endActivity('ended'); });
+  }
+  /* lights and the drawbridge go back as they were */
+  function showRestore(a) { Object.keys(a.lit0).forEach(function (uid) { if (!!lit[uid] !== a.lit0[uid]) relit(uid, a.lit0[uid]); }); }
+  function showStop(a) { document.removeEventListener('pointerdown', showTapOff, true); showRestore(a); }
+
+  /* ---------------- I spy (A4): the island's next clue; any thing that fits counts, nothing is ever 'wrong' ---------------- */
+  /* a thing's name inside a line ('Yes! The {item} fits.', 'Look near the {item}.', 'Not behind the {item}…'): the house
+     is 'house' (home.house), as its catalogue name 'Your Home' would read 'the Your Home' */
+  function lineName(it) { return it && it.kind === 'house' ? tx('home.house', null, 'house') : (it && it.name) || ''; }
+  function speech() { try { return typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function'; } catch (e) { return false; } }
+  function spyCan(k) { var D = DAYS(), w = W(); return !!(D && w && C.ISLES[k] && C.isleUnlocked(w, k) && D.clues(C, w, k, { n: (dayNow() || {}).n || 0 }).length > 0); }
+  function startSpy(isle) {
+    var k = typeof isle === 'string' && C.ISLES[isle] ? isle : isleNow();
+    if (!DAYS() || mode !== 'play' || running || skyMapOn || k !== isleNow() || !spyCan(k)) return false;
+    var a = startActivity({ kind: 'spy', isle: k, n: (dayNow() || {}).n || 0, skip: [], clue: null, hint: 0, line: null, waitNext: false, said: false, stop: spyStop });
+    spyNext(a);
+    return activity === a;
+  }
+  function spyNext(a) {
+    var D = DAYS(), w = W(), cl = D && w ? D.clues(C, w, a.isle, { n: a.n, skip: a.skip }) : [];
+    if (!cl.length) { endActivity('none'); return; }
+    var c = cl[0];
+    a.hint = 0; a.line = null; a.waitNext = false;
+    if (c.again && !a.said) { a.said = true; a.clue = null; a.line = tx('act.spy.again'); a.waitNext = true; drawActs(); return; }
+    a.clue = c;
+    drawActs();
+  }
+  function spyBar(a, id) {
+    var c = a.clue;
+    if (id === 'next') { spyNext(a); return; }
+    if (!c) return;
+    if (id === 'read') {
+      try { var s = new window.SpeechSynthesisUtterance(tx(c.key, c.params || undefined)); s.lang = 'en-GB'; window.speechSynthesis.cancel(); window.speechSynthesis.speak(s); } catch (e) {}
+      return;
+    }
+    if (id === 'clue') {
+      var nb = spyNear(a, c);
+      if (nb) sayOn('u:' + nb.uid, tx('act.spy.near', { item: nb.name }));
+      a.hint = 1; drawActs(); return;
+    }
+    if (id === 'show') {
+      var uid = spyUids(a, c)[0], el = uid && root && root.querySelector('#slwStage [data-uid="' + uid + '"]');
+      if (!uid) return;
+      if (on3D()) { s3('frameItem', uid); s3('focusItem', 'u:' + uid); later(a, 2500, function () { s3('focusItem', null); }); }
+      else if (el) { show2d(el); el.classList.add('slw-spyglow'); setTimeout(function () { el.classList.remove('slw-spyglow'); }, 1000); }
+    }
+  }
+  /* what answers the clue now: the uids the rules gave, and anything placed since that fits (matches) */
+  function spyUids(a, c) {
+    var D = DAYS(), w = W(), out = (c.uids || []).filter(function (u) { var f = findPlaced(w, u); return !!f && f.isle === a.isle; });
+    C.placedOn(w, a.isle).forEach(function (p) { if (out.indexOf(p.uid) < 0 && D && D.matches(C, c.id, p.id, w, a.isle)) out.push(p.uid); });
+    return out;
+  }
+  /* the thing nearest the first answer that is not an answer itself (the clue names it: 'Look near the …') */
+  function spyNear(a, c) {
+    var w = W(), ans = spyUids(a, c), f = ans[0] && findPlaced(w, ans[0]);
+    if (!f) return null;
+    var best = null;
+    C.placedOn(w, a.isle).forEach(function (p) {
+      var it = C.item(p.id);
+      if (!it || it.kind === 'path' || ans.indexOf(p.uid) >= 0) return;
+      var d = Math.abs(p.x - f.p.x) + Math.abs(p.y - f.p.y);
+      if (!best || d < best.d) best = { uid: p.uid, name: lineName(it), d: d };
+    });
+    return best;
+  }
+  function spyTap(a, uid, it) {
+    var c = a.clue;
+    if (!c || a.isle !== isleNow() || spyUids(a, c).indexOf(uid) < 0) return;
+    a.skip.push(c.id); a.clue = null; a.line = tx('act.spy.yes', { item: lineName(it) });
+    drawActs();
+    later(a, 400, function () { sayOn('u:' + uid, a.line); });
+    if (!c.again) noteFind({ kind: 'spy', isle: a.isle, clue: c.id });
+    markDay('spy:' + a.isle);
+    later(a, 2600, function () { spyNext(a); });
+  }
+  function spyStop() { if (on3D()) s3('focusItem', null); }
+
+  /* ---------------- play with your pet (A5): 🎾 Fetch and 🙈 Hide and seek ---------------- */
+  /* a home pet out on the island shown (the runner first), not hungry, while the island can play: {id, name} | null */
+  function playPet(id) {
+    var w = W();
+    if (!w || mode !== 'play' || skyMapOn || running || !C.isleUnlocked(w, isleNow())) return null;
+    if (on3D() && typeof stage3d.play !== 'function') return null;
+    var k = isleNow(), list = care() ? homeOut(w, k) : petsOut(w, k), moods = careMoods(w);
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if ((id && p.id !== id) || (moods[p.id] && moods[p.id].mood.hunger >= 2)) continue;
+      return { id: p.id, name: p.name };
+    }
+    return null;
+  }
+  function pet2d(id) {
+    var host = root && $('#slwPets', root), b = null;
+    if (host) host.querySelectorAll('.slw-pet').forEach(function (x) { if (x.getAttribute('data-pet') === id) b = x; });
+    return b;
+  }
+  /* a pat (3D tapPet, a 2D sprite's tap): the day's pat, the pat stamp, the pet's wish once an open and the 🎾 / 🙈 chips
+     for 5 s; while hide and seek is on, a tap on the hiding pet finds it */
+  var petChipsAt = null, wishSaid = {};
+  function petTapped(id) {
+    var a = activity;
+    if (a && a.kind === 'hide' && a.petId === id && a.phase === 'seek') { hideFound(a); return; }
+    patPet(id);
+    if (mode !== 'play') return;
+    noteFind({ kind: 'pat', isle: isleNow(), petId: id, gear: wearsGear(id, isleNow()) });
+    if (a) return;
+    wishBubble(id);
+    showPetChips(id);
+  }
+  /* the pet's wish in its tap bubble, once an open */
+  function wishBubble(id) {
+    var t = dayNow(), wi = t && t.wishes && t.wishes[id];
+    if (!wi || wi.done || wishSaid[id] === nextOpens) return;
+    wishSaid[id] = nextOpens;
+    setTimeout(function () { if (mode === 'play' && !activity) sayOn('pet:' + id, tx(wi.key, wi.params)); }, 500);
+  }
+  function showPetChips(id) {
+    if (!DAYS() || !playPet(id)) return;
+    var at = petChipsAt = { id: id, until: Date.now() + 5000, who: state.activeUser };
+    chipsNow();
+    setTimeout(function () { if (petChipsAt === at) { petChipsAt = null; chipsNow(); } }, 5000);
+  }
+  function chipsNow() {
+    if (!root || renderedFor == null) return;
+    if (on3D()) { s3('setAnchors', anchors3D()); return; }
+    var host = $('#slwPets', root), old = host && host.querySelector('.slw-petchips');
+    if (old) old.remove();
+    var c = petChipsAt, b = c && c.who === state.activeUser ? pet2d(c.id) : null;
+    if (!b) return;
+    var el = petChipsEl(c.id);
+    if (!el) return;
+    el.style.left = b.style.left; el.style.top = b.style.top;
+    host.appendChild(el);
+  }
+  function petChipsEl(id) {
+    var p = playPet(id);
+    if (!p) return null;
+    var el = document.createElement('div'); el.className = 'slw-tag3d slw-petchips';
+    el.innerHTML = '<button type="button" class="slw-btn" data-pchip="fetch">' + esc(tx('act.fetch.chip')) + '</button><button type="button" class="slw-btn" data-pchip="hide">' + esc(tx('act.hide.chip')) + '</button>';
+    el.querySelectorAll('[data-pchip]').forEach(function (b) { b.addEventListener('click', function () { petChipsAt = null; startPlay(b.getAttribute('data-pchip'), id); }); });
+    return el;
+  }
+  /* the pet wears a piece of this land's gear (the 'Bring a pet in {land} gear' stamp) */
+  function wearsGear(id, k) {
+    if (k === 'home') return false;
+    var w = W(), worn = w && id ? C.wornBy(w, id) : null;
+    return !!worn && Object.keys(worn).some(function (s) { var it = C.item(worn[s]); return !!(it && it.kind === 'acc' && it.isle === k); });
+  }
+  function startPlay(kind, petId) {
+    if ((kind !== 'fetch' && kind !== 'hide') || !DAYS()) return false;
+    var p = playPet(petId);
+    if (!p) return false;
+    var a = startActivity({ kind: kind, petId: p.id, name: p.name, isle: isleNow(), n: 0, round: 0, looks: 0, at: null, phase: kind === 'fetch' ? 'throw' : 'count', line: null, counted: false, two: !on3D(), stop: playStop });
+    if (!a.two) {
+      var s = s3('play', kind, { petId: p.id, onEvent: function (ev) { if (activity === a) playEvent(a, ev); } });
+      if (!s) { endActivity('refused'); return false; }
+      a.session = s;
+      if (kind === 'fetch') s3('playTaps', true);
+      if (s.done && typeof s.done.then === 'function') s.done.then(function (r) { if (activity === a) endActivity((r && r.reason) || 'gone'); });
+    }
+    if (kind === 'hide') hideRound(a);
+    return true;
+  }
+  function playStop(a, why) {
+    if (a.session) { try { if (a.session.live && a.session.live()) a.session.end(why || 'end'); } catch (e) {} s3('playTaps', false); }
+    var veil = root && root.querySelector('.slw-veil'); if (veil) veil.remove();
+    if (a.two) { var b = pet2d(a.petId); if (b) back2d(b); var ball = root && root.querySelector('.slw-ball2d'); if (ball) ball.remove(); }
+  }
+  /* the pet's once-a-day play, the stamp and today's flag: the first time a game goes right (a fetch, a find) */
+  function playCounted(a) {
+    if (a.counted) return;
+    a.counted = true;
+    var played = false;
+    dayWrite(function (u, day, ms) {
+      var r = typeof C.markDid === 'function' ? C.markDid(u, a.kind, day, ms) : null;
+      played = playOnce(u, a.petId, day, ms);
+      return played || !!(r && r.ok && r.changed);
+    }).then(function () { if (played) happyToast(a.petId); });
+    noteFind({ kind: a.kind, isle: a.isle });
+  }
+  function playEvent(a, ev) {
+    if (a.kind === 'fetch' && ev.type === 'caught') sayOn('pet:' + a.petId, tx('act.fetch.good', { name: a.name }));
+    if (a.kind !== 'fetch' || ev.type !== 'fetched' || a.phase !== 'throw') return;
+    a.n++;
+    playCounted(a);
+    if (a.n >= 5) { a.phase = 'end'; s3('playTaps', false); drawActs(); }
+  }
+  /* fetch: a tap on land throws to that point (3D: on.tapCell's point), on the sea to the nearest beach (on.tapSea) */
+  function fetchThrow(x, z) {
+    var a = activity;
+    if (!a || a.kind !== 'fetch' || a.phase !== 'throw' || !a.session || typeof a.session.throwTo !== 'function') return false;
+    return a.session.throwTo(x, z) >= 0;
+  }
+  /* plan §7: fetch takes any land or sea tap. A tap on a thing (a busy island is mostly things) plays it as ever and
+     throws the ball there too: 3D at its footprint's middle (SLGrid3D's island frame; the brain lands the ball on the
+     nearest free square), 2D at its picture */
+  function fetchAt(a, uid, el) {
+    if (a.phase !== 'throw') return;
+    var f = findPlaced(W(), uid), it = f && C.item(f.p.id);
+    if (!f || !it || f.isle !== isleNow()) return;
+    if (!a.two) {
+      var G = window.SLGrid3D, F = null;
+      try { F = G && G.V3 && typeof G.V3.frame === 'function' ? G.V3.frame(f.isle) : null; } catch (e) { F = null; }
+      var fp = it.fp || [1, 1], c = F && typeof F.cellCenter === 'function' ? F.cellCenter(f.p.x + (fp[0] - 1) / 2, f.p.y + (fp[1] - 1) / 2) : null;
+      if (c) fetchThrow(c.x, c.z);
+      return;
+    }
+    if (!el || a.flying) return;
+    var x = parseFloat(css2d(el, 'left')) + parseFloat(css2d(el, 'width')) / 2, y = parseFloat(css2d(el, 'top')) + parseFloat(css2d(el, 'height'));
+    if (!isFinite(x) || !isFinite(y)) return;
+    a.flying = run2d(pet2d(a.petId), x, y, reduced, function (ms, fn) { later(a, ms, fn); }, function () { a.flying = false; playEvent(a, { type: 'fetched' }); });
+  }
+  /* 2D fetch: a tap on the ground sends the pet running there with the ball and back to the child */
+  function fetch2dTap(e) {
+    var a = activity, st = root && $('#slwStage', root);
+    if (!a || a.kind !== 'fetch' || !a.two || a.phase !== 'throw' || a.flying || !st) return;
+    for (var n = e && e.target; n && n !== st; n = n.parentNode) if (n.tagName === 'BUTTON') return;      /* things and pets play as ever */
+    var r = st.getBoundingClientRect(), x = r.width ? (e.clientX - r.left) / r.width * 100 : 50, y = r.height ? (e.clientY - r.top) / r.height * 100 : 60;
+    a.flying = run2d(pet2d(a.petId), isFinite(x) ? x : 50, isFinite(y) ? y : 60, reduced, function (ms, fn) { later(a, ms, fn); }, function () { a.flying = false; playEvent(a, { type: 'fetched' }); });
+  }
+  /* the sprite b runs to (x, y) (% of the stage) after the ball, then back to the child with it; tick(ms, fn) is the
+     caller's timer; red: the end state at once */
+  function run2d(b, x, y, red, tick, done) {
+    var st = root && $('#slwStage', root);
+    if (!b || !st) return false;
+    b.classList.add('slw-busy');
+    var ball = document.createElement('span'); ball.className = 'slw-ball2d'; ball.setAttribute('aria-hidden', 'true'); ball.textContent = '🎾';
+    ball.style.left = x + '%'; ball.style.top = y + '%';
+    st.appendChild(ball);
+    var me2 = st.querySelector('.slw-me'), home = me2 ? { l: (parseFloat(css2d(me2, 'left')) || 40) + 5, t: (parseFloat(css2d(me2, 'top')) || 50) + 4 } : { l: 45, t: 60 };
+    var fin = function () { if (ball.parentNode) ball.remove(); b.classList.remove('hop'); void b.offsetWidth; if (!red) b.classList.add('hop'); done(); };
+    if (red) { b.style.transitionDuration = '0s'; b.style.left = home.l + '%'; b.style.top = home.t + '%'; tick(300, fin); return true; }
+    b.style.transitionDuration = '0.7s'; b.style.zIndex = '955';
+    b.classList.toggle('flip', x < (parseFloat(css2d(b, 'left')) || 0));
+    b.style.left = Math.max(0, x - 4) + '%'; b.style.top = Math.max(0, y - 12) + '%';
+    tick(750, function () { if (ball.parentNode) ball.remove(); b.classList.toggle('flip', home.l < x); b.style.left = home.l + '%'; b.style.top = home.t + '%'; });
+    tick(1500, fin);
+    return true;
+  }
+  /* the pet's 2D sprite back to its own life (wandering again) */
+  function back2d(b) { b.classList.remove('slw-busy'); b.classList.remove('slw-hid2d'); b.style.zIndex = ''; }
+  /* hide and seek: one round — 'Close your eyes… 3, 2, 1!' under a 2 s veil (none under reduced motion) while the pet
+     trots behind the round's spot (SLIslandDays.hideOrder: a fixed order from the day and the round) */
+  function hideRound(a) {
+    a.phase = 'count'; a.looks = 0; a.wob = false; a.line = null; a.at = null;
+    drawActs();
+    var wrap = root && root.querySelector('.slw-stagewrap');
+    if (wrap && !reduced) { var v = document.createElement('div'); v.className = 'slw-veil'; v.setAttribute('aria-hidden', 'true'); wrap.appendChild(v); later(a, 2000, function () { v.remove(); }); }
+    var D = DAYS(), order = D ? D.hideOrder(C, W(), a.isle, careDay(), a.round) : [];
+    /* 2D: the first spot in the order where the pet's peeking side shows (no thing in front covers it); else the first
+       spot it fits at all */
+    if (a.two) for (var j = 0; j < order.length && !a.at; j++) if (hide2d(a, order[j], false, true)) a.at = order[j];
+    for (var i = 0; i < order.length && !a.at; i++) if (a.two ? hide2d(a, order[i]) : a.session.hideIn(order[i])) a.at = order[i];
+    if (!a.at) { endActivity('nowhere'); return; }
+    later(a, reduced ? 300 : 2000, function () { a.phase = 'seek'; drawActs(); });
+  }
+  /* the 2D pet sprite's size (% of the stage): what hide2d tucks behind a thing and cover2d measures */
+  var PET2D = { w: 90 / STAGE_W * 100, h: 72 / STAGE_H * 100 };
+  function box2d(el) {
+    var L = parseFloat(css2d(el, 'left')), T = parseFloat(css2d(el, 'top')), Wd = parseFloat(css2d(el, 'width')), Hd = parseFloat(css2d(el, 'height')), z = parseInt(css2d(el, 'z-index'), 10);
+    return isFinite(L) && isFinite(T) && isFinite(Wd) && isFinite(Hd) ? { l: L, t: T, w: Wd, h: Hd, z: isFinite(z) ? z : 10 } : null;
+  }
+  /* the things drawn over a z (the 2D island's pictures, but the one named) */
+  function fronts2d(z, but) {
+    var st = root && $('#slwStage', root), out = [];
+    if (st) st.querySelectorAll('[data-uid]').forEach(function (e) { var b = e.getAttribute('data-uid') !== but && box2d(e); if (b && b.z > z) out.push(b); });
+    return out;
+  }
+  /* peek: only a spot where the pet's peeking side (the quarter past the thing's far edge) is not hidden by a thing in
+     front (≥ 3 of its 4 sample points covered) */
+  function hide2d(a, uid, instant, peek) {
+    var b = pet2d(a.petId), el = root && root.querySelector('#slwStage [data-uid="' + uid + '"]'), r = el && box2d(el);
+    if (!b || !r) return false;
+    var x = r.l + r.w - PET2D.w * 0.72, y = r.t + r.h - PET2D.h - 1.5, z = Math.max(1, r.z - 1);   /* tucked behind its far side: a quarter of it (an ear, a tail) peeps out */
+    if (peek) {
+      var fr = fronts2d(r.z - 1, uid), hid = 0, x0 = r.l + r.w, x1 = x + PET2D.w;
+      [[0.25, 0.3], [0.75, 0.3], [0.25, 0.7], [0.75, 0.7]].forEach(function (q) {
+        var px = x0 + (x1 - x0) * q[0], py = y + PET2D.h * q[1];
+        if (fr.some(function (f) { return px >= f.l && px <= f.l + f.w && py >= f.t && py <= f.t + f.h; })) hid++;
+      });
+      if (hid >= 3) return false;
+    }
+    b.classList.add('slw-busy'); b.classList.add('slw-hid2d');
+    b.style.transitionDuration = reduced || instant ? '0s' : '1.4s';
+    b.style.left = x + '%';
+    b.style.top = y + '%';
+    b.style.zIndex = String(z);
+    return true;
+  }
+  /* a look at a thing drawn over the hiding pet (2D: its picture covers a quarter of the pet's; 3D: the stage's
+     covers(), the line from the camera to the pet goes through it) finds the pet as the hiding place itself does:
+     the child saw it go behind there */
+  function hideCovers(a, uid) {
+    if (!a.two) { try { return !!(a.session && typeof a.session.covers === 'function' && a.session.covers(uid)); } catch (e) { return false; } }
+    var b = pet2d(a.petId), el = root && root.querySelector('#slwStage [data-uid="' + uid + '"]'), r = el && box2d(el);
+    var px = b && parseFloat(css2d(b, 'left')), py = b && parseFloat(css2d(b, 'top')), pz = b && parseInt(css2d(b, 'z-index'), 10);
+    if (!r || !isFinite(px) || !isFinite(py) || !isFinite(pz) || !(r.z > pz)) return false;
+    var ox = Math.min(r.l + r.w, px + PET2D.w) - Math.max(r.l, px), oy = Math.min(r.t + r.h, py + PET2D.h) - Math.max(r.t, py);
+    return ox > 0 && oy > 0 && ox * oy >= 0.25 * PET2D.w * PET2D.h;
+  }
+  /* a look behind a thing (any tap on a thing while seeking): the right one finds the pet; any other plays as ever and
+     says 'Not behind the …'; after 3 looks the right thing wobbles */
+  function hideTap(a, uid, it) {
+    if (a.phase !== 'seek' || a.isle !== isleNow()) return;
+    if (uid === a.at || hideCovers(a, uid)) { hideFound(a); return; }
+    later(a, 300, function () { sayOn('u:' + uid, tx('act.hide.no', { item: lineName(it) })); });
+    if (++a.looks >= 3 && !a.wob) hideClue(a);
+  }
+  function hideClue(a) {
+    if (a.phase !== 'seek' || !a.at) return;
+    a.wob = true; a.line = tx('act.hide.wobble');
+    if (a.two) {
+      var el = root && root.querySelector('#slwStage [data-uid="' + a.at + '"]');
+      if (el) { el.classList.remove('slw-wob2d'); void el.offsetWidth; el.classList.add('slw-wob2d'); setTimeout(function () { el.classList.remove('slw-wob2d'); }, 1300); }
+    } else if (a.session && typeof a.session.wobble === 'function') a.session.wobble(a.at);
+    drawActs();
+  }
+  function hideFound(a) {
+    if (a.phase !== 'seek') return;
+    a.phase = 'found'; a.round++; a.line = tx('act.hide.found', { name: a.name });
+    if (a.two) { var b = pet2d(a.petId); if (b) { back2d(b); b.classList.remove('hop'); void b.offsetWidth; b.classList.add('hop'); fx(b, '✦'); } }
+    else if (a.session && typeof a.session.found === 'function') a.session.found();
+    sayOn('pet:' + a.petId, a.line);
+    playCounted(a);
+    drawActs();
+    later(a, 2600, function () {
+      if (a.round >= 3) { a.phase = 'end'; drawActs(); return; }
+      hideRound(a);
+    });
+  }
+  /* a redraw of the 2D island mid-game puts the playing pet back where the game has it */
+  function acts2dPets() {
+    var a = activity;
+    if (!a || !a.two || (a.kind !== 'fetch' && a.kind !== 'hide')) return;
+    var b = pet2d(a.petId);
+    if (!b) return;
+    b.classList.add('slw-busy');
+    if (a.kind === 'hide' && a.at && (a.phase === 'seek' || a.phase === 'count')) hide2d(a, a.at, true);
+  }
+  /* My pets → Play (pet-care-ui's stagePlay seam): three automatic throws on the island (about 6 s), true when they
+     played; false when the pet is not out on the island shown (the portrait bounces instead) */
+  function stagePlay(petId, o) {
+    var red = reduced || !!(o && o.reduced);
+    if (on3D()) {
+      if (typeof stage3d.play !== 'function') return Promise.resolve(false);
+      s3('setCovered', false);                          /* the Pet Corner's strip shows the island: the stage may play */
+      var s = s3('play', 'fetch', { petId: petId, auto: 3 });
+      if (!s || !s.done || typeof s.done.then !== 'function') return Promise.resolve(false);
+      return s.done.then(function (r) { return !!r; }, function () { return false; });
+    }
+    var b = pet2d(petId);
+    if (!b || mode !== 'play' || activity) return Promise.resolve(false);
+    var tick = function (ms, fn) { setTimeout(function () { if (b.isConnected) fn(); }, ms); };
+    return new Promise(function (res) {
+      var k = 0, spots = [[38, 70], [62, 66], [50, 76]], end = function () { back2d(b); res(true); };
+      (function next() {
+        if (k >= spots.length || !b.isConnected) { end(); return; }
+        var s2 = spots[k++];
+        if (!run2d(b, s2[0], s2[1], red, tick, next)) end();
+      }());
+      setTimeout(function () { if (b.isConnected) back2d(b); }, 8000);
+    });
+  }
+
+  /* ---------------- the pets' wishes (A1): a ride or a rest on the thing, a visit, meeting the visitor ---------------- */
+  function wishDone(wi, at) {
+    var played = false;
+    dayWrite(function (u, day, ms) {
+      var r = C.markDid(u, 'wish:' + wi.petId, day, ms);
+      if (!(r && r.ok && r.changed)) return false;
+      played = playOnce(u, wi.petId, day, ms);
+      return true;
+    }).then(function (ok) {
+      if (!ok) return;
+      var line = tx(wi.doneKey, wi.doneParams);
+      setTimeout(function () {
+        if (mode !== 'play') return;
+        if (on3D()) s3('emote', 'pet:' + wi.petId, 'heart');
+        if (!sayOn('pet:' + wi.petId, line) && at) sayOn(at, line);
+      }, 900);
+      if (played) happyToast(wi.petId);
+    });
+  }
+  function wishTap(uid) {
+    var t = dayNow(), W0 = (t && t.wishes) || {};
+    Object.keys(W0).forEach(function (id) { var wi = W0[id]; if (!wi.done && (wi.kind === 'ride' || wi.kind === 'rest') && wi.uid === uid) wishDone(wi, 'u:' + uid); });
+  }
+
+  /* ---------------- the hooks in the island's own handlers ---------------- */
+  /* a tap on a thing in play mode (tapItem; never the show's own plays): the stamp, Show me round, a wish, I spy, hide
+     and seek; a tap on the stage ends a show */
+  function actTap(uid, it, el) {
+    if (mode !== 'play' || actQuiet) return;
+    if (actLive('show')) endActivity('tap');
+    noteFind({ kind: 'act', isle: isleNow(), uid: uid });
+    tourTap(uid, it);
+    wishTap(uid);
+    if (actLive('spy')) spyTap(activity, uid, it, el);
+    if (actLive('hide')) hideTap(activity, uid, it);
+    if (actLive('fetch')) fetchAt(activity, uid, el);
+  }
+  /* Shake a tree (a Home tree has no act): its season's leaves, blossom, snow or butterflies (one burst ≤ 1 s) */
+  var SEASON_GLYPH = { spring: '🌸', summer: '🦋', autumn: '🍂', winter: '❄' };
+  function shakeable(it) { return !!it && !it.act && typeof it.id === 'string' && it.id.indexOf('tree_') === 0 && !!DAYS() && isleNow() === 'home'; }
+  function shakeTree(uid, it, el) {
+    if (!shakeable(it) || mode !== 'play') return false;
+    var t = dayNow(), season = t && t.season, on = looksOn() && !!season;
+    if (on3D()) { if (on) s3('burst', uid, season); }
+    else if (el) { el.classList.remove('slw-wiggle'); void el.offsetWidth; el.classList.add('slw-wiggle'); if (on) fx(el, SEASON_GLYPH[season] || '✦'); }
+    sample('chip', 0.4) || sfx('tick');
+    noteFind({ kind: 'tree', isle: 'home', uid: uid });
+    return true;
+  }
+  /* the pet travelling with the child to island k: the runner the island draws there (petsOut's first; with pet care
+     only a pet really at home, never one at the Pet Rescue or the Pet Hotel, nor a star), or null */
+  function travelPet(w, k) {
+    var p = w ? petsOut(w, k)[0] : null;
+    return p && (!care() || (p.active && C.petWhere(w, p.id) === 'home')) ? p.id : null;
+  }
+  /* on a land the child owns: the visit stamp (and its pet passport: the pet that travels with the child), Showtime's,
+     the gear stamp and a visit wish */
+  function arrivedActs(k) {
+    var w = W(), out = travelPet(w, k);
+    noteFind({ kind: 'visit', isle: k, petId: k !== 'home' && out ? out : undefined, gear: out ? wearsGear(out, k) : false });
+    if (showtimeOn && k !== 'home') noteFind({ kind: 'night', isle: k });
+    var t = dayNow(), wi = out && t && t.wishes ? t.wishes[out] : null;
+    if (wi && !wi.done && wi.kind === 'visit' && wi.isle === k) wishDone(wi, null);
+  }
+
+  /* ---------------- stamps: noted now, written 1.5 s later in one commit ---------------- */
+  var findQ = [], findT = 0, findWho = null, FIND_MS = 1500;
+  /* ev = SLIslandDays.note's event ({kind, isle, id?, uid?, petId?, gear?, clue?}); never in edit or place mode, over
+     a game or without the rules → whether it was noted */
+  function noteFind(ev) {
+    if (!ev || !DAYS() || typeof C.addFinds !== 'function' || mode !== 'play' || running || !me()) return false;
+    if (findWho !== state.activeUser) { findQ = []; findWho = state.activeUser; }
+    var e = {};
+    Object.keys(ev).forEach(function (k) { if (ev[k] != null && ev[k] !== false) e[k] = ev[k]; });
+    if (typeof e.isle !== 'string') e.isle = isleNow();
+    findQ.push(e);
+    if (!findT) findT = setTimeout(flushFinds, FIND_MS);
+    return true;
+  }
+  function flushFinds() {
+    if (findT) { clearTimeout(findT); findT = 0; }
+    var evs = findQ, who = findWho, D = DAYS();
+    findQ = [];
+    if (!evs.length || !D || who !== state.activeUser) return Promise.resolve(null);
+    var day = careDay(), ms = nowMs();
+    return commit(function (u) {
+      var r = D.note(C, C.ensureWorld(u), evs, day);
+      if (D.empty(r)) return { ok: false };
+      var res = C.addFinds(u, r, day, ms);
+      return res && res.ok && res.changed ? res : { ok: false };
+    }).then(function (res) {
+      if (res && res.ok && state.activeUser === who) findsDone(who, res);
+      return res || null;
+    }, function () { return null; });
+  }
+  /* what the commit found: the stamps to say (never the I spy clue records), the pages it completed */
+  var stampsDue = [], pagesDue = [], stampsWho = null, stampsWait = false;
+  function findsDone(who, res) {
+    if (stampsWho !== who) { stampsDue = []; pagesDue = []; stampsWho = who; }
+    (res.newIds || []).forEach(function (id) { if (id.indexOf('spy.') !== 0 && stampsDue.indexOf(id) < 0) stampsDue.push(id); });
+    (res.completed || []).forEach(function (k) { if (pagesDue.indexOf(k) < 0) pagesDue.push(k); });
+    syncTodaySign();
+    if (on3D()) s3('setAnchors', anchors3D());
+    if ((stampsDue.length || pagesDue.length) && !stampsWait) { stampsWait = true; whenQuiet(who, stampsNews); }
+  }
+  /* the island is quiet: no open queue running, no welcome, no sheet, card or toast, no game, no activity, no finger */
+  function whenQuiet(who, fn) {
+    var t0 = Date.now();
+    (function wait(ms) {
+      setTimeout(function () {
+        if (renderedFor !== who || !root || state.activeUser !== who) { stampsWait = false; return; }
+        var w = W(), busy = !!openRun || notesDue > 0 || !!introWait || !(w && w.introSeen) || !!document.getElementById('slwIntro') || busyHands() || !!activity ||
+          !!document.querySelector('.slw-ov, .slw-cele, .slw-toast, [data-sl-modal]') || booting3d || !!running || mode !== 'play';
+        if (!busy) { fn(); return; }
+        if (Date.now() - t0 < OPEN_WAIT) wait(700); else stampsWait = false;
+      }, ms);
+    }(700));
+  }
+  /* '📖 New stamp: Tap your house' (several: '📖 New stamps in your book: 3') with Open my book; then each completed page
+     once, one card after another */
+  function stampsNews() {
+    stampsWait = false;
+    var D = DAYS(), w = W(), ids = stampsDue, pages = pagesDue;
+    stampsDue = []; pagesDue = [];
+    if (!D || !w) return;
+    if (pages.length) { pageCards(pages, 0); return; }
+    if (!ids.length) return;
+    var s = ids.length === 1 ? D.stampInfo(C, w, ids[0]) : null;
+    var msg = s ? tx('act.book.newOne', { item: tx(s.key, s.params || undefined) }) : tx('act.book.newMany', { n: ids.length });
+    toast(msg, { label: tx('act.book.open'), fn: function () { openBook({ page: s ? s.isle : isleNow() }); } }, { ms: 3500 });
+  }
+  function pageCards(pages, i) {
+    if (i >= pages.length) return;
+    var k = pages[i], short = tx('isle.short.' + k, null, isleName(k));
+    celebrate({ title: tx('act.book.complete', { island: short }), sub: k !== 'home' ? tx('act.book.flag') : '', encore: false,
+      btns: [{ label: tx('act.book.open'), fn: function () { openBook({ page: k }); } }], onClose: function () { pageCards(pages, i + 1); } });
+  }
+  /* a land's page is complete (finds3.done): its explorer flag by the bridge */
+  function pageDone(w, k) { var f = w && typeof C.findsOf === 'function' ? C.findsOf(w) : null; return !!(f && f.done && typeof f.done[k] === 'string'); }
+
+  /* ---------------- 📖 My island book (IA-6), loaded on its first use ---------------- */
+  var bookLoad = null;
+  function loadBook() {
+    var B = window.SLIslandBookUI;
+    if (B && typeof B.open === 'function') return Promise.resolve(true);
+    if (!bookLoad) bookLoad = loadScript('world/island-book-ui.js?v=' + (window.SL_WORLD_VER || '1')).then(function () { bookLoad = null; return !!(window.SLIslandBookUI && typeof window.SLIslandBookUI.open === 'function'); }, function () { bookLoad = null; return false; });
+    return bookLoad;
+  }
+  function bookCtx() {
+    return { overlay: overlay, tx: tx, iconHtml: iconHtml, fillPhotocards: fillPhotocards, C: C, D: DAYS(), people: PC(), user: me,
+      commit: function (fn) { return commit(fn).then(function (res) { if (res && res.ok) careChanged(); return res; }); },
+      day: careDay, now: nowMs, celebrate: celebrate, go: go, here: function () { return isleNow(); }, document: document,
+      setTimeout: function (f, t) { return setTimeout(f, t); } };
+  }
+  function openBook(o) {
+    if (!DAYS() || running) return Promise.resolve(null);
+    var who = state.activeUser;
+    flushFinds();                                      /* what was just done is in the book */
+    return loadBook().then(function (ok) {
+      if (!ok || !root || renderedFor !== who || running) return null;
+      return window.SLIslandBookUI.open(bookCtx(), { page: o && typeof o.page === 'string' ? o.page : undefined });
+    }).then(function (r) { syncTodaySign(); if (on3D()) s3('setAnchors', anchors3D()); return r; }, function () { return null; });
+  }
+
+  /* ---------------- the weather (A7): the sky's own in 3D, else a drifting overlay; Season looks ---------------- */
+  var wxNow = null, WX_GLYPH = { snow: '❄', spring: '🌸', summer: '🦋', autumn: '🍂' };
+  function looksOn() { try { return localStorage.getItem('slwSeasons') !== '0'; } catch (e) { return true; } }
+  /* when the island opens (never mid-visit), the rules arrive, a 3D stage mounts or Season looks changes */
+  function applyWeather() {
+    var t = dayNow(), o = t && t.weather ? { weather: t.weather, season: t.season, looks: looksOn() } : null, drawn = false;
+    if (on3D() && typeof stage3d.setWeather === 'function') drawn = s3('setWeather', o) === true;
+    var k = o && o.looks && !drawn ? (o.weather.kind === 'snow' ? 'snow' : o.season !== 'winter' && WX_GLYPH[o.season] ? o.season : null) : null;
+    if (k === wxNow) return;
+    wxNow = k;
+    if (on3D()) drawActs(); else if (root && renderedFor != null) drawStage();
+  }
+  /* ❓ Help: what 📋 Today is, and the Season looks switch (this device only; on by default, James's default §9.4) */
+  function looksHtml() {
+    if (!DAYS()) return '';
+    return '<p class="slw-helptoday">' + esc(tx('act.help.today')) + '</p><div class="slw-looks"><button type="button" class="slw-switch" role="switch" id="slwLooks" aria-checked="' + looksOn() + '">' +
+      '<span class="tk" aria-hidden="true"><i></i></span><span>' + esc(tx('act.wx.looks')) + '</span></button><p class="slw-lookshelp">' + esc(tx('act.wx.looksHelp')) + '</p></div>';
+  }
+  function wireLooks(ov) {
+    var b = $('#slwLooks', ov);
+    if (!b) return;
+    b.addEventListener('click', function () {
+      try { localStorage.setItem('slwSeasons', looksOn() ? '0' : '1'); } catch (e) {}
+      b.setAttribute('aria-checked', String(looksOn()));
+      applyWeather();
+    });
+  }
+  /* 12 glyphs (6 butterflies) on fixed lanes, drifting down at ≤ 0.1 Hz; still under reduced motion */
+  function wxHtml(cls) {
+    if (!wxNow) return '';
+    var n = wxNow === 'summer' ? 6 : 12, out = '';
+    for (var i = 0; i < n; i++) out += '<span class="slw-wxf" style="left:' + ((i * 37 + 11) % 96) + '%;top:' + ((i * 29 + 7) % 88) + '%;animation-delay:-' + (i * 1.17).toFixed(2) + 's;"><i>' + WX_GLYPH[wxNow] + '</i></span>';
+    return '<div class="slw-wx ' + wxNow + (cls ? ' ' + cls : '') + '" aria-hidden="true">' + out + '</div>';
+  }
+
+  /* ---------------- the Games sheet's 'Play on your island' (free play: never the game time) ---------------- */
+  function freeHtml() {
+    var w = W();
+    if (!DAYS() || !w) return '';
+    var k = isleNow(), p = playPet(), rows = [['today', tx('act.free.today')]];
+    if (C.isleUnlocked(w, k) && spyCan(k)) rows.push(['spy', tx('act.free.spy')]);
+    if (showCan(k)) rows.push(['show', tx('act.show.here')]);
+    if (p) { rows.push(['fetch', tx('act.free.fetch', { name: p.name }), p.id]); rows.push(['hide', tx('act.free.hide', { name: p.name }), p.id]); }
+    rows.push(['book', tx('act.today.book')]);
+    return '<section class="slw-freeplay" aria-labelledby="slwFreeH"><h3 id="slwFreeH">' + esc(tx('act.free.title')) + '</h3><p class="slw-freenote">' + esc(tx('act.free.note')) + '</p><div class="slw-freelist">' +
+      rows.map(function (r) { return '<button type="button" class="slw-btn big" data-free="' + r[0] + '"' + (r[2] ? ' data-pet="' + esc(r[2]) + '"' : '') + '>' + esc(r[1]) + '</button>'; }).join('') + '</div></section>';
+  }
+  function addFree(ov) {
+    var g = ov && ov.querySelector('.slw-games'), box = document.createElement('div');
+    box.innerHTML = freeHtml();
+    if (!g || !box.firstChild) return;
+    g.parentNode.appendChild(box.firstChild);
+    ov.querySelectorAll('[data-free]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-free'), pet = b.getAttribute('data-pet');
+        ov._close();
+        if (k === 'today') openToday(); else if (k === 'book') openBook({}); else if (k === 'spy') startSpy(); else if (k === 'show') startShow();
+        else startPlay(k, pet);
+      });
+    });
+  }
+
+  /* ---------------- SLWorld.go's island places (IA-2's go targets; the Today rows) ---------------- */
+  var ACT_GO = { today: 1, visitor: 1, book: 1, show: 1, spy: 1, isle: 1, fetch: 1, hide: 1 };
+  /* the slim 🎯 goal bar under a Next step card that is not about the goal (IA-2's card.goalBar, §4.4) */
+  function goalBarHtml(g) {
+    if (!g || typeof g.price !== 'number' || !(g.price > 0)) return '';
+    var p = g.params || {};
+    return '<span class="gb slw-goalbar" role="progressbar" aria-valuemin="0" aria-valuemax="' + g.price + '" aria-valuenow="' + Math.min(g.have, g.price) + '" aria-label="' +
+      esc(tx(g.key || 'act.next.goalBar', { item: p.item, n: fmt(p.n), price: fmt(p.price) })) + '" style="display:block;"><i style="width:' + g.pct + '%"></i></span>';
+  }
+  function goAct(to, o) {
+    if (to === 'today') return untilClosed(openToday());
+    if (to === 'book') return openBook({ page: o.page });
+    if (to === 'visitor') return landFirst('home').then(function (ok) { return ok && sayHello(); });
+    if (to === 'show') return landFirst(o.isle).then(function (ok) { return ok && startShow(isleNow()); });
+    if (to === 'spy') return landFirst(o.isle).then(function (ok) { return ok && startSpy(isleNow()); });
+    if (to === 'fetch' || to === 'hide') return Promise.resolve(startPlay(to, typeof o.petId === 'string' ? o.petId : undefined));
+    /* isle: there; with a thing (a pet's wish for a ride or a rest), it is framed and has its go, as a tap would */
+    if (typeof o.uid === 'string' && o.uid) return rideNow(o.uid, o.isle);
+    return landFirst(o.isle);
+  }
+
+  /* ---------------- the island-open queue: the one-time hint and the visitor's hello ---------------- */
+  /* 45: '📋 New on your island: tap Today over your house…' once (tutSeen.today), never on the welcome open; it is this
+     open's one unasked card */
+  enqueueOpen({ id: 'act.today.hint', prio: 45,
+    when: function (w) { return !!DAYS() && !!w && !!w.introSeen && !(w.tutSeen && w.tutSeen.today) && isleNow() === 'home' && !skyMapOn; },
+    show: function () {
+      commit(function (u) { var fw = C.ensureWorld(u); if (fw.tutSeen.today) return { ok: false }; fw.tutSeen.today = true; return { ok: true }; });
+      toast(tx('act.today.hint'), { label: tx('shop.seeIt'), fn: function () { openToday(); } });
+      return Promise.resolve();
+    } });
+  /* 60, quiet: the visitor waves and says hello (a 4 s bubble); never a card, never counted, not on the welcome open */
+  enqueueOpen({ id: 'act.hello', prio: 60, quiet: true,
+    when: function (w) { return !!visitorNow(w); },
+    show: function () {
+      var v = visitorNow(W());
+      if (!v) return Promise.resolve();
+      if (!s3('emote', 'visitor', 'wave')) hop2d('.slw-visitor2d');
+      sayOn('visitor', tx('act.vis.hi', { name: v.name }), 4);
+      return new Promise(function (res) { setTimeout(res, 4000); });
+    } });
+
+  /* ---------------- the learn-and-come-back trip (§4.1, §4.2; IA-7's seam) ---------------- */
+  /* this device keeps the trip (index.html's window.slTripSave; window.slLearnTrip itself where it is not there) */
+  function tripSave(t) {
+    try { if (typeof window.slTripSave === 'function') { window.slTripSave(t); return; } } catch (e) {}
+    window.slLearnTrip = t;
+  }
+  /* 📚 Learn and come back makes the thing 🎯 My goal when no goal is set (one commit, 'My goal is now …'): never over a
+     different goal (that asks 'Change your goal?' as ever), never for a thing the child cannot save for now (a pet the
+     cap shuts out, a locked one), never in test mode */
+  function tripGoal(id) {
+    var u = me(), w = W(), it = C.item(id), s = u && it ? iState(u, id) : null;
+    if (!u || !w || !it || trial() || C.goalId(w) || !s || s.state !== 'short') return;
+    var who = state.activeUser;
+    commit(function (fu) {
+      var fw = C.ensureWorld(fu);
+      if (C.goalId(fw)) return { ok: false };
+      var r = C.setGoal(fu, id);
+      if (r && r.ok) goalMeta(fw);
+      return r;
+    }).then(function (res) { if (res && res.ok && state.activeUser === who) toast(tx('act.goal.set', { item: it.name })); });
   }
 
   window.SLWorld = {
@@ -4797,7 +6153,11 @@
         /* wave 3: the Next step card on show, and the trip; d-island: the env it was worked out with, and a fixed turn
            (a number; anything else goes back to the island day + this session's opens), the card redrawn */
         next: function () { return nextCard; }, trip: function () { return window.slLearnTrip || null; },
-        nextEnv: function () { return nextEnv; }, setTurn: function (n) { qaTurn = typeof n === 'number' && isFinite(n) ? n : null; syncNext(); return nextCard; } };
+        nextEnv: function () { return nextEnv; }, setTurn: function (n) { qaTurn = typeof n === 'number' && isFinite(n) ? n : null; syncNext(); return nextCard; },
+        /* island activities (IA-5): today's island day, the activity on, the notes waiting, and their entry points */
+        today: function () { return dayNow(); }, activity: function () { return activity ? { kind: activity.kind, phase: activity.phase || null, isle: activity.isle, petId: activity.petId || null, n: activity.n, round: activity.round, at: activity.at || null, clue: activity.clue ? activity.clue.id : null, i: activity.i } : null; },
+        notes: function () { return findQ.slice(); }, flushFinds: flushFinds, openToday: openToday, openVisitor: openVisitor, openBook: openBook,
+        startShow: startShow, startSpy: startSpy, startPlay: startPlay, endActivity: endActivity, stagePlay: stagePlay, weather: function () { return wxNow; } };
     }
   };
 })();

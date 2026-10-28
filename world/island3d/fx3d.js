@@ -48,6 +48,12 @@
      fx.emote(worldPos | Object3D, kind)     a dark-glass bubble with a neon rim and a note | star |
                                              sparkle | dizzy icon ('fingerHeart' is the only heart)
      fx.shake(amp = 0.06, dur = 0.18)        decaying camera shake; never under reduced motion
+     fx.burst(kind, pos, {key}?) → count     island activities v1 (IA-4): a shaken tree's burst of the
+                                             season's leaves | blossom | snow | butterflies (or autumn |
+                                             spring | winter | summer): ONE emit, every piece ≤ 1 s, pooled
+                                             under the petal / snow caps, at most once per 1 s per key (the
+                                             tree's uid), so taps never stack into a flicker; reduced motion:
+                                             a few still fades (BURST, burstKind)
      fx.update(dt, camera?, ctx?) → animating   once per frame, after the camera rig (shake is applied
                                              to camera.position and undone next frame; cannons and
                                              firework rings use the camera's basis); ctx {show,
@@ -198,6 +204,21 @@
     leaf: { cells: ['diamond'], glow: 0, n: 3, maxPerCall: 12, life: [1.7, 2.3], speed: [0.3, 0.75], up: [0.7, 1.2],
       spread: 'sphere', jitter: 0.12, g: 0.7, drag: 2.2, size: [0.12, 0.16], end: 1, spin: [-2, 2], sway: [0.08, 0.8],
       flip: [0.8, 1.6], alpha: 1, tokens: ['PX Tree Autumn', 'PX Squirrel Rust', 'PX Banana'], cap: 'petals', reduced: 'none' },
+    /* the season's tree burst (island activities v1, IA-4; fx.burst): every piece lives ≤ 1 s, LOW takes lowMax,
+       under reduced motion a few still fades of its own cell */
+    seasonLeaf: { cells: ['diamond'], glow: 0, n: 8, maxPerCall: 10, lowMax: 5, life: [0.75, 1.0], speed: [0.5, 1.0], up: [0.6, 1.2],
+      spread: 'sphere', jitter: 0.3, g: 2.2, drag: 1.8, size: [0.12, 0.16], end: 1, spin: [-2, 2], sway: [0.06, 0.8],
+      flip: [0.8, 1.6], alpha: 1, tokens: ['PX Tree Autumn', 'PX Squirrel Rust', 'PX Banana'], cap: 'petals', reduced: 'static', reducedMax: 3 },
+    seasonBlossom: { cells: ['petal'], glow: 0, n: 10, maxPerCall: 12, lowMax: 6, life: [0.75, 1.0], speed: [0.4, 0.9], up: [0.5, 1.0],
+      spread: 'sphere', jitter: 0.3, g: 1.6, drag: 2.0, size: [0.1, 0.14], end: 1, spin: [-1.5, 1.5], sway: [0.08, 0.7],
+      flip: [0.6, 1.2], alpha: 1, tokens: ['PX Candy Pink', 'Blossom Light'], cap: 'petals', reduced: 'static', reducedMax: 3 },
+    seasonSnow: { cells: ['snow', 'sparkle'], glow: 1, n: 10, maxPerCall: 12, lowMax: 6, life: [0.75, 1.0], speed: [0.2, 0.6], up: [0.3, 0.8],
+      spread: 'sphere', jitter: 0.35, g: 0.9, drag: 1.5, size: [0.08, 0.12], end: 0.8, spin: [-0.8, 0.8], sway: [0.06, 0.5],
+      twinkle: 0.8, alpha: 0.9, tokens: ['Cloud White', 'Holo Blue'], cap: 'snow', reduced: 'static', reducedMax: 3 },
+    /* butterflies: soft squares whose wings flap (the paper flip, ≤ 1.8 Hz) as they flutter up and away */
+    seasonFly: { cells: ['petal'], glow: 0, n: 3, maxPerCall: 4, lowMax: 3, life: [0.85, 1.0], speed: [0.3, 0.6], up: [0.7, 1.1],
+      spread: 'sphere', jitter: 0.2, g: -0.2, drag: 1.0, size: [0.12, 0.15], end: 1, spin: [-0.6, 0.6], sway: [0.12, 0.9],
+      flip: [1.4, 1.8], alpha: 1, tokens: ['PX Sunny', 'PX Candy Pink', 'PX Lilac'], cap: 'petals', reduced: 'static', reducedMax: 2 },
     /* cold air / steam: a little column of three soft puffs drifting up (the igloo, the cocoa urn) */
     wisp: { cells: ['puff'], glow: 0, n: 3, maxPerCall: 6, column: 0.09, life: [1.3, 1.7], speed: [0.02, 0.06], up: [0.26, 0.38],
       spread: 'up', jitter: 0.04, g: -0.05, drag: 0.8, size: [0.09, 0.12], end: 2, spin: [-0.3, 0.3], sway: [0.04, 0.6],
@@ -251,6 +272,18 @@
   }
   /* hearts belong to the avatar's finger-heart: any other heart plays magenta ✦ sparkles */
   function heartAllowed(o) { return !!(o && o.fingerHeart); }
+
+  /* ISLAND ACTIVITIES v1 (IA-4): the tree burst. fx.burst(kind, pos, {key}) shakes out the season's leaves,
+     blossom, snow or butterflies: ONE emit of its kind (n; LOW lowN) whose pieces all live ≤ lifeMax s, from the
+     pooled particles under their caps, and at most once per gapSec per key (the tree's uid, else the kind and
+     the spot), so quick taps never stack into a flicker. A season name works too (autumn, spring, winter, summer). */
+  var BURST = { gapSec: 1.0, lifeMax: 1.0,
+    kinds: { leaves: { kind: 'seasonLeaf', n: 8, lowN: 5 }, blossom: { kind: 'seasonBlossom', n: 10, lowN: 6 },
+             snow: { kind: 'seasonSnow', n: 10, lowN: 6 }, butterflies: { kind: 'seasonFly', n: 3, lowN: 3 } } };
+  var BURST_ALIAS = { leaf: 'leaves', autumn: 'leaves', petal: 'blossom', petals: 'blossom', spring: 'blossom', winter: 'snow',
+    snowflakes: 'snow', butterfly: 'butterflies', summer: 'butterflies' };
+  /* a burst name (or a season) → 'leaves' | 'blossom' | 'snow' | 'butterflies' | null */
+  function burstKind(kind) { var b = typeof kind === 'string' ? BURST_ALIAS[kind] || kind : ''; return Object.prototype.hasOwnProperty.call(BURST.kinds, b) ? b : null; }
 
   /* emote bubbles: icon cell + colour per kind ('fingerHeart' is the only heart) */
   var EMOTES = {
@@ -1364,7 +1397,7 @@
           Q.a[k] = Q.a[last]; Q.b[k] = Q.b[last];
         }
         if (type === Q_SHELL) launchShell(x, y, z, a, b);
-        else if (type === Q_BURST) burst(x, y, z, a | 0);
+        else if (type === Q_BURST) ringBurst(x, y, z, a | 0);
       }
     }
     /* a shell climbs from (x, y, z) to height `h` above in FW.rise seconds, leaving sparkle trails */
@@ -1375,7 +1408,7 @@
     }
     /* one burst: an outer ✦ ring with ✦ trails, a slower inner ring in another colour and a soft
        glow (never a flash) */
-    function burst(x, y, z, colIdx) {
+    function ringBurst(x, y, z, colIdx) {
       var big = CAPS.particles >= 256 ? 20 : 14, nn = TOKENS.neon.length;
       _fwOpt.token = TOKENS.neon[colIdx % nn]; _fwOpt.size = 0; _fwOpt.speed = 0; _fwOpt.trail = true;
       emitAt('firework', x, y, z, big, _fwOpt);
@@ -1399,6 +1432,23 @@
         enqueue(Q_BURST, f.t + FW.rise, f.bx, f.by, f.bz, f.col, 0);
       }
       return plan.length;
+    }
+
+    /* the tree burst (IA-4; see BURST): → the pieces spawned (0: an unknown kind, no position, or the same key burst
+       less than gapSec ago). o: {key} (the tree's uid). Under reduced motion a few still fades of its own cell. */
+    var burstAt = new Map();
+    function seasonBurst(kind, worldPos, o) {
+      if (state.disposed) return 0;
+      var b = burstKind(kind);
+      if (!b || !readPos(worldPos, _v)) return 0;
+      var x = _v.x, y = _v.y, z = _v.z, key = o && o.key != null ? 'k:' + o.key : b + '@' + Math.round(x * 2) + ',' + Math.round(y * 2) + ',' + Math.round(z * 2);
+      var last = burstAt.get(key);
+      if (last != null && state.t - last < BURST.gapSec) return 0;
+      if (burstAt.size >= 32) burstAt.forEach(function (t0, k) { if (state.t - t0 >= BURST.gapSec) burstAt.delete(k); });
+      var B = BURST.kinds[b], made = 0;
+      try { made = emitAt(B.kind, x, y, z, state.tier === 'LOW' ? B.lowN : B.n, null); } catch (e) { note('burst ' + b, e); return 0; }
+      if (made) burstAt.set(key, state.t);
+      return made;
     }
 
     /* camera facts for the screen-edge cannons and the streamer curtain */
@@ -1575,13 +1625,14 @@
       for (var e = 0; e < EMOTE_CAP; e++) if (EM.alive[e]) freeEmote(e);
       Q.n = 0;
       clearBlooms();
+      burstAt.clear();
     }
     function info() {
       return {
         tier: state.tier, capacity: P.cap, limit: Math.min(P.cap, CAPS.particles), alive: P.n,
         counts: { confetti: P.counts[1], bubbles: P.counts[2], petals: P.counts[3], snow: P.counts[4] },
         caps: CAPS, halos: haloSlots.size, blooms: blooms.size, uplights: uplights.size, marks: marks.size, emotes: emoteN,
-        queued: Q.n, shaking: shakeS.on, show: showK,
+        queued: Q.n, shaking: shakeS.on, show: showK, bursts: burstAt.size,
         reduced: state.reduced, instances: P.spr.hi + MK.hi, atlas: ATEX && ATEX.name === 'fx3d:island-atlas' ? 'island' : 'kit'
       };
     }
@@ -1604,7 +1655,7 @@
     var fx = {
       group: group,
       emit: emit, halo: halo, bloom: bloom, decal: decal, uplight: uplight, mark: markSet, setShow: setShow,
-      confetti: confetti, streamers: streamers, fireworks: fireworks, emote: emote, shake: shake,
+      confetti: confetti, streamers: streamers, fireworks: fireworks, emote: emote, shake: shake, burst: seasonBurst,
       update: update, setTier: setTier, setQuality: setQuality, setReduced: setReduced, setMember: setMember,
       clear: clear, info: info, dispose: dispose,
       shakeOffset: function (out) { out = out || new T.Vector3(); return shakeS.applied ? out.copy(shOff) : out.set(0, 0, 0); },
@@ -1621,6 +1672,8 @@
     EMOTE_SEC: EMOTE_SEC, EMOTE_REDUCED_SEC: EMOTE_REDUCED_SEC, MARK_CAP: MARK_CAP, EMOTE_CAP: EMOTE_CAP, HALO_CAP: HALO_CAP,
     /* pure helpers */
     kindOf: kindOf, emoteOf: emoteOf, caps: caps, emitCount: emitCount, spawn: spawn, coneVelocity: coneVelocity,
+    /* the tree burst (IA-4) */
+    BURST: BURST, burstKind: burstKind,
     alphaAt: alphaAt, sizeAt: sizeAt, flipAt: flipAt, integrate: integrate, holoAt: holoAt, emoteTrack: emoteTrack, flightAt: flightAt,
     FLIGHT_ARC: FLIGHT_ARC,
     shakeOffset: shakeOffset, fireworkPlan: fireworkPlan, cannonPlan: cannonPlan, rng: rng, safeHz: safeHz,

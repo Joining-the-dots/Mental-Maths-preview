@@ -982,8 +982,8 @@
   /* ---------- the 2D keeper's pose (one goalie-blob with 4 skins) ----------
      Until the ball is struck he stands in the SAME set pose for every kick of every round (a ready
      bounce, a slight crouch while you aim; Bop bops straight up and down to the beat): there is no
-     move to show yet, and nothing about where the child is aiming moves him (only his face: a worried
-     look while the height marker is in a top corner, the same on both sides). After the strike he
+     move to show yet, and nothing about where the child is aiming changes him, not even his face
+     (James, 28 Oct: no worried look at a top-corner aim). After the strike he
      waits his reaction time (s.keeperT stays 0), then dives so that his leading glove arrives at
      s.gx, s.gy just as the ball does: on the ball for a save, at the edge of his reach for a goal.
      A pure function of the round state, the rival and reduced motion (memo: the dive's end pose, kept
@@ -1003,7 +1003,6 @@
       var p = { cx: MID, cy: LINE - hop - bounce - 58 * sy, rot: 0, sx: 1 + 0.08 * cr, sy: sy,
         g: [{ x: -47, y: -15, s: 1, glow: glow }, { x: 47, y: -15, s: 1, glow: glow }], face: 'calm', eye: 0, lead: 0, wave: 0 };
       for (var q = 0; q < 2; q++) { p.g[q].x = (q ? 1 : -1) * lerp(47, 30, cr); p.g[q].y = lerp(-15, 0, cr); p.g[q].s = 1 + 0.15 * cr; }
-      if (s.phase === 'aimY' && s.lockX > POST_L + 6 && s.lockX < POST_R - 6 && s.ay > BAR + 6 && isTopCorner(s.lockX, s.ay)) p.face = 'worried';
       return p;
     }
     /* the glove spot as he will show it: a goal (or a miss) never touches his glove */

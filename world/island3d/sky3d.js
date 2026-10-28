@@ -62,6 +62,11 @@
        suspend(), resume(), hooks({sound, fx}), isles, life, info(), dispose()}
      v2 env calls with no v3 meaning are safe no-ops: aim, setConeMounts, reflections(),
        setPlaced (only Home's house, for the ripple); city is null.
+     island activities v1 (IA-4): setWeather({kind | weather, season, looks} | null) → bool (weather: the
+       kind or SLIslandDays.today()'s {kind, …}, as IA-5's islandView().sky carries it) and drawsWeather() →
+       bool forward to SLSkyLife3D (true: the sky draws the weather itself; false on LOW, under reduced
+       motion or with no sky life, where the host's still overlay shows it); opts.weather is the first
+       one. The light, the backdrop and the exposure never follow the weather.
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -799,7 +804,7 @@
     var Life = opts.skyLife === false ? null : opts.skyLife || sibling('SLSkyLife3D', './skylife3d.js', true), life = null;
     if (Life && typeof Life.create === 'function') {
       try {
-        life = Life.create(K, SL3D, { tier: tier, reduced: st.reduced, isles: [] });
+        life = Life.create(K, SL3D, { tier: tier, reduced: st.reduced, isles: [], weather: opts.weather || null });
         if (life && life.group) group.add(life.group);
       } catch (e2) { warn('skylife: ' + (e2 && e2.message || e2)); life = null; }
     }
@@ -1089,6 +1094,11 @@
       setShow: function (k) { jump(k); applyShow(false); },
       setEdit: setEdit,
       setMember: function (hex) { call(life, 'setMember', hex); },
+      /* island activities v1 (IA-4): the day's weather and season looks, forwarded to the sky life like its
+         memory stars; → true when the sky draws them itself (false: LOW, reduced motion or no sky life — the
+         host's still overlay then); drawsWeather() asks the same without changing anything */
+      setWeather: function (o) { return call(life, 'setWeather', o) === true; },
+      drawsWeather: function () { return call(life, 'drawsWeather') === true; },
       setUser: function (u) { if (!u) return; if (u.color) api.setMember(u.color); if (u.seed != null) setSeed(u.seed); },
       setSeed: setSeed, setReduced: setReduced, setQuality: setQuality,
       invalidateShadows: function () { st.shadowDirty = true; },

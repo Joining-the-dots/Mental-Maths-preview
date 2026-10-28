@@ -570,7 +570,7 @@ export async function create(mid, opts) {
     kIn.gx = st.gx != null ? P.MAP.lx2u(st.gx) : NaN; kIn.gy = st.gy != null ? P.MAP.ly2u(st.gy) : NaN;
     kIn.phaseT = st.phaseT; kIn.keeperT = inReplay ? P.keeperAt(rp, st.rival) : keeperI; kIn.resT = st.resT; kIn.res = res;
     kIn.ex = st.lockX != null ? ex : NaN; kIn.ey = st.lockY != null ? ey : NaN; kIn.flight = inReplay ? rp : flightI;
-    kIn.worried = lp === 'aimY' && st.lockX > P.POST_L + 6 && st.lockX < P.POST_R - 6 && st.ay > P.BAR + 6 && P.isTopCorner(st.lockX, st.ay);
+    kIn.worried = false;                                   /* nothing about the aim shows on him before the kick, not even his face (James, 28 Oct) */
     kIn.bop = rv.id === 'rival_bop'; kIn.intro = !!st.intro; kIn.shot = st.shot;
     kIn.hasPrev = !!prev; kIn.prevDive = prev ? prev.dive : 'stay'; kIn.prevRes = prev ? prev.res : null;
     kIn.prevEx = prev ? P.MAP.lx2u(prev.x) : NaN; kIn.prevEy = prev ? P.MAP.ly2u(prev.y) : NaN;

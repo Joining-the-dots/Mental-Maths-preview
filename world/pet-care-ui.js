@@ -30,6 +30,15 @@
      stagePlay(petId, o) → Promise<bool>  the play move on the island; without it the portrait bounces
      toast(text)   the island's toast · sfx(name) / sound(name, petId): SLSound NAMES, only after a tap
      reduced, trial  booleans or functions (defaults: the media query, window.SL_WORLD_TRIAL === true)
+     D, days, people  Island activities v1 (IA-6): the island-day rules (default window.SLIslandDays, never
+                   loaded from here), today's board (SLIslandDays.today()'s result, or a function returning
+                   it; without it the rules work it out from the save) and the people core (default
+                   window.SLPeopleCore, for a 'meet today's visitor' wish). With them each pet's head has one
+                   calm passport line ('{name} has been to {n} islands.', once it has been to one) and a
+                   home pet that is not hungry its wish of the day (act.wish.*; once done, its done line).
+                   Without them My pets is drawn exactly as before. 'Make my runner' carries the passport's
+                   'Take {name} travelling' as its aria-description (the runner follows the child across the
+                   bridges); no button is added
      openShop(o)   the Pet Shop (P3.2 openPetShop through the host's lazy load) with {filter: 'food' |
                    'adopt' | 'home', news, id}; openMemories() P3.2's Memory Book; openGear() the Island
                    Shop's pet clothes (Home's Pets shelf); goLearn() back to the learning games. A missing
@@ -212,6 +221,7 @@
     return '<button type="button" class="slw-btn' + (o.cls ? ' ' + o.cls : '') + '" data-a="' + a + '"' + (o.id ? ' data-id="' + esc(o.id) + '"' : '') +
       (o.v ? ' data-v="' + esc(o.v) + '"' : '') + ' data-fk="' + esc(o.fk || (a + ':' + (o.id || '') + ':' + (o.v || ''))) + '"' +
       (o.expanded != null ? ' aria-expanded="' + !!o.expanded + '"' : '') + (o.describedby ? ' aria-describedby="' + esc(o.describedby) + '"' : '') +
+      (o.description ? ' aria-description="' + esc(o.description) + '"' : '') +
       (o.label ? ' aria-label="' + esc(o.label) + '"' : '') + (o.off ? ' disabled' : '') + '>' + (o.icon || '') + esc(label) + '</button>';
   }
   function line(text, cls) { return text ? '<p class="slw-pcc-line' + (cls ? ' ' + cls : '') + '">' + text + '</p>' : ''; }
@@ -814,14 +824,50 @@
 
   /* ---------------- the list (pure markup) ---------------- */
   function msgOf(S, id) { return S.msg[id] ? '<p class="slw-pcc-msg">' + esc(S.msg[id]) + '</p>' : ''; }
-  /* a pet's head: its name is an h4 under its group's h3 (the sheet's h2 is 'My pets') */
-  function head(E, p) {
+  /* a pet's head: its name is an h4 under its group's h3 (the sheet's h2 is 'My pets'); then, with the island-day
+     rules (IA-6), its passport line and its wish (actsOf) */
+  function head(E, p, acts) {
     var badge = p.where === 'home' && (p.level === 'hungry' || p.level === 'warn' || p.level === 'last') ? care2d('badge', 'hungry') : p.where === 'home' && p.level === 'peckish' ? care2d('badge', 'peckish') : '';
     var d = E.P.dietOf(p.id), fav = d.fav ? foodOf(E, d.fav) : null;
     return '<div class="slw-pcc-top"><div class="slw-pcc-pic" data-pic="' + esc(p.id) + '">' + petPic(E, p.id) + '</div><div class="slw-pcc-info">' +
       '<h4 class="slw-pcc-name">' + esc(p.name) + (p.runner ? ' <span class="slw-pcc-medal" role="img" aria-label="' + esc(E.t('crew.runner')) + '">🏅</span>' : '') + '</h4>' +
       '<p class="slw-pcc-sp">' + (badge ? '<span class="slw-pcc-badge">' + badge + '</span>' : '') + esc(species(E, p.id)) + '</p>' +
-      (fav ? '<p class="slw-pcc-fav"><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon(fav.id) + '</span>' + esc(E.t('care.shop.loves', { food: fav.name })) + '</p>' : '') + '</div></div>';
+      (fav ? '<p class="slw-pcc-fav"><span class="slw-pcc-fi" aria-hidden="true">' + foodIcon(fav.id) + '</span>' + esc(E.t('care.shop.loves', { food: fav.name })) + '</p>' : '') +
+      actLines(E, p, acts) + '</div></div>';
+  }
+  /* ---------------- Island activities v1 (IA-6): the passport line and the wish of the day ----------------
+     The island-day rules are the host's (ctx.D, else the page's window.SLIslandDays; never required from here, so a
+     page without them draws My pets exactly as before: null). Read once a draw: {pp: {petId: passport}, wish: {petId: wish}}.
+     The passports are SLIslandDays.book()'s, and only a save that has a book (finds3) is asked; the wishes are today's
+     board's (ctx.days, else SLIslandDays.today() on the save as it is). Nothing here writes */
+  function actsOf(E) {
+    var out = { pp: {}, wish: {} }, c = E.ctx, D = c.D || root.SLIslandDays, C = E.C, w = E.w();
+    if (!D || !w) return null;
+    try {
+      var f = typeof C.findsOf === 'function' ? C.findsOf(w) : w.finds3;
+      if (f && typeof D.book === 'function') (D.book(C, w, null) || { passports: [] }).passports.forEach(function (p) { out.pp[p.id] = p; });
+    } catch (e) { out.pp = {}; }
+    try {
+      var days = typeof c.days === 'function' ? c.days() : c.days;
+      if (!days && typeof D.today === 'function') {
+        days = D.today(C, E.u(), { day: E.day(), people: c.people || root.SLPeopleCore || null, care: E.P, status: E.status(), trial: true });
+      }
+      if (days && days.wishes && typeof days.wishes === 'object') out.wish = days.wishes;
+    } catch (e) { out.wish = {}; }
+    return out;
+  }
+  /* one calm line each, never a count of what is left: '{name} has been to {n} islands.' once the pet has been to one;
+     a home pet's wish while it is not hungry (feeding stays first), and its done line once the wish came true */
+  function actLines(E, p, acts) {
+    if (!acts) return '';
+    var out = '', pp = own(acts.pp, p.id) ? acts.pp[p.id] : null, wsh = own(acts.wish, p.id) ? acts.wish[p.id] : null;
+    if (pp && pp.n > 0 && pp.key) out += '<p class="slw-pcc-pp">' + esc(E.t(pp.key, pp.params)) + '</p>';
+    var A = E.P && E.P.ALERT_LV, hungry = A && own(A, p.level) ? A[p.level] >= 2 : p.level === 'hungry' || p.level === 'warn' || p.level === 'last';
+    if (wsh && p.where === 'home' && !hungry) {
+      var key = wsh.done ? wsh.doneKey : wsh.key, vars = wsh.done ? wsh.doneParams : wsh.params;
+      if (typeof key === 'string' && /^act\.wish\./.test(key)) out += '<p class="slw-pcc-wish' + (wsh.done ? ' done' : '') + '">' + esc(E.t(key, vars)) + '</p>';
+    }
+    return out;
   }
   function trayHtml(E, S, p, kind) {
     if (!S.tray || S.tray.id !== p.id || S.tray.kind !== kind) return '';
@@ -888,9 +934,9 @@
     var care = btn('feed', E.t('care.feed'), { id: id, cls: 'slw-pcc-do slw-pcc-feed' + (want ? ' slw-pcc-due' : ' slw-pcc-quiet'), expanded: open(S, id, 'feed') }) +
       btn('pat', E.t('care.pat'), { id: id, cls: 'slw-pcc-do' }) + btn('play', E.t('care.play'), { id: id, cls: 'slw-pcc-do' });
     var more = btn('dress', E.t('care.dress'), { id: id, expanded: open(S, id, 'dress') }) + btn('rename', E.t('care.rename'), { id: id, expanded: open(S, id, 'rename') }) +
-      (p.runner ? '' : btn('runner', E.t('care.makeRunner'), { id: id, describedby: S.hasHint ? hintId : null })) + (room.hotelOpen ? btn('toHotel', E.t('care.hotel.toHotel'), { id: id }) : '');
+      (p.runner ? '' : btn('runner', E.t('care.makeRunner'), { id: id, describedby: S.hasHint ? hintId : null, description: S.acts ? E.t('act.book.ppTake', { name: p.name }) : null })) + (room.hotelOpen ? btn('toHotel', E.t('care.hotel.toHotel'), { id: id }) : '');
     var hint = o.hint ? '<p class="slw-pcc-hint" id="' + hintId + '">' + esc(E.t('crew.runner')) + '</p>' : '';
-    return '<section class="slw-pcc-card" data-pet="' + esc(id) + '">' + head(E, p) + meters(E, p) + '<div class="slw-pcc-acts">' + care + '</div>' +
+    return '<section class="slw-pcc-card" data-pet="' + esc(id) + '">' + head(E, p, S.acts) + meters(E, p) + '<div class="slw-pcc-acts">' + care + '</div>' +
       msgOf(S, id) + trayHtml(E, S, p, 'feed') + '<div class="slw-pcc-more">' + more + '</div>' + hint + trayHtml(E, S, p, 'dress') + trayHtml(E, S, p, 'rename') + '</section>';
   }
   /* each group's heading: its words, how many pets are in it, and (Hotel, Rescue, memories) its little picture */
@@ -917,7 +963,7 @@
         guests.map(function (p) {
           var id = p.id, acts = (room ? btn('toHome', E.t('care.hotel.toHome'), { id: id, cls: 'slw-pcc-do' }) : btn('swap', E.t('care.hotel.swap'), { id: id, cls: 'slw-pcc-do', expanded: open(S, id, 'swap') })) +
             btn('dress', E.t('care.dress'), { id: id, expanded: open(S, id, 'dress') }) + btn('rename', E.t('care.rename'), { id: id, expanded: open(S, id, 'rename') });
-          return '<section class="slw-pcc-card slw-pcc-guest" data-pet="' + esc(id) + '">' + head(E, p) + '<div class="slw-pcc-more">' + acts + '</div>' + msgOf(S, id) +
+          return '<section class="slw-pcc-card slw-pcc-guest" data-pet="' + esc(id) + '">' + head(E, p, S.acts) + '<div class="slw-pcc-more">' + acts + '</div>' + msgOf(S, id) +
             trayHtml(E, S, p, 'swap') + trayHtml(E, S, p, 'dress') + trayHtml(E, S, p, 'rename') + '</section>';
         }).join('') + '</div>';
     },
@@ -931,7 +977,7 @@
           /* before today's visit only the count shows (its 'Come back on another day' is for after one) */
           var shown = r.visitedToday || prog.indexOf('. ') < 0 ? prog : prog.slice(0, prog.indexOf('. ') + 1);
           var soon = st.farewell && r.starIn != null && r.starIn <= K.starAfter - K.starWarn ? line(esc(starSoon(E, p.name, r.starIn)), 'slw-pcc-soon') : '';
-          return '<section class="slw-pcc-card slw-pcc-basket" data-pet="' + esc(id) + '">' + head(E, p) + line(esc(shown), 'slw-pcc-visits') + soon +
+          return '<section class="slw-pcc-card slw-pcc-basket" data-pet="' + esc(id) + '">' + head(E, p, S.acts) + line(esc(shown), 'slw-pcc-visits') + soon +
             (p.runner ? line(esc(E.t('care.rescue.games', { name: p.name }))) : '') + '<div class="slw-pcc-acts">' +
             btn('visit', E.t('care.rescue.visit', { name: p.name }), { id: id, cls: 'slw-pcc-do slw-pcc-feed' + (r.visitedToday ? '' : ' slw-pcc-due'), off: r.visitedToday, expanded: open(S, id, 'visit') }) + '</div>' +
             msgOf(S, id) + trayHtml(E, S, p, 'visit') + '</section>';
@@ -965,6 +1011,7 @@
   }
   /* the whole list: the cap line, the sitter, the promise, the groups, the footer */
   function listHtml(E, S, st, room, mem) {
+    S.acts = actsOf(E);
     var sit = st.sitter ? line(esc(st.sitterUntil ? E.t('care.sitterUntil', { date: dayWords(st.sitterUntil) }) : E.t('care.sitter')), 'slw-pcc-sitter') : '';
     var top = line(esc(capLine(E.ctx)), 'slw-pcc-cap') + sit + line(esc(E.t('care.promise')), 'slw-pcc-note');
     var body = groupsOf(st).map(function (g) { return groupHtml(E, S, g.key, g.n, GROUP_HTML[g.key](E, S, st, room, mem), st.farewell); }).join('');
@@ -974,7 +1021,7 @@
   /* one home card's markup (pets.json's cardFor), for a host that draws a single pet */
   function cardFor(ctx, id) {
     var E = env(ctx), st = E.status(), p = st && st.pets.filter(function (x) { return x.id === id; })[0];
-    return p ? petCard(E, { msg: {}, tray: null }, p, E.room()) : '';
+    return p ? petCard(E, { msg: {}, tray: null, acts: actsOf(E) }, p, E.room()) : '';
   }
 
   /* ================================================================

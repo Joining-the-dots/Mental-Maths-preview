@@ -60,6 +60,29 @@
        MEMORY.max are kept) · petStars() → [{id, name, to, key, x, y, z, r}] the stars on screen now
        (night only; their centres and tap radius, world u). SLIsland3D reaches them through SLSky3D's
        life getter (stage.setPetStars).
+     island activities v1 (IA-4, chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §A7): setWeather({kind
+       'sunny' | 'breezy' | 'starry' | 'snow', season 'spring' | 'summer' | 'autumn' | 'winter', looks})
+       | null → drawsWeather(). The kind may come as weather instead (IA-5's islandView().sky = {weather,
+       season, looks}), either the kind itself or SLIslandDays.today()'s {kind, next, key, nextKey}, so
+       today()'s own {weather, season} works too; kind wins when both are given. A kind or season it does
+       not know draws as sunny / no season and warns once through K.warn (weatherSlip). drawsWeather() →
+       true when this sky draws the day's weather itself (MID / HIGH with motion), false on LOW and under
+       reduced motion (the host's still DOM overlay shows it then) · weather() → the looks now
+       (weatherLooks). looks false or null = no weather. info().dropped: sparks a full pool left out
+       since create (always 0: the pool is sized for the most any weather adds).
+       Nothing new: it reuses the pools above, on whichever unlocked island is visited —
+         snow     the ice's falling snow sparks over a visited land on a snow day (the ice always snows)
+         drift    the jungle's leaf sparks: recoloured pink for spring blossom or orange for autumn
+                  leaves on the jungle, and the same leaves drifting down over any other land (not the
+                  ice) in spring and autumn (WEATHER.drift: 12 / 16, the 2D overlay's dozen; never over the tier's snow)
+         summer   Home's butterflies + 2 (two more spots on its front beach)
+         breezy   the clouds drift × WEATHER.breeze (their bob keeps its 0.05 Hz)
+         starry   + WEATHER.starBoost star cubes at Showtime
+       LOW draws none of it (its budgets are 0: no snow, leaves, stars or moving clouds); under
+       reduced motion and in edit mode the snow and leaves rest (gone, as the ice's snow today), the
+       clouds hold and update() stays false. Rates: RATES.driftSway and driftSwayZ (≤ 0.2 Hz). The light, the
+       backdrop and the exposure are never touched, so a change mid-visit moves the frame's
+       luminance only by the few small sparks it adds (tests/skylife-weather.test.js).
    ================================================================ */
 (function (root, factory) {
   var api = factory(root);
@@ -88,9 +111,19 @@
   /* every rate (Hz) and the ART3.FREQS cap it answers to */
   var RATES = { cloudBob: 0.05, balloonBob: 0.07, balloonTurn: 0.02, birdFlap: 1.6, gullFlap: 1.6, parrotFlap: 1.6, butterflyFlap: 1.6,
     monkeyScratch: 1.5, squirrelTail: 1.0, waddle: 1.0, duckBob: 0.3, floeBob: 0.25, boatBob: 0.2, boatRoll: 0.18, snowSway: 0.12,
-    leafSway: 0.2, firefly: 0.8, starTwinkle: 0.5, auroraWave: 0.1, auroraDrift: 0.08, fishLeap: 1 / 4.6 };
+    leafSway: 0.2, firefly: 0.8, starTwinkle: 0.5, auroraWave: 0.1, auroraDrift: 0.08, fishLeap: 1 / 4.6, driftSway: 0.2, driftSwayZ: 0.16 };
   var CAPS = { birdFlap: 'birdFlap', gullFlap: 'birdFlap', parrotFlap: 'birdFlap', butterflyFlap: 'birdFlap', monkeyScratch: 'critterFlap',
-    squirrelTail: 'critterFlap', waddle: 'critterFlap', firefly: 'firefly', starTwinkle: 'starTwinkle', auroraWave: 'auroraDrift', auroraDrift: 'auroraDrift' };
+    squirrelTail: 'critterFlap', waddle: 'critterFlap', firefly: 'firefly', starTwinkle: 'starTwinkle', auroraWave: 'auroraDrift', auroraDrift: 'auroraDrift',
+    driftSway: 'flagFlutter', driftSwayZ: 'flagFlutter' };
+  /* ISLAND ACTIVITIES v1 (IA-4): the day's weather and the season's looks, from the date (SLIslandDays; the
+     same for every sibling). breeze: a breezy day's cloud drift ×; starBoost: a starry night's extra star
+     cubes (× the tier's); butterflies: Home's extra in summer [LOW, MID, HIGH] (before the 'life' step);
+     drift: the spring blossom / autumn leaves over a visited land [LOW, MID, HIGH] (the 2D overlay's 12 on MID, under the snow budget;
+     the 'particles' step halves it); fall: u/s; driftTop: u above the island top the drift starts (over
+     its 2.9 u items); tokens: the drift's colours (the jungle's own leaves take them too). */
+  var WEATHER = { kinds: ['sunny', 'breezy', 'starry', 'snow'], seasons: ['spring', 'summer', 'autumn', 'winter'],
+    breeze: 1.8, starBoost: 0.5, butterflies: [0, 2, 2], drift: [0, 12, 16], fall: 0.25, driftTop: 3.4,
+    tokens: { blossom: ['PX Candy Pink', 'Blossom Light', 'Blossom'], autumn: ['PX Tree Autumn', 'PX Squirrel Rust', 'PX Banana'] } };
   /* lift: Showtime's light is about a quarter of the day's and twice as blue on a top face, so the cloud
      colours are divided by it (× lift · k² per channel) and the clouds read as sky-world gives them */
   var CLOUD = { cube: 0.5, wrap: 45, fade: 4, bob: 0.12, tick: 1 / 15, steps: 8, lift: [2.4, 2.3, 0.7], AURORA: 26,
@@ -120,7 +153,8 @@
      against SLIsles3D.terrain(isle).scenery by the tests: the jungle's rim-tree crowns, the pier's
      lamp posts, the treetop's rope lines and east oak, the castle's meadow edge, the igloo's row */
   var LAND = {
-    home: { boat: [8.6, -1, 4.4, 0.6], fishA: 2.05, flies: [[-3.4, 0.95, 4.95], [4.1, 0.95, 4.95]] },
+    /* flies: the butterflies' spots on the front beach (the last two are summer's, IA-4) */
+    home: { boat: [8.6, -1, 4.4, 0.6], fishA: 2.05, flies: [[-3.4, 0.95, 4.95], [4.1, 0.95, 4.95], [0.4, 0.95, 4.95], [-6.4, 0.95, 4.9]] },
     pier: { wheel: [-2.5, 5.6, -4], posts: [[-6.25, 1.375, 1.25], [-2.25, 1.375, 1.25], [2.25, 1.375, 1.25]], fishA: 2.7 },
     jungle: { trees: [[-4.25, 3, -2.25], [-1.75, 3.5, -4.75], [2.25, 3, -4.75], [-4.25, 2.5, 1.75]], canopy: [-0.5, 4.4, -2], fishA: 1.2, padA: 2.25,
               glow: [[-0.5, 1.7, -2, 1.6], [-6.4, 0.6, 1.6, 1.1], [-4.2, 0.6, -4.9, 1.1]] },
@@ -186,18 +220,65 @@
   function tierOf(t) { var u = typeof t === 'string' ? t.toUpperCase() : ''; return TIER_I[u] != null ? u : null; }
   function scaled(n, s, keep) { if (!(s > 0) || s >= 1) return n; var m = Math.floor(n * s + 1e-9); return keep && n > 0 ? Math.max(1, m) : m; }
 
-  /* counts(tier, {lifeScale, particleScale}, budget?) → every number drawn: the world's clouds,
-     balloons, birds and star cubes, and per island its creatures and sparks */
-  function counts(tier, q, b) {
+  /* the kind a host's weather names: o.kind, else o.weather as the kind itself or as SLIslandDays.today()'s
+     {kind, next, key, nextKey} (so the plan's islandView().sky = {weather, season, looks}, {kind, season} and
+     today() itself all work) → the string given, or undefined */
+  function kindOf(o) {
+    if (typeof o.kind === 'string') return o.kind;
+    var w = o.weather;
+    return typeof w === 'string' ? w : w && typeof w === 'object' && typeof w.kind === 'string' ? w.kind : undefined;
+  }
+  /* the host's weather ({kind, season, looks} or {weather, season, looks}) → {kind, season} (an unknown or
+     missing kind is 'sunny', an unknown season none) | null (no weather: null, not an object, or looks false —
+     the Season looks switch) */
+  function weatherOf(o) {
+    if (!o || typeof o !== 'object' || o.looks === false) return null;
+    var kind = kindOf(o);
+    return { kind: WEATHER.kinds.indexOf(kind) >= 0 ? kind : 'sunny', season: WEATHER.seasons.indexOf(o.season) >= 0 ? o.season : null };
+  }
+  /* what a host's weather has that is not drawn (a QA warning, never thrown): '' when it is all understood. A
+     weather of null (SLIslandDays.today() with no day) or no season is fine; a kind or season this sky does not
+     know, or an object with neither kind nor weather (a likely shape slip), is not. */
+  function weatherSlip(o) {
+    if (!o || typeof o !== 'object' || o.looks === false) return '';
+    var kind = kindOf(o), out = [];
+    var bad = kind !== undefined ? WEATHER.kinds.indexOf(kind) < 0 : o.kind != null || o.weather != null || (!('kind' in o) && !('weather' in o));
+    if (bad) out.push('kind ' + (kind !== undefined ? kind : typeof o.kind !== 'undefined' ? String(o.kind) : 'missing') + ' (drawn as sunny)');
+    if (o.season != null && WEATHER.seasons.indexOf(o.season) < 0) out.push('season ' + String(o.season) + ' (no season looks)');
+    return out.join(', ');
+  }
+  function wxSig(w) { return w ? w.kind + '|' + (w.season || '') : ''; }
+  /* weatherLooks(tier, weather, {particleScale}, budget?) → what the weather adds at a tier: snow (sparks over a
+     visited land on a snow day; the ice snows anyway), drift (blossom / leaves over a visited land other than
+     the ice and the jungle), tone ('blossom' | 'autumn' | null: the drift's and the jungle leaves' colours),
+     butterflies (Home's extra, before the 'life' step), breeze (the clouds' drift ×), stars (extra star cubes
+     at Showtime). LOW: every number 0 and breeze 1 (its clouds never move). */
+  function weatherLooks(tier, w, q, b) {
+    tier = tierOf(tier) || 'MID'; q = q || {}; w = weatherOf(w);
+    var ti = TIER_I[tier], ps = q.particleScale, kind = w ? w.kind : 'sunny', season = w ? w.season : null;
+    function bud(key) { return b && typeof b[key] === 'number' ? b[key] : BUDGET[tier][key]; }
+    var tone = season === 'spring' ? 'blossom' : season === 'autumn' ? 'autumn' : null;
+    return { tier: tier, kind: kind, season: season, tone: tone,
+      snow: kind === 'snow' ? scaled(bud('snowCubes'), ps) : 0, drift: tone ? scaled(WEATHER.drift[ti], ps) : 0,
+      butterflies: season === 'summer' ? WEATHER.butterflies[ti] : 0, breeze: kind === 'breezy' && tier !== 'LOW' ? WEATHER.breeze : 1,
+      stars: kind === 'starry' ? Math.floor(scaled(bud('starCubes'), ps) * WEATHER.starBoost) : 0 };
+  }
+
+  /* counts(tier, {lifeScale, particleScale}, budget?, weather?) → every number drawn: the world's clouds,
+     balloons, birds and star cubes, and per island its creatures and sparks (weather: Home's summer
+     butterflies join its own; .weather = weatherLooks) */
+  function counts(tier, q, b, w) {
     tier = tierOf(tier) || 'MID'; q = q || {};
     var B = {}, k, ti = TIER_I[tier], ls = q.lifeScale, ps = q.particleScale;
     for (k in BUDGET[tier]) B[k] = b && typeof b[k] === 'number' ? b[k] : BUDGET[tier][k];
+    var W = weatherLooks(tier, w, q, B);
     var out = { tier: tier, clouds: scaled(B.clouds, ls, true), balloons: scaled(B.balloons, ls, true), birds: scaled(B.skyBirds, ls), stars: scaled(B.starCubes, ps),
-      critters: 0, budget: B.critters, isles: {} };
+      critters: 0, budget: B.critters, isles: {}, weather: W };
     ISLES.forEach(function (isle) {
       var A = AMBIENT[isle], c = {};
       Object.keys(A).forEach(function (kind) {
         var n = typeof A[kind] === 'string' ? B[A[kind]] : A[kind][ti];
+        if (isle === 'home' && kind === 'butterfly') n += W.butterflies;
         c[kind] = KEEP[kind] ? n : scaled(n, SPARKS[kind] ? ps : ls);
         if (CRITTERS.indexOf(kind) >= 0) out.critters += c[kind];
       });
@@ -293,9 +374,10 @@
   /* star i's centre (world) and its cells' world offsets: x along the island, y up the tilted plane */
   function memorySpot(i) { var F = grid().V3.frame('home'), s = MEMORY.spots[i % MEMORY.spots.length]; return [F.cx + s[0], F.cy + s[1], F.cz + s[2]]; }
   function memoryUp() { var a = MEMORY.tilt * Math.PI / 180; return [0, Math.cos(a), -Math.sin(a)]; }
-  /* a cloud's centre at time t → out {x, y, z, e (its scale: 0 at the wrap)} */
-  function cloudAt(l, t, out) {
-    out.x = wrapX(l.x0 + l.v * t); out.y = l.y + CLOUD.bob * Math.sin(TAU * RATES.cloudBob * t + l.ph); out.z = l.z;
+  /* a cloud's centre at time t → out {x, y, z, e (its scale: 0 at the wrap)}; tx: the drift's own clock
+     (a breezy day runs it faster, IA-4), t when left out — the bob always follows t */
+  function cloudAt(l, t, out, tx) {
+    out.x = wrapX(l.x0 + l.v * (tx == null ? t : tx)); out.y = l.y + CLOUD.bob * Math.sin(TAU * RATES.cloudBob * t + l.ph); out.z = l.z;
     out.e = clamp01((CLOUD.wrap - Math.abs(out.x)) / CLOUD.fade);
     return out;
   }
@@ -620,10 +702,12 @@
 
     var group = new T.Group();
     group.name = 'skylife';
-    var st = { visit: 'home', k: 0, edit: false, reduced: !!opts.reduced, disposed: false, clock: 0, cloudT: 0, cloudAcc: 1, open: { home: 1 }, far: {},
-      act: {}, actWas: {}, occ: {}, dirty: true, busy: false, writes: 0 };
+    var st = { visit: 'home', k: 0, edit: false, reduced: !!opts.reduced, disposed: false, clock: 0, cloudT: 0, cloudX: 0, cloudAcc: 1, open: { home: 1 }, far: {},
+      act: {}, actWas: {}, occ: {}, dirty: true, busy: false, writes: 0, dropped: 0, wx: weatherOf(opts.weather) };
+    if (weatherSlip(opts.weather)) warn('create: weather ' + weatherSlip(opts.weather));
+    st.wxSig = wxSig(st.wx);
     ISLES.forEach(function (i) { st.act[i] = 0; });
-    var C0 = counts(tier, quality, budget), frames = {};
+    var C0 = counts(tier, quality, budget, st.wx), frames = {};
     ISLES.forEach(function (i) { frames[i] = G.V3.frame(i); });
     function local(isle, v) { var F = frames[isle]; return [F.cx + v[0], F.cy + v[1], F.cz + v[2]]; }
 
@@ -638,7 +722,7 @@
       }
       clouds.clear();
       lanes.forEach(function (l) { l.idx = new Int32Array(l.cubes.length); for (var q = 0; q < l.cubes.length; q++) l.idx[q] = clouds.alloc(); });
-      cloudK = -1; tintClouds(); writeClouds(st.cloudT);
+      cloudK = -1; tintClouds(); writeClouds(st.cloudT, st.cloudX);
     }
     function mixTok(name, k, out) {
       var lo = k <= 0.5, f = lo ? k * 2 : k * 2 - 1, a = rgb('PX ' + (lo ? 'Day' : 'Sunset') + ' Cloud ' + name), b = rgb('PX ' + (lo ? 'Sunset' : 'Night') + ' Cloud ' + name);
@@ -653,9 +737,9 @@
       for (var l = 0; l < lanes.length; l++) for (var q = 0; q < lanes[l].cubes.length; q++) clouds.tint(lanes[l].idx[q], lanes[l].cubes[q][1] ? _top : _base);
       clouds.commit();
     }
-    function writeClouds(t) {
+    function writeClouds(t, tx) {
       for (var l = 0; l < lanes.length; l++) {
-        var ln = lanes[l], c = cloudAt(ln, t, _c), h = CLOUD.cube * c.e;
+        var ln = lanes[l], c = cloudAt(ln, t, _c, tx), h = CLOUD.cube * c.e;
         for (var q = 0; q < ln.cubes.length; q++) { var cb = ln.cubes[q]; clouds.set(ln.idx[q], c.x + cb[0] * h, c.y + cb[1] * h, c.z + cb[2] * h, c.e); }
       }
       clouds.commit();
@@ -684,7 +768,7 @@
     function balloonOk(n) { return circuitClear(BALLOON.ys[n] - BALLOON.bob - 0.05, BALLOON.ys[n] + BALLOON.v[n] * BALLOON.h + BALLOON.bob + 0.05, BALLOON.v[n] * 4 + 0.1); }
     /* the actors for the current counts and unlocked lands */
     function specs() {
-      var out = [], n, i, oks = {};
+      var out = [], n, i, oks = {}, extraFlies = null, baseFlies = scaled(AMBIENT.home.butterfly[TIER_I[tier]], quality.lifeScale);
       for (n = 0; n < C0.balloons && n < 3; n++) out.push({ kind: 'balloon', isle: null, key: 'balloon' + n, n: n, y: BALLOON.ys[n], s0: circuit().len * n / Math.max(1, C0.balloons) + 30,
         ph: hash(n, 1, 41) * TAU, ok: balloonOk(n) });
       flockSizes(C0.birds).forEach(function (size, fi) {
@@ -699,7 +783,9 @@
         function add(kind, o, key, extra) { var a = { kind: kind, isle: isle, critter: o, key: key, ph: hash(out.length, ISLES.indexOf(isle), 44) }; for (var k in extra) a[k] = extra[k]; out.push(a); return a; }
         if (isle === 'home') {
           if (c.boat) add('boat', null, 'boat', { at: local('home', [D.boat[0] - F.cx, D.boat[1], D.boat[2] - F.cz]), yaw0: D.boat[3] });
-          for (i = 0; i < c.butterfly; i++) add('butterfly', null, 'butterfly' + i, { at: local(isle, D.flies[i % 2]) });
+          /* summer's extra butterflies go last (below), so nobody else's phase moves when the season changes */
+          for (i = 0; i < Math.min(c.butterfly, baseFlies); i++) add('butterfly', null, 'butterfly' + (i % 2), { at: local(isle, D.flies[i % D.flies.length]) });
+          extraFlies = function () { for (var j = baseFlies; j < c.butterfly; j++) add('butterfly', null, 'butterfly' + (j % 2), { at: local('home', D.flies[j % D.flies.length]) }); };
         } else if (isle === 'pier') {
           for (i = 0; i < c.gull; i++) add('gull', {}, 'gull', { wheel: local(isle, D.wheel), post: local(isle, D.posts[i % 3]), ph: i / Math.max(1, c.gull) });
         } else if (isle === 'jungle') {
@@ -734,8 +820,11 @@
           if (sp) add('fish', null, 'fish:' + isle, { at: [sp.x, sp.y, sp.z], tx: sp.tx, tz: sp.tz, sx: sp.x - sp.tx * 0.6, sz: sp.z - sp.tz * 0.6, ex: sp.x + sp.tx * 0.6, ez: sp.z + sp.tz * 0.6, ph: 0 });
         }
       });
+      if (extraFlies) extraFlies();
       return out;
     }
+    /* a stable name for an actor across rebuilds (kind, island, model and its turn among its twins) */
+    function actorId(a, seen) { var base = a.kind + '|' + (a.isle || '') + '|' + a.key + '#', n = 0; while (seen[base + n] != null) n++; return base + n; }
     function partsOf(a) {
       switch (a.kind) {
         case 'balloon': return modelParts('balloon' + a.n, function () { return balloonVoxels(a.n); });
@@ -749,8 +838,11 @@
         default: return critterParts(a.kind, a.critter, 'critter:' + a.key);
       }
     }
-    function buildLife() {
-      var list = specs(), nv = 0, nb = 0;
+    /* keep: the creatures already out stay as they are (a weather rebuild mid-visit: only the new ones fade in) */
+    function buildLife(keep) {
+      var list = specs(), nv = 0, nb = 0, was = {};
+      if (keep) actors.forEach(function (a) { var id = actorId(a, was); was[id] = a.vis; });
+      var ids = {};
       actors = [];
       list.forEach(function (a) {
         var src = partsOf(a);
@@ -766,7 +858,9 @@
         });
         a.seen = seen;
         a.P = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, s: 1, a0: 0, a1: 0, a2: 0, ok: 1 };
-        a.vis = 0;
+        var id = actorId(a, ids);
+        ids[id] = 1;
+        a.vis = keep && typeof was[id] === 'number' ? was[id] : 0;
         actors.push(a);
       });
       var Pa = new Float32Array(nv * 3), Na = new Float32Array(nv * 3), Ca = new Float32Array(nv * 3), Ua = new Float32Array(nv * 3), SI = new Uint16Array(nv * 4), SW = new Float32Array(nv * 4), o = 0;
@@ -889,9 +983,12 @@
     /* ---------------- sparks: stars, snow, fireflies, leaves, aurora, splash, wake ---------------- */
     var sparkCap = 0;
     (function () {
+      /* room for the most any weather adds (IA-4: a starry night's stars; a snow day's snow and a season's drift
+         over a land — even both at once, should a host ever send that) */
       var I = C0.isles, aur = tier === 'LOW' ? 0 : CLOUD.AURORA * (tier === 'HIGH' ? 3 : 2);
-      sparkCap = C0.stars + Math.max(I.ice.snow + aur + 12, I.jungle.fireflies + I.jungle.leaves + 12, 20);
-      if (!C0.stars && !I.ice.snow && !I.jungle.fireflies && !I.jungle.leaves && !I.home.fish) sparkCap = 0;
+      var W = weatherLooks(tier, { kind: 'starry', season: 'spring' }, quality, budget), wSnow = weatherLooks(tier, { kind: 'snow' }, quality, budget).snow;
+      sparkCap = C0.stars + W.stars + Math.max(I.ice.snow + aur + 12, I.jungle.fireflies + I.jungle.leaves + 12 + wSnow, 20 + wSnow + W.drift);
+      if (!C0.stars && !I.ice.snow && !I.jungle.fireflies && !I.jungle.leaves && !I.home.fish && !wSnow && !W.drift) sparkCap = 0;
     }());
     var MEM_CELLS = memoryCells(), MEM_CUBES = MEMORY.max * MEM_CELLS.length, mem = [], memSig = '', SD = starDef();
     /* the glow's drift (held to the design's slow breath whatever the table says: ≤ 0.5 Hz, ≤ ±20 %) */
@@ -903,12 +1000,20 @@
       sparks.mesh.userData.kind = 'sparks'; sparks.mesh.raycast = noPick; group.add(sparks.mesh);
     }
     if (sparkCap > 0) makeSparks(sparkCap);
-    function spark(kind, extra) { var r = { kind: kind, k: sparks.alloc(), i: sp.length }; for (var key in extra) r[key] = extra[key]; sp.push(r); return r; }
+    function spark(kind, extra) {
+      var k = sparks.alloc();
+      /* a full pool draws what it has (never a bad slot), but says so: info().dropped counts every spark left out
+         since create (0 whenever the pool is sized right: the tests hold every tier, island, weather and Showtime to it) */
+      if (k < 0) { st.dropped++; warn('the sparks pool is full: ' + kind + ' left out'); return null; }
+      var r = { kind: kind, k: k, i: sp.length };
+      for (var key in extra) r[key] = extra[key];
+      sp.push(r); return r;
+    }
     function assignSparks() {
       if (!sparks) return;
       sparks.clear(); sp = []; spStep = -1;
-      var C = counts(tier, quality, budget), isle = st.visit, c = C.isles[isle], F = frames[isle], night = st.k > 0.5, calm = st.edit || st.reduced, i, D = LAND[isle];
-      if (night) for (i = 0; i < C.stars; i++) {
+      var C = counts(tier, quality, budget, st.wx), W = C.weather, isle = st.visit, c = C.isles[isle], F = frames[isle], night = st.k > 0.5, calm = st.edit || st.reduced, i, D = LAND[isle];
+      if (night) for (i = 0; i < C.stars + W.stars; i++) {             /* a starry night (IA-4): + WEATHER.starBoost of them */
         var az = TAU * hash(i, 1, 11), el = (-62 + 66 * hash(i, 2, 11)) * Math.PI / 180, r = 95 + 25 * hash(i, 3, 11);
         spark('star', { x: 3 + r * Math.cos(el) * Math.cos(az), y: -12 + r * Math.sin(el), z: -10 + r * Math.cos(el) * Math.sin(az), s: 0.16 + 0.16 * hash(i, 4, 11),
           col: rgb(['PX Skylife Star', 'PX Glint', 'PX Aurora Sky', 'PX Bulb Warm'][i % 4]) });
@@ -934,7 +1039,17 @@
       }
       if (isle === 'jungle' && !calm) for (i = 0; i < c.leaves; i++) {
         var src = i % 3 ? local('jungle', D.trees[i % 4]) : local('jungle', D.canopy);
-        spark('leaf', { bx: src[0], bz: src[2], top: src[1] + 0.2, H: src[1] + 0.2 - F.cy, ph: hash(i, 8, 11), col: rgb(['PX Jungle Canopy', 'PX Jungle Canopy Light', 'PX Tree Autumn'][i % 3]) });
+        spark('leaf', { bx: src[0], bz: src[2], top: src[1] + 0.2, H: src[1] + 0.2 - F.cy, ph: hash(i, 8, 11),
+          col: rgb((W.tone ? WEATHER.tokens[W.tone] : ['PX Jungle Canopy', 'PX Jungle Canopy Light', 'PX Tree Autumn'])[i % 3]) });     /* spring blossom / autumn leaves (IA-4) */
+      }
+      /* the day's weather over a visited land (IA-4): a snow day's snow (the ice always snows), the season's blossom or
+         leaves drifting down over the land (the jungle's own leaves took the colour above) */
+      if (isle !== 'ice' && !calm) {
+        var B = F.bounds, top = B.yTop + WEATHER.driftTop;
+        for (i = 0; i < W.snow; i++) spark('snow', { x: B.x0 - 0.5 + (B.x1 - B.x0 + 1) * hash(i, 5, 31), z: B.z0 - 0.5 + (B.z1 - B.z0 + 1) * hash(i, 6, 31),
+          ph: hash(i, 7, 31), col: rgb(i % 3 ? 'PX Ice Snow' : 'PX Ice Snow Shade'), top: F.cy + 6, H: 5.92 });
+        if (isle !== 'jungle') for (i = 0; i < W.drift; i++) spark('drift', { bx: (B.x0 + B.x1) / 2, bz: (B.z0 + B.z1) / 2, sx: (B.x1 - B.x0) / 2, sz: (B.z1 - B.z0) / 2,
+          top: top, H: WEATHER.driftTop - 0.05, ph: hash(i, 8, 31), col: rgb(WEATHER.tokens[W.tone][i % 3]) });
       }
       if (isle === 'jungle' && night) for (i = 0; i < c.fireflies; i++) {
         var gv = D.glow[i % 3];
@@ -977,6 +1092,17 @@
             if (force) tint(r, lit);
             _s3[0] = 0.12; _s3[1] = 0.035; _s3[2] = 0.12;
             sparks.set(r.k, r.bx + (hash(r.i, cyc, 21) - 0.5) * 2.2 + 0.3 * Math.sin(TAU * RATES.leafSway * t + r.ph * 6), r.top - dy, r.bz + (hash(r.i, cyc, 22) - 0.5) * 2.2, _s3); moved = true;
+            break;
+          }
+          case 'drift': {
+            /* blossom or a leaf (IA-4): falls at WEATHER.fall u/s, swaying sideways at RATES.driftSway and to and fro at
+               RATES.driftSwayZ; each fall starts over a fresh spot of the land (a hash of its turn, never chance) */
+            var df = WEATHER.fall * t + r.ph * r.H, dc = Math.floor(df / r.H), dd = df - dc * r.H;
+            if (force) tint(r, lit);
+            _s3[0] = 0.15; _s3[1] = 0.05; _s3[2] = 0.15;                    /* a petal or leaf a touch over the jungle's: it reads from the island's view */
+            sparks.set(r.k, r.bx + (hash(r.i, dc, 23) - 0.5) * 2 * r.sx + 0.3 * Math.sin(TAU * RATES.driftSway * t + r.ph * 6), r.top - dd,
+              r.bz + (hash(r.i, dc, 24) - 0.5) * 2 * r.sz + 0.2 * Math.cos(TAU * RATES.driftSwayZ * t + r.ph * 4), _s3);
+            moved = true;
             break;
           }
           case 'firefly':
@@ -1047,8 +1173,8 @@
         if (k !== goal) { st.act[isle] = goal > k ? Math.min(goal, k + dt / ACT_SEC) : Math.max(goal, k - dt / ACT_SEC); busy = true; }
       }
       if (!low && clouds && lanes.length) {
-        st.cloudT += dt; st.cloudAcc += dt;
-        if (st.cloudAcc >= CLOUD.tick) { st.cloudAcc = 0; writeClouds(st.cloudT); }
+        st.cloudT += dt; st.cloudX += dt * C0.weather.breeze; st.cloudAcc += dt;     /* a breezy day: the drift runs faster (IA-4) */
+        if (st.cloudAcc >= CLOUD.tick) { st.cloudAcc = 0; writeClouds(st.cloudT, st.cloudX); }
         busy = true;
       }
       for (i = 0; i < actors.length; i++) {
@@ -1091,7 +1217,7 @@
       on = !!on;
       if (on === st.reduced) return;
       st.reduced = on; settleAct(); assignSparks(); st.dirty = true;
-      if (on) { writeClouds(st.cloudT); writeAll(st.clock, true); }
+      if (on) { writeClouds(st.cloudT, st.cloudX); writeAll(st.clock, true); }
     }
     function setIsles(unlocked) {
       if (st.disposed) return;
@@ -1119,6 +1245,25 @@
       assignSparks(); st.dirty = true;
       return mem.length;
     }
+    /* ISLAND ACTIVITIES v1 (IA-4): the day's weather and the season's looks ({kind, season, looks} | null; see the
+       header). The light, the backdrop and the exposure never change; Home's summer butterflies rebuild the life
+       mesh with every creature already out kept as it is. → drawsWeather() */
+    function setWeather(o) {
+      if (st.disposed) return false;
+      var slip = weatherSlip(o);
+      if (slip) warn('setWeather: ' + slip);
+      var w = weatherOf(o), sig = wxSig(w);
+      if (sig === st.wxSig) return drawsWeather();
+      var flies = C0.isles.home.butterfly;
+      st.wx = w; st.wxSig = sig; C0 = counts(tier, quality, budget, w);
+      if (C0.isles.home.butterfly !== flies) { buildLife(true); writeAll(st.clock, st.reduced); }      /* posed at once: no empty frame */
+      assignSparks(); st.dirty = true;
+      if (st.reduced) writeAll(st.clock, true);
+      return drawsWeather();
+    }
+    /* true: this sky draws the weather itself (MID / HIGH, with motion); false: LOW or reduced motion, where the
+       host's still overlay says it instead */
+    function drawsWeather() { return !st.disposed && !low && !st.reduced; }
     /* the stars drawn now (night only): [{id, name, x, y, z, r}] at their centres, for the stage's taps */
     function petStars() {
       var out = [];
@@ -1130,7 +1275,7 @@
       var ls = q.lifeScale > 0 ? q.lifeScale : quality.lifeScale, ps = q.particleScale > 0 ? q.particleScale : quality.particleScale;
       if (ls === quality.lifeScale && ps === quality.particleScale) return;
       var lifeChanged = ls !== quality.lifeScale;
-      quality.lifeScale = ls; quality.particleScale = ps; C0 = counts(tier, quality, budget);
+      quality.lifeScale = ls; quality.particleScale = ps; C0 = counts(tier, quality, budget, st.wx);
       if (lifeChanged) { buildClouds(); buildLife(); }
       assignSparks(); st.dirty = true;
     }
@@ -1150,7 +1295,11 @@
         clouds: { n: lanes.length, cubes: lanes.reduce(function (n, l) { return n + l.cubes.length; }, 0), moving: !low && !st.reduced },
         balloons: actors.filter(function (a) { return a.kind === 'balloon'; }).length, birds: actors.filter(function (a) { return a.kind === 'bird'; }).length,
         critters: per, sparks: kinds, bones: skel ? skel.bones.length : 0, lifeScale: quality.lifeScale, particleScale: quality.particleScale, far: Object.keys(st.far).filter(function (i) { return st.far[i]; }),
-        memory: mem.length };
+        memory: mem.length, weather: weatherInfo(), dropped: st.dropped };
+    }
+    function weatherInfo() {
+      var W = C0.weather;
+      return { kind: W.kind, season: W.season, tone: W.tone, snow: W.snow, drift: W.drift, butterflies: C0.isles.home.butterfly, breeze: W.breeze, stars: W.stars, drawn: drawsWeather() };
     }
     function dispose() {
       if (st.disposed) return;
@@ -1175,6 +1324,7 @@
       VERSION: VERSION, group: group, tier: tier,
       update: update, setIsles: setIsles, setVisit: setVisit, setEdit: setEdit, setShow: setShow, setReduced: setReduced, setQuality: setQuality, setLayout: setLayout,
       setPetStars: setPetStars, petStars: petStars,
+      setWeather: setWeather, drawsWeather: drawsWeather, weather: weatherInfo,
       info: info, dispose: dispose,
       /* for the tests and the lab: the actors' live poses and the lanes (read only) */
       actors: function () { return actors; }, lanes: function () { return lanes; }, sparks: function () { return sp.slice(0, spN); }
@@ -1186,10 +1336,12 @@
 
   return {
     VERSION: VERSION, ISLES: ISLES, BUDGET: BUDGET, AMBIENT: AMBIENT, CRITTERS: CRITTERS, RATES: RATES, CAPS: CAPS, CLOUD: CLOUD, CIRCUIT: CIRCUIT, YARD: YARD,
-    BIRD: BIRD, BALLOON: BALLOON, LAND: LAND, TOKENS: TOKENS, FAR: FAR, NEAR: NEAR, EDIT_KEEP: EDIT_KEEP, MEMORY: MEMORY,
+    BIRD: BIRD, BALLOON: BALLOON, LAND: LAND, TOKENS: TOKENS, FAR: FAR, NEAR: NEAR, EDIT_KEEP: EDIT_KEEP, MEMORY: MEMORY, WEATHER: WEATHER,
     create: create,
     /* the memory stars (P3.3) */
     memoryCells: memoryCells, memoryStars: memoryStars, memorySpot: memorySpot, memoryUp: memoryUp,
+    /* the weather and the season's looks (IA-4) */
+    weatherOf: weatherOf, weatherSlip: weatherSlip, weatherLooks: weatherLooks,
     /* pure helpers (Node-testable) */
     counts: counts, flockSizes: flockSizes, cloudCubes: cloudCubes, cloudLanes: cloudLanes, cloudAt: cloudAt, clearBox: clearBox, loopPath: loopPath, pathAt: pathAt,
     circuit: circuit, circuitClear: circuitClear, yardAt: yardAt, yardClear: yardClear, waterSpot: waterSpot, flapAt: flapAt, livePose: livePose, restPose: restPose,

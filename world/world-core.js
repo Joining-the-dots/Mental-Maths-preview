@@ -1850,6 +1850,182 @@
   /* a pet the cap stops the child adopting now (ownCap 'total': a dead end until a place is free) */
   function petCapShut(w, it) { return !!(it && it.kind === 'pet' && CARE.ownCap !== 'home' && !petRoom(w).canAdopt); }
 
+  /* ---------------- island days and the book's finds (Island activities v1, IA-1) ----------------
+     chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §2, §4 and §5 IA-1, as James approved it (25-26 Oct
+     2026: island activities are free play; 'Island day N' is shown). The day rules themselves (who
+     visits, the weather, the show, I spy, the wishes, the stamps) are world/island-days.js
+     (SLIslandDays, pure); here are the two save blocks, their writers, their repair (N15, N15b) and
+     their merge (M3e, M3f). Both blocks are v3-only and absent until their first write: an old
+     save loads byte for byte until the first island day is counted, and an old client keeps them
+     as unknown keys (its normalize leaves them, its merge copies the newer fork whole).
+
+       w.days3  { v: 1, n, day, first, met: {charId: n}, did: {d: day, f: [flag]},
+                  goal: {id, have} | null, up: {id, n} | null, at: ISO }
+         n      island days counted: the first real My Island open on a new island day (the host's
+                careDay(), the server-anchored clock in the family's time zone) adds one. Days away
+                never count, and a day earlier than the last one counted never counts.
+         day    the last island day counted; first the first one ('Your island's first day').
+         met    on how many island days each visitor was greeted (👋 Say hello: markDid opts.met).
+         did    today's done flags, at most DAYS3.didMax of at most DAYS3.flagMax characters each:
+                hello, tour, move, show:<isle>, spy:<isle>, wish:<petId>, fetch, hide. A flag on a
+                new day starts a new list, so nothing carries over and nothing is ever 'missed'.
+         goal   🎯 My goal's balance at the first open of the last island day counted, in the
+                wallet the host passes; up the rise since the island day before it (the same goal
+                only, and only a rise: never a drop, a deadline or a streak).
+       w.finds3 { v: 1, got: {stampId: day}, tried: {itemId: 1}, done: {isle: day},
+                  pp: {petId: {isle: day}}, seen: n, at: ISO }
+         got    every stamp found, with the island day it was first found (at most FINDS3.gotMax).
+                Ids match STAMP_RE; an id this build does not know is kept (future data). A found
+                I spy clue is 'spy.<isle>.<clueId>', a record rather than a stamp (stampCount).
+         tried  the acted things the child has tried at least once (at most FINDS3.triedMax).
+         done   the book pages completed, and when: permanent.
+         pp     the pet passports: the lands each pet has visited with the child (at most
+                FINDS3.ppPets pets × FINDS3.ppIsles islands).
+         seen   how many stamps the child had when they last closed the book (the Today sign's dot).
+     Nothing here earns, spends, rolls a number or reads a clock: every writer is given the island
+     day ('YYYY-MM-DD') and the moment (ms). Every writer returns {ok: true, changed, …} or
+     {ok: false, code} and runs inside transact (the host's commit()). */
+  var DAYS3 = deepFreeze({ didMax: 24, flagMax: 32, metMax: 64 });
+  var FINDS3 = deepFreeze({ gotMax: 400, triedMax: 400, ppPets: 12, ppIsles: 8, doneMax: 32 });
+  var STAMP_RE = /^[a-z0-9_.:-]{1,48}$/;      /* a stamp id: '<isle>.<kind>', '<isle>.new.<itemId>', 'spy.<isle>.<clueId>' */
+  var FLAG_RE = /^[a-z0-9_.:-]{1,32}$/;       /* a done flag (DAYS3.flagMax) */
+  var KEY3_RE = /^[a-z0-9_]{1,48}$/;          /* an item, pet, character or island id kept in the two blocks */
+  function daysOf(w) { return w && plainObj(w.days3) ? w.days3 : null; }
+  function findsOf(w) { return w && plainObj(w.finds3) ? w.finds3 : null; }
+  function isMs(ms) { return typeof ms === 'number' && isFinite(ms); }
+  /* the stamps drawn in the book: every found id except the I spy clue records */
+  function stampCount(f) {
+    var got = f && plainObj(f.got) ? f.got : {};
+    return Object.keys(got).filter(function (id) { return id.indexOf('spy.') !== 0; }).length;
+  }
+  /* create (or repair the shape of) each block */
+  function daysEntry(w, atIso) {
+    if (daysOf(w)) { normalizeDays3(w); return w.days3; }
+    w.days3 = { v: 1, n: 0, day: null, first: null, met: {}, did: { d: null, f: [] }, goal: null, up: null, at: atIso };
+    return w.days3;
+  }
+  function findsEntry(w, atIso) {
+    if (findsOf(w)) { normalizeFinds3(w); return w.finds3; }
+    w.finds3 = { v: 1, got: {}, tried: {}, done: {}, pp: {}, seen: 0, at: atIso };
+    return w.finds3;
+  }
+  function upCopy(d) { return d && plainObj(d.up) && typeof d.up.id === 'string' && isInt(d.up.n) && d.up.n > 0 ? { id: d.up.id, n: d.up.n } : null; }
+  /* the first real My Island open on a new island day counts it (the host: inside the open's commit, beside
+     the care step, with its own due check days3.day !== careDay()). Idempotent per day; a day not after the
+     last one counted changes nothing. It also takes 🎯 My goal's snapshot in opts.wallet (the host's
+     C.walletOf()) and, the same goal still set, the rise since the last island day counted.
+     → {ok, changed, n, up: {id, n} | null} */
+  function countIslandDay(u, day, ms, opts) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    if (!isDay(day)) return { ok: false, code: 'bad_day' };
+    if (!isMs(ms)) return { ok: false, code: 'bad_time' };
+    var w = ensureWorld(u), d = daysOf(w);
+    if (d && isDay(d.day) && d.day >= day) return { ok: true, changed: false, n: posInt(d.n), up: upCopy(d) };
+    var at = nowIso(ms);
+    d = daysEntry(w, at);
+    d.n = posInt(d.n) + 1;
+    d.day = day;
+    if (!isDay(d.first) || d.first > day) d.first = day;
+    var gid = goalId(w), have = gid ? walletBalance(u, opts) : 0, prev = plainObj(d.goal) ? d.goal : null;
+    var rise = gid && prev && prev.id === gid && isInt(prev.have) ? have - prev.have : 0;
+    d.up = rise > 0 ? { id: gid, n: rise } : null;
+    d.goal = gid ? { id: gid, have: have } : null;
+    d.at = at;
+    markV3(w); touch(w, ms);
+    return { ok: true, changed: true, n: d.n, up: upCopy(d) };
+  }
+  /* today's done flag (the Today board's ✓ and the Next step card's moving on). opts.met: a visitor's
+     character id, greeted for the first time this island day: days3.met[id] + 1, only with the flag 'hello'
+     (any other flag ignores it), so a greeting is counted at most once an island day. A flag already set today, a full list, or a day before the one the flags are for changes nothing.
+     → {ok, changed} (+ full: true when the day's list is full) */
+  function markDid(u, flag, day, ms, opts) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    if (typeof flag !== 'string' || !FLAG_RE.test(flag)) return { ok: false, code: 'bad_flag' };
+    if (!isDay(day)) return { ok: false, code: 'bad_day' };
+    if (!isMs(ms)) return { ok: false, code: 'bad_time' };
+    var w = ensureWorld(u), d0 = daysOf(w), did = d0 && plainObj(d0.did) && isDay(d0.did.d) ? d0.did : null;
+    if (did && did.d > day) return { ok: true, changed: false };
+    var f0 = did && did.d === day && Array.isArray(did.f) ? did.f : null;
+    if (f0 && f0.indexOf(flag) >= 0) return { ok: true, changed: false };
+    if (f0 && f0.filter(function (x) { return typeof x === 'string' && FLAG_RE.test(x); }).length >= DAYS3.didMax) return { ok: true, changed: false, full: true };
+    var at = nowIso(ms), d = daysEntry(w, at);
+    if (!(plainObj(d.did) && d.did.d === day && Array.isArray(d.did.f))) d.did = { d: day, f: [] };
+    if (d.did.f.indexOf(flag) < 0 && d.did.f.length < DAYS3.didMax) d.did.f.push(flag);
+    var met = flag === 'hello' && opts ? opts.met : null;      /* only the day's first 'hello' counts a greeting */
+    if (typeof met === 'string' && KEY3_RE.test(met)) {
+      if (!plainObj(d.met)) d.met = {};
+      if (has(d.met, met) || Object.keys(d.met).length < DAYS3.metMax) d.met[met] = posInt(d.met[met]) + 1;
+    }
+    d.at = at;
+    markV3(w); touch(w, ms);
+    return { ok: true, changed: true };
+  }
+  /* what SLIslandDays.note() found new: {stamps: [stampId], tried: [itemId], pp: {petId: [isle]}, done: [isle]}.
+     Only what is new and fits is added (a stamp already found keeps its first day); nothing new → no block is
+     created and nothing is written. → {ok, changed, newIds: [stampId], completed: [isle]} (the pages that
+     became complete with this call: the host's celebrate()) */
+  function addFinds(u, finds, day, ms) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    if (!isDay(day)) return { ok: false, code: 'bad_day' };
+    if (!isMs(ms)) return { ok: false, code: 'bad_time' };
+    var o = plainObj(finds) ? finds : {}, w = ensureWorld(u);
+    var list = function (v) { return Array.isArray(v) ? v.filter(function (x, i, a) { return typeof x === 'string' && a.indexOf(x) === i; }) : []; };
+    var stamps = list(o.stamps).filter(function (id) { return STAMP_RE.test(id); });
+    var tried = list(o.tried).filter(function (id) { return KEY3_RE.test(id); });
+    var done = list(o.done).filter(function (k) { return KEY3_RE.test(k); });
+    var pp = [];
+    if (plainObj(o.pp)) Object.keys(o.pp).forEach(function (pid) {
+      if (!KEY3_RE.test(pid)) return;
+      var v = o.pp[pid], isles = Array.isArray(v) ? list(v) : plainObj(v) ? Object.keys(v) : [];
+      isles.forEach(function (k) { if (KEY3_RE.test(k)) pp.push([pid, k]); });
+    });
+    /* what is new, read from the block as it stands (no block is made for nothing) */
+    var f0 = findsOf(w), sub = function (k) { return f0 && plainObj(f0[k]) ? f0[k] : {}; };
+    var g0 = sub('got'), t0 = sub('tried'), d0 = sub('done'), p0 = sub('pp');
+    var fresh = stamps.some(function (id) { return !has(g0, id); }) || tried.some(function (id) { return !has(t0, id); }) ||
+      done.some(function (k) { return !has(d0, k); }) || pp.some(function (e) { return !(plainObj(p0[e[0]]) && has(p0[e[0]], e[1])); });
+    if (!fresh) return { ok: true, changed: false, newIds: [], completed: [] };
+    var at = nowIso(ms), f = findsEntry(w, at), newIds = [], completed = [], changed = false;
+    stamps.forEach(function (id) {
+      if (has(f.got, id) || Object.keys(f.got).length >= FINDS3.gotMax) return;
+      f.got[id] = day; newIds.push(id); changed = true;
+    });
+    tried.forEach(function (id) {
+      if (has(f.tried, id) || Object.keys(f.tried).length >= FINDS3.triedMax) return;
+      f.tried[id] = 1; changed = true;
+    });
+    pp.forEach(function (e) {
+      var pid = e[0], k = e[1];
+      if (!plainObj(f.pp[pid])) {
+        if (Object.keys(f.pp).length >= FINDS3.ppPets) return;
+        f.pp[pid] = {};
+      }
+      if (has(f.pp[pid], k) || Object.keys(f.pp[pid]).length >= FINDS3.ppIsles) return;
+      f.pp[pid][k] = day; changed = true;
+    });
+    done.forEach(function (k) {
+      if (has(f.done, k) || Object.keys(f.done).length >= FINDS3.doneMax) return;
+      f.done[k] = day; completed.push(k); changed = true;
+    });
+    if (!changed) return { ok: true, changed: false, newIds: [], completed: [] };
+    f.at = at;
+    markV3(w); touch(w, ms);
+    return { ok: true, changed: true, newIds: newIds, completed: completed };
+  }
+  /* the book was looked at (IA-6's commitSeen, when the book closes): seen = the stamps found so far, so the
+     Today sign's dot goes until the next new stamp. Never lowers it. → {ok, changed, seen} */
+  function seeFinds(u, ms) {
+    if (!u || typeof u !== 'object') return { ok: false, code: 'no_profile' };
+    if (!isMs(ms)) return { ok: false, code: 'bad_time' };
+    var w = ensureWorld(u), f = findsOf(w);
+    if (!f) return { ok: true, changed: false, seen: 0 };
+    var n = stampCount(f);
+    if (isInt(f.seen) && f.seen >= n) return { ok: true, changed: false, seen: f.seen };
+    f.seen = n; f.at = nowIso(ms);
+    markV3(w); touch(w, ms);
+    return { ok: true, changed: true, seen: n };
+  }
+
   /* ---------------- normalise: no impossible states survive a load ----------------
      Never touches u.points, pointsEarned, spent or a ledger row; never bumps an island's
      'at'; adds nothing to a V4.53/V4.54 save that is already normal (zero-diff load).
@@ -2104,6 +2280,88 @@
     if (changed) markV3(w);
     return changed;
   }
+  /* N15 (Island activities v1) the island-day block: its shape and its caps only. Nothing to do, and nothing
+     created, on a save without days3. Ids this build does not know (a future visitor, a future flag) are kept;
+     a value it has to create gets the epoch, so any real write wins a merge. Idempotent. */
+  function normalizeDays3(w) {
+    var d = daysOf(w);
+    if (!d) return false;
+    var changed = false;
+    var put = function (o, k, v) { if (!has(o, k) || JSON.stringify(o[k]) !== JSON.stringify(v)) { o[k] = v; changed = true; } };
+    if (!isInt(d.v) || d.v < 1) put(d, 'v', 1);
+    put(d, 'n', typeof d.n === 'number' && isFinite(d.n) && d.n > 0 ? Math.floor(d.n) : 0);
+    if (!isDay(d.day)) put(d, 'day', null);
+    if (!isDay(d.first)) put(d, 'first', isDay(d.day) ? d.day : null);
+    if (isDay(d.first) && isDay(d.day) && d.first > d.day) put(d, 'first', d.day);
+    /* met: whole counts above 0, at most metMax ids (the first ones kept) */
+    if (!plainObj(d.met)) put(d, 'met', {});
+    var metKept = 0;
+    Object.keys(d.met).forEach(function (id) {
+      var v = d.met[id], n = typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      if (!KEY3_RE.test(id) || !n || metKept >= DAYS3.metMax) { delete d.met[id]; changed = true; return; }
+      metKept++;
+      if (v !== n) { d.met[id] = n; changed = true; }
+    });
+    /* did: a day and its flags (valid, once each, at most didMax); no day, no flags */
+    var did = plainObj(d.did) ? d.did : null, dd = did && isDay(did.d) ? did.d : null;
+    var flags = dd && Array.isArray(did.f) ? did.f.filter(function (x, i, a) { return typeof x === 'string' && FLAG_RE.test(x) && a.indexOf(x) === i; }).slice(0, DAYS3.didMax) : [];
+    if (!did) put(d, 'did', { d: dd, f: flags });
+    else { put(did, 'd', dd); put(did, 'f', flags); }
+    /* goal {id, have} and up {id, n > 0}, or null */
+    var g = d.goal;
+    if (g !== null && !(plainObj(g) && typeof g.id === 'string' && g.id && isInt(g.have) && g.have >= 0)) put(d, 'goal', null);
+    var up = d.up;
+    if (up !== null && !(plainObj(up) && typeof up.id === 'string' && up.id && isInt(up.n) && up.n > 0)) put(d, 'up', null);
+    if (typeof d.at !== 'string') put(d, 'at', EPOCH);
+    if (changed) markV3(w);
+    return changed;
+  }
+  /* N15b (Island activities v1) the book's block: its shape and its caps only. Nothing to do, and nothing
+     created, on a save without finds3. A stamp id that fits STAMP_RE is kept whether or not this build knows
+     it (future data); ids that cannot be ids, and values that are not days, go. Over a cap, the earliest
+     finds stay (got: by day, then id; the others: the first ones). Idempotent. */
+  function normalizeFinds3(w) {
+    var f = findsOf(w);
+    if (!f) return false;
+    var changed = false;
+    var put = function (o, k, v) { if (!has(o, k) || JSON.stringify(o[k]) !== JSON.stringify(v)) { o[k] = v; changed = true; } };
+    var obj = function (k) { if (!plainObj(f[k])) put(f, k, {}); return f[k]; };
+    var drop = function (o, k) { delete o[k]; changed = true; };
+    if (!isInt(f.v) || f.v < 1) put(f, 'v', 1);
+    /* got: stamp ids → the day first found; over gotMax the latest finds go */
+    var got = obj('got');
+    Object.keys(got).forEach(function (id) { if (!STAMP_RE.test(id) || !isDay(got[id])) drop(got, id); });
+    var gk = Object.keys(got);
+    if (gk.length > FINDS3.gotMax) {
+      gk.sort(function (a, b) { return got[a] < got[b] ? -1 : got[a] > got[b] ? 1 : (a < b ? -1 : 1); })
+        .slice(FINDS3.gotMax).forEach(function (id) { drop(got, id); });
+    }
+    /* tried: item ids → 1, at most triedMax */
+    var tried = obj('tried');
+    var kept = 0;
+    Object.keys(tried).forEach(function (id) {
+      if (!KEY3_RE.test(id) || !tried[id] || kept >= FINDS3.triedMax) { drop(tried, id); return; }
+      kept++;
+      if (tried[id] !== 1) { tried[id] = 1; changed = true; }
+    });
+    /* done: island keys → the day the page was completed */
+    var done = obj('done');
+    kept = 0;
+    Object.keys(done).forEach(function (k) { if (!KEY3_RE.test(k) || !isDay(done[k]) || kept >= FINDS3.doneMax) drop(done, k); else kept++; });
+    /* pp: pet ids → {island key → day}, at most ppPets pets of ppIsles islands each */
+    var pp = obj('pp');
+    kept = 0;
+    Object.keys(pp).forEach(function (pid) {
+      var v = pp[pid], isles = 0;
+      if (!KEY3_RE.test(pid) || !plainObj(v) || kept >= FINDS3.ppPets) { drop(pp, pid); return; }
+      kept++;
+      Object.keys(v).forEach(function (k) { if (!KEY3_RE.test(k) || !isDay(v[k]) || isles >= FINDS3.ppIsles) drop(v, k); else isles++; });
+    });
+    put(f, 'seen', typeof f.seen === 'number' && isFinite(f.seen) && f.seen > 0 ? Math.floor(f.seen) : 0);
+    if (typeof f.at !== 'string') put(f, 'at', EPOCH);
+    if (changed) markV3(w);
+    return changed;
+  }
   function normalize(u) {
     var w = ensureWorld(u);
     var changed = false;
@@ -2286,6 +2544,9 @@
     if (normalizeCoins(w)) changed = true;
     /* N13c the coins catch up with the ⭐ learning gave since the wallet started (syncCoins; only with u.coinBase) */
     if (syncCoins(u).added) changed = true;
+    /* N15 / N15b (Island activities v1) the island-day and book blocks: their shape and caps only (nothing on a save without them) */
+    if (normalizeDays3(w)) changed = true;
+    if (normalizeFinds3(w)) changed = true;
     /* N14 the plug-in normalize hooks, in registration order (a character's w.chars repair) */
     var hooked = false;
     PLUGINS.forEach(function (p) { if (callHook(p, 'normalize', w, [w])) hooked = true; });
@@ -2438,6 +2699,62 @@
     return m;
   }
 
+  /* M3e (Island activities v1): win = the newer days3 block (a copy is returned), lose = the other one, or null.
+     n the larger; day the later and first the earlier; met the larger count per visitor; did the later day's
+     flags (the same day: both lists); goal and up from the fork whose last counted day is later (a tie: win);
+     at the newer. The caps are N15's. */
+  function mergeDays3(win, lose) {
+    var m = JSON.parse(JSON.stringify(win));
+    if (!plainObj(lose)) return m;
+    var o = JSON.parse(JSON.stringify(lose));
+    if (isInt(o.n) && !(isInt(m.n) && m.n >= o.n)) m.n = o.n;
+    if (isDay(o.day) && !(isDay(m.day) && m.day >= o.day)) { m.day = o.day; m.goal = has(o, 'goal') ? o.goal : null; m.up = has(o, 'up') ? o.up : null; }
+    if (isDay(o.first) && !(isDay(m.first) && m.first <= o.first)) m.first = o.first;
+    if (plainObj(o.met)) {
+      if (!plainObj(m.met)) m.met = {};
+      Object.keys(o.met).forEach(function (id) { var b = o.met[id]; if (isInt(b) && !(isInt(m.met[id]) && m.met[id] >= b)) m.met[id] = b; });
+    }
+    var od = plainObj(o.did) && isDay(o.did.d) ? o.did : null, md = plainObj(m.did) && isDay(m.did.d) ? m.did : null;
+    if (od && (!md || od.d > md.d)) m.did = od;
+    else if (od && od.d === md.d) {
+      if (!Array.isArray(md.f)) md.f = [];
+      (Array.isArray(od.f) ? od.f : []).forEach(function (x) { if (md.f.indexOf(x) < 0) md.f.push(x); });
+    }
+    if (typeof o.at === 'string' && !(typeof m.at === 'string' && m.at >= o.at)) m.at = o.at;
+    return m;
+  }
+  /* M3f (Island activities v1): win = the newer finds3 block (a copy is returned), lose = the other one, or null.
+     got, done and pp are the union, each find keeping the earlier day; tried the union; seen the larger; at the
+     newer. A stamp is never lost and never found later than it was. The caps are N15b's. */
+  function mergeFinds3(win, lose) {
+    var m = JSON.parse(JSON.stringify(win));
+    if (!plainObj(lose)) return m;
+    var o = JSON.parse(JSON.stringify(lose));
+    var earlier = function (mo, oo) {
+      Object.keys(oo).forEach(function (k) { var b = oo[k]; if (isDay(b) && !(isDay(mo[k]) && mo[k] <= b)) mo[k] = b; });
+    };
+    ['got', 'done'].forEach(function (k) {
+      if (!plainObj(o[k])) return;
+      if (!plainObj(m[k])) m[k] = {};
+      earlier(m[k], o[k]);
+    });
+    if (plainObj(o.pp)) {
+      if (!plainObj(m.pp)) m.pp = {};
+      Object.keys(o.pp).forEach(function (pid) {
+        if (!plainObj(o.pp[pid])) return;
+        if (!plainObj(m.pp[pid])) m.pp[pid] = {};
+        earlier(m.pp[pid], o.pp[pid]);
+      });
+    }
+    if (plainObj(o.tried)) {
+      if (!plainObj(m.tried)) m.tried = {};
+      Object.keys(o.tried).forEach(function (id) { if (o.tried[id] && !m.tried[id]) m.tried[id] = 1; });
+    }
+    if (isInt(o.seen) && !(isInt(m.seen) && m.seen >= o.seen)) m.seen = o.seen;
+    if (typeof o.at === 'string' && !(typeof m.at === 'string' && m.at >= o.at)) m.at = o.at;
+    return m;
+  }
+
   /* ---------------- merging two forks of one profile (Control Centre) ----------------
      Ledger is unioned by tx; the spendable balance becomes
      max(each side's balance + its island spend) − union island spend,
@@ -2532,6 +2849,17 @@
     /* M3d the plug-in merge hooks, in registration order (w.chars from the newer fork); base
        already holds the ledger union and owned max, and the final normalize settles the rest */
     PLUGINS.forEach(function (p) { callHook(p, 'merge', base, [nw, gw, base, baseSrc]); });
+    /* M3e / M3f (Island activities v1) the island-day and book blocks: the frame from the fork that changed it
+       last (ties: the base fork), then field by field (mergeDays3, mergeFinds3); the normalize below applies
+       the caps (N15, N15b). Two forks without them gain nothing. */
+    var at3 = function (b) { return b && typeof b.at === 'string' ? b.at : ''; };
+    [['days3', daysOf, mergeDays3], ['finds3', findsOf, mergeFinds3]].forEach(function (r) {
+      var nb = r[1](nw), gb = r[1](gw);
+      if (!nb && !gb) return;
+      var bb = baseSrc === nw ? nb : gb, ob = baseSrc === nw ? gb : nb;
+      var win = bb && !(ob && at3(ob) > at3(bb)) ? bb : ob;
+      base[r[0]] = r[2](win, win === bb ? ob : bb);
+    });
     /* M4 the newer data version of the two (only once either side is a v3 save) */
     var vN = nU.world && isInt(nU.world.v) ? nU.world.v : 0, vG = gU.world && isInt(gU.world.v) ? gU.world.v : 0;
     if (Math.max(vN, vG) >= VERSION) base.v = Math.max(vN, vG);
@@ -2665,6 +2993,10 @@
     COIN: COIN, walletOf: walletOf, coinPrice: coinPrice, priceOf: priceOf, coinPrices: coinPrices,
     coinBalance: coinBalance, walletBalance: walletBalance, earnCoins: earnCoins,
     /* F-KU5 review: the coins follow the ⭐ from u.coinBase (what is owed, and paying it) */
-    coinsDue: coinsDue, syncCoins: syncCoins
+    coinsDue: coinsDue, syncCoins: syncCoins,
+    /* Island activities v1 (IA-1): the island-day and book blocks (the day rules are SLIslandDays') */
+    DAYS3: DAYS3, FINDS3: FINDS3, STAMP_RE: STAMP_RE, FLAG_RE: FLAG_RE,
+    daysOf: daysOf, findsOf: findsOf, stampCount: stampCount,
+    countIslandDay: countIslandDay, markDid: markDid, addFinds: addFinds, seeFinds: seeFinds
   };
 }));

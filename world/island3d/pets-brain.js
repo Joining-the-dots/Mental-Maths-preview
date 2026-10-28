@@ -148,6 +148,48 @@
                   to the free square round it farthest from the pet in its way (or, stuck again, pops to
                   the nearest square clear of every pet), then idles: pets that block each other no longer
                   freeze, and settled pets keep their distance.
+
+   ISLAND ACTIVITIES v1 (IA-3; chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §2 A2 / A5, §5 IA-3). Free play: nothing
+   here earns, spends or decays, and nothing is chance (the throw spots, hide cells and walks are pure geometry).
+     fetch        fetch(id, x, z, {from: {x, y, z}}?) → the seconds until the pet has the ball | -1 (no such pet out
+                  here, a guest, travelling, eating, edit mode, a fetch already on, nowhere free to land). x, z
+                  island-local (the tap); from = the child's hand (default: the avatar's cell, FETCH.hand up). It pre-
+                  empts the way feed() does (a seat, a dance, a hide end first). p.state 'fetch', p.fetch the record
+                  actors.js draws the ball from (ballAt): the ball flies from the hand, bounces twice and rests on the
+                  free cell nearest the tap (never a blocked or reserved one; a sea tap: the beach cell nearest it, with
+                  p.fetch.splash {x, z} just off it); p.action 'fetchRun' (it watches the throw FETCH.react s, then
+                  races along a time-driven path at WALK.run × its pace and stops FETCH.stop u short of the ball),
+                  'fetchCarry' (it takes it: event 'caught', the ball in its mouth: held; it trots back to the free cell
+                  in front of the child and to one side, FETCH.side from the camera's way) and 'fetchDrop' (it drops it
+                  at the child's feet, FETCH.feet u in front of them on the camera's side, with its species' tap
+                  reaction: event 'fetched' {n, x, y, z}). A ball on a trampoline (or a v3 net, LOOK perform 'bounce')
+                  waits on the mat ('fetchWait') and the pet bounces for it through the trampoline's own perform
+                  (p.state 'perform'; it takes the ball as it lands on the mat), then carries it back. Cut short (edit
+                  mode, a layout that blocks its way, a feed, travel): event 'fetchCut', the ball drops where the pet
+                  is. Reduced motion: the end state at once (the pet at the child's feet, the ball dropped; lead 0).
+                  throwSpot(k) → {x, z}: the k-th automatic throw's spot (in front of the child, ±0.6 rad turns).
+     hide         hide(id, uid, camYaw?) → the hiding cell | -1: the free cell of the ring round item uid's footprint (its
+                  side and corner neighbours) farthest along the camera's forward direction (-sin camYaw, -cos camYaw;
+                  brain.camYaw by default; of equals the one farthest across the view: a back corner), never
+                  blocked or reserved; its spot in the cell is toward the edge of the thing's footprint as the camera
+                  sees it (at most HIDE.peek u from the cell's middle), so half of it peeks out; the pet trots there (≤ HIDE.trot s, time-driven: under the host's 2 s veil;
+                  a sparkle-free jump when it cannot run it in time, and at once under reduced motion) and crouches
+                  there facing the thing (p.state 'hide', p.action 'hideGo' then 'peek'). unhide(id) → bool: out
+                  again with its happy reaction and event 'found' (the sparkle ring). A hiding pet never idles,
+                  performs or joins a dance; the thing moved or gone, edit mode, a feed or travel end it quietly.
+     waiting      while a fetch or a hide is on, dance(true) gives 0 and the Dance Studio / Concert Stage perform
+                  gives -1 (the building plays alone): the dance break waits. perform() never takes a playing pet.
+     visitor      setVisitor({id, from: {x, z}?, instant?} | null) → the visitor's cell | -1. A visitor is a guest
+                  of the brain, never one of brain.pets: it is never fed, never performs, never the runner and
+                  never dances. It stands on visitorSpot(): the free, unreserved cell nearest the house entrance
+                  that is not a ▶ PLAY pad (a launch item's entrance row) or the cell of a bowl that is out (until
+                  the meal's end). Its cell is held (VISITOR_RES) like the avatar's dance spot, so no pet stands on
+                  it or plans through it (a walk squeezes past the other pets before it would cross the visitor,
+                  and does only when the visitor stands in the only way; the smoothed line keeps off its cell). It
+                  walks in from `from` at VISIT.speed (≤ VISIT.max u: a longer way starts that far out; event
+                  'visitor' {arrive: true} where it starts), or appears there at once (instant, reduced motion, no
+                  from). brain.visitor {id, x, y, z, yaw, cell, state 'walk' | 'stand', speed}. A layout that
+                  covers its cell moves it to the next spot (event 'visitor').
    ================================================================ */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -260,6 +302,25 @@
      steps back (giveWay), so pets that block each other never freeze */
   var GIVE_WAY = 3;
   var TAPS = ['hop', 'rear', 'clap'];
+  /* ISLAND ACTIVITIES v1 (IA-3). Fetch: the throw's flight (s: 0.45 + perU × its length, clamped) and arc (the apex
+     over the straight line, u), the child's hand height (u), the two bounces ([s, u]), how far short of the ball the
+     pet stops (u), the moment it takes it (s), its race (u/s: WALK.run × pace, clamped) and the trot back (WALK.run ×
+     carryK × pace, clamped), the drop spot (front u from the child, turned side rad from the camera's way so neither
+     hides the other or the ball), where the ball lands (feet u in front of the child, toward the camera), the drop (s),
+     the longest race
+     before a sparkle zip (s), the ball's radius (u), the sea throw's splash ring (u off the beach cell), the reduced
+     moment (s), and the automatic throws (distance u, turns rad) */
+  var FETCH = { react: 0.25, flight: [0.5, 1.0], perU: 0.07, arc: [0.6, 1.6], arcPerU: 0.1, hand: 0.75,
+                bounces: [[0.3, 0.26], [0.18, 0.09]], stop: 0.3, pick: 0.25, run: [1.2, 3], carry: [1.0, 2.2], carryK: 0.7,
+                front: 1.0, side: 0.9, feet: 0.45, drop: 0.6, maxRun: 4, ballR: 0.09, splash: 0.55, edge: 0.35, still: 1.2,
+                auto: [1.6, 1.9], autoTurn: [0, 0.6, -0.6] };
+  /* hide and seek: the trot to the hiding cell (s, ≤ the host's 2 s veil), its shortest, its pace (× the pet's walk), and
+     how far at most it sits to one side of the cell's middle (u): across the camera's view, toward the edge of the
+     thing's footprint as the camera sees it, so half of it (its ears, its tail) peeks out past that edge */
+  var HIDE = { trot: 1.8, minTrot: 0.4, pace: 1.6, peek: 0.42 };
+  /* the visitor: its walk in (u/s) and the longest walk (u) */
+  var VISIT = { speed: 1.0, max: 4.5 };
+  var VISITOR_RES = 998;                     /* the reservation value of the visitor's cell */
   var POUNCE_DIST = 0.35;
   /* idle choice weights (base); species tweaks below. beatNod only while music plays. */
   var WEIGHTS = { wander: 4, sit: 1.2, sniff: 1.1, look: 1, lookAvatar: 1, lean: 0.8, lookBack: 0.7, beatNod: 1.1, nap: 0.35, play: 1, visit: 1.3, bench: 0.8 };
@@ -758,6 +819,28 @@
     return out;
   }
 
+  /* ISLAND ACTIVITIES v1 (IA-3): the fetch ball at time t (island-local) from a fetch record f (pet.fetch): the
+     child's hand h*, the first touch l*, the bounce m*, the rest r*, the drop d*; times t0 · land1 · mid · rest;
+     arc / b1 / b2 the apex heights; held = in the pet's mouth (actors put it there), dropped = at the child's feet
+     → out {x, y, z, phase 'hand' | 'fly' | 'bounce' | 'rest' | 'held' | 'drop'} | null */
+  function lerpArc(ax, ay, az, bx, by, bz, h, u, out) {
+    u = clamp01(u);
+    out.x = ax + (bx - ax) * u; out.z = az + (bz - az) * u; out.y = ay + (by - ay) * u + 4 * h * u * (1 - u);
+    return out;
+  }
+  function ballAt(f, t, out) {
+    if (!f || !isFinite(f.t0)) return null;
+    out = out || {};
+    if (f.dropped) { out.x = f.dx; out.y = f.dy; out.z = f.dz; out.phase = 'drop'; return out; }
+    if (f.held) { out.x = f.rx; out.y = f.ry; out.z = f.rz; out.phase = 'held'; return out; }
+    if (t < f.t0) { out.x = f.hx; out.y = f.hy; out.z = f.hz; out.phase = 'hand'; return out; }
+    if (t < f.land1) { lerpArc(f.hx, f.hy, f.hz, f.lx, f.ly, f.lz, f.arc, (t - f.t0) / Math.max(1e-6, f.land1 - f.t0), out); out.phase = 'fly'; return out; }
+    if (t < f.mid) { lerpArc(f.lx, f.ly, f.lz, f.mx, f.my, f.mz, f.b1, (t - f.land1) / Math.max(1e-6, f.mid - f.land1), out); out.phase = 'bounce'; return out; }
+    if (t < f.rest) { lerpArc(f.mx, f.my, f.mz, f.rx, f.ry, f.rz, f.b2, (t - f.mid) / Math.max(1e-6, f.rest - f.mid), out); out.phase = 'bounce'; return out; }
+    out.x = f.rx; out.y = f.ry; out.z = f.rz; out.phase = 'rest';
+    return out;
+  }
+
   /* ---------------- the avatar's glance at a pet: every 5–7 s, 1.6 s long ---------------- */
   function glanceAt(t, seed, out) {
     out = out || {};
@@ -894,6 +977,9 @@
          when the next signature may play, the give-way re-plans in a row, the feeding ({on, t0, bowl x y z,
          yaw, the hop's ends, eat0, end, reduced}; null until the first meal) */
       mood: null, moodK: 1, sigAt: 0, stuck: 0, feed: null,
+      /* island activities v1 (IA-3): the fetch ({on, phase, kind, the ball's points and times, held, dropped, n…};
+         null until the first throw) and the hide ({on, uid, cell, …}; null until the first round) */
+      fetch: null, hide: null,
       mark: { x: 0, y: 0, z: 0 },                    /* the stage deck mark (danceMark points here) */
       px: 0, pz: 0, qx: 0, qz: 0                       /* pounce start / end */
     };
@@ -908,6 +994,8 @@
       version: VERSION, seed: seed, now: 0, pets: [], graph: null, mode: 'play', reduced: !!opts.reduced,
       show: 0, music: false, camYaw: 0, events: [], danceOn: false, danceT0: 0, danceEnd: 0, danceReduced: false,
       danceKind: '', danceUid: '', synced: false,
+      /* island activities v1 (IA-3): the visitor standing on this island (setVisitor), never one of the pets */
+      visitor: null,
       /* where the avatar dances when it joins a studio / stage dance (actors.js moves it there) */
       avatarMark: { on: false, kind: '', uid: '', x: 0, y: 0, z: 0, cell: -1 }
     };
@@ -942,6 +1030,8 @@
     function freeFor(p, i) { return i >= 0 && g().walk[i] && (res[i] < 0 || res[i] === p.index); }
     function wantedCell(p) {
       if (p.state === 'travel') return p.trav.cell;
+      if (p.state === 'fetch' && p.fetch) return p.fetch.phase === 'carry' || p.fetch.phase === 'drop' ? p.fetch.back : p.fetch.phase === 'wait' ? p.fetch.wait : p.fetch.cell;
+      if (p.state === 'hide' && p.hide) return p.hide.cell;
       if (p.state === 'walk' && p.path) return p.path.target;
       if (p.state === 'perform') return p.perf.land >= 0 ? p.perf.land : p.perf.approach;
       if (p.state === 'dance' && p.danceSpot >= 0) return p.danceSpot;
@@ -952,6 +1042,7 @@
       res.fill(-1);
       var am = brain.avatarMark;
       if (am.on && am.cell >= 0) { if (g().walk[am.cell]) res[am.cell] = AVATAR_RES; else am.cell = -1; }
+      holdVisitor();
       brain.pets.forEach(function (p) {
         var want = wantedCell(p);
         if (want >= 0 && res[want] < 0 && g().walk[want]) { res[want] = p.index; p.res = want; }
@@ -967,8 +1058,9 @@
         if (qc >= 0 && !moving && q.onSeat === '' && q.perfPhase !== 'leg') extra[qc] = 1;
         if (q.res >= 0 && !moving) extra[q.res] = 1;
       });
-      var am = brain.avatarMark;
+      var am = brain.avatarMark, vs = brain.visitor;
       if (am.on && am.cell >= 0) extra[am.cell] = 1;
+      if (vs && vs.cell >= 0) extra[vs.cell] = 1;          /* the visitor's cell (IA-3) */
       if (also >= 0) extra[also] = 1;
       var me = cellOf(p.x, p.z);
       if (me >= 0) extra[me] = 0;
@@ -989,6 +1081,9 @@
       brain.events.push({ type: type || 'pop', id: p.id, x0: x0, y0: y0, z0: z0, x: p.x, y: p.y, z: p.z });
     }
     function clearMotion(p) {
+      /* a fetch or a hide that something else stops ends here (IA-3): the ball drops where the pet is */
+      if (p.fetch && p.fetch.on && !p.fetch.keep) cutFetch(p);
+      if (p.hide && p.hide.on) p.hide.on = false;
       p.path = null; p.pathS = 0; p.seg = 1; p.goal = null; p.speed = 0; p.waitT = 0;
       p.onSeat = ''; p.flip = 0; p.bounce = 0; p.hop = 0; p.perfPhase = ''; p.perfPose = -1; p.perf.kind = ''; p.perf.path = null;
       p.perf.route = null; p.perfClip = ''; p.legMode = ''; p.hang = 0; p.trav = null;
@@ -1015,9 +1110,23 @@
       var from = cellOf(p.x, p.z);
       if (from < 0 || target < 0) return null;
       var ex = blockOthers(p, blockExtra == null ? -1 : blockExtra);
-      var cells = astar(g(), from, target, ex);
-      if (!cells) cells = astar(g(), from, target, null);           /* pets may squeeze past each other */
-      return cells ? smoothPath(g(), cells, p.x, p.z, null) : null;
+      var cells = astar(g(), from, target, ex), vb = visitorBlock(from);
+      if (!cells && vb) cells = astar(g(), from, target, vb);       /* pets may squeeze past each other, never the visitor (IA-3)… */
+      if (!cells) { cells = astar(g(), from, target, null); vb = null; }   /* …unless it stands in the only way */
+      return cells ? smoothPath(g(), cells, p.x, p.z, vb) : null;   /* nor does the smoothed line cut across its cell */
+    }
+    /* the visitor's cell alone as a blocker (IA-3), or null: no visitor, or the walk starts there */
+    var vbx = new Uint8Array(NCELL);
+    function visitorBlock(from) {
+      var vs = brain.visitor;
+      if (!vs || vs.cell < 0 || vs.cell === from) return null;
+      vbx.fill(0); vbx[vs.cell] = 1;
+      return vbx;
+    }
+    /* a walk's smoothed line, kept off the visitor's cell whenever its cells go round it (IA-3) */
+    function smoothRound(gr, cells, x0, z0) {
+      var vs = brain.visitor, vb = cells && cells.length && vs && vs.cell >= 0 && cells.indexOf(vs.cell) < 0 ? visitorBlock(cells[0]) : null;
+      return smoothPath(gr, cells, x0, z0, vb);
     }
     function turnToward(p, yaw, rate, dt) {
       var d = wrap(yaw - p.yaw), m = rate * dt;
@@ -1218,7 +1327,7 @@
       while (cand.length) {
         var k = Math.floor(rng() * cand.length), t = cand[k];
         cand[k] = cand[cand.length - 1]; cand.pop();
-        var cells = chainTo(parent, from, t), path = cells && smoothPath(g(), cells, p.x, p.z, null);
+        var cells = chainTo(parent, from, t), path = cells && smoothRound(g(), cells, p.x, p.z);
         if (path && path.total / sp + IDLE.turnPad <= budget && pathValid(g(), path, 0, null, from)) { startPath(p, path, null, sp); return true; }
       }
       return false;
@@ -1244,7 +1353,7 @@
         var k = Math.floor(rng() * opts2.length), o = opts2[k];
         opts2[k] = opts2[opts2.length - 1]; opts2.pop();
         var cells = o.a === from ? [from] : chainTo(parent, from, o.a);
-        var path = cells && smoothPath(g(), cells, p.x, p.z, null);
+        var path = cells && smoothRound(g(), cells, p.x, p.z);
         if (!path) continue;
         var goal = { type: 'act', name: o.kind, dur: Math.min(2.4, budget - path.total / sp - IDLE.turnPad), fx: o.ob.x, fz: o.ob.z };
         if (goal.dur < 1) continue;
@@ -1269,7 +1378,7 @@
         });
       });
       if (!best) return false;
-      var cells = best.a === from ? [from] : chainTo(parent, from, best.a), path = cells && smoothPath(g(), cells, p.x, p.z, null);
+      var cells = best.a === from ? [from] : chainTo(parent, from, best.a), path = cells && smoothRound(g(), cells, p.x, p.z);
       if (!path) return false;
       if (path.total < 0.05) { startSeat(p, best.ob, 'bench', p.nextAt - IDLE.slack - brain.now - HOP.benchOn - HOP.off); return true; }
       startPath(p, path, { type: 'bench', uid: best.ob.uid }, sp);
@@ -1332,7 +1441,7 @@
     /* a run-over to approach cell a: ≤ maxLead s including the hop (a sparkle zip when it is too
        far to run); → {path, runDur, lead} */
     function runOver(p, a, cells, hopDur, maxLead, minLead) {
-      var gr = g(), path = cells ? smoothPath(gr, cells, p.x, p.z, null) : null, len = path ? path.total : Infinity;
+      var gr = g(), path = cells ? smoothRound(gr, cells, p.x, p.z) : null, len = path ? path.total : Infinity;
       var runMax = maxLead - hopDur;
       if (!path || len / WALK.zip > runMax) {
         /* too far for the run-over: a sparkle zip to the approach side, then a short dash */
@@ -1375,7 +1484,7 @@
       if (spec.group) return performGroup(kind, ob, o || {});
       if (brain.reduced || brain.danceOn) return -1;
       var p = byId[petId || brain.activeId()] || null;
-      if (!p || p.state === 'travel' || away[p.id] || p.guest) return -1;
+      if (!p || p.state === 'travel' || away[p.id] || p.guest || playing(p)) return -1;
       if (p.state === 'dance') finishDancer(p, true, null);
       if (kind === 'pose') return performPose(ob, p);
       if (kind === 'sip' || kind === 'roof') return performPerch(kind, ob, p);
@@ -1417,7 +1526,7 @@
       var hopDur = kind === 'bench' ? HOP.benchOn : HOP.on, run;
       if (kind !== 'bench') run = runOver(p, a, cells, hopDur, BOUNCE.maxLead, BOUNCE.minLead);
       else {
-        var path = smoothPath(gr, cells, p.x, p.z, null);
+        var path = smoothRound(gr, cells, p.x, p.z);
         if (!path) return -1;
         var walkDur = path.total < 0.05 ? 0 : path.total / (WALK.speed * 1.4) + 0.2;
         run = { path: path, runDur: walkDur, lead: walkDur + hopDur };
@@ -1545,6 +1654,8 @@
           placeOnSeat(p);
           p.perfPhase = pf.kind === 'trampoline' || pf.kind === 'bounce' ? 'bounce' : 'sit';
           brain.events.push({ type: 'land', id: p.id, kind: pf.kind, x: p.x, y: p.y, z: p.z });
+          var fm = p.fetch;                                 /* IA-3: the ball waiting on the mat: it takes it as it lands */
+          if (fm && fm.on && fm.phase === 'bounce' && !fm.held) { fm.held = true; fm.pickAt = brain.now; brain.events.push({ type: 'caught', id: p.id, n: fm.n, x: p.x, y: p.y, z: p.z }); }
         }
         return;
       }
@@ -1604,6 +1715,9 @@
       else reserve(p, p.cell);
       /* a tapped act rests the pet a moment; an idle bench visit keeps its 4–8 s slot */
       if (!fromIdle) p.nextAt = Math.max(p.nextAt, brain.now + 2 + 2 * rng());
+      /* IA-3: a pet that bounced on the trampoline for the ball carries it back (cut short: it drops it) */
+      var fb = p.fetch;
+      if (fb && fb.on && fb.phase === 'bounce') { fb.keep = false; if (instant) cutFetch(p); else carryBack(p); }
     }
 
     /* ================================================================
@@ -1841,7 +1955,7 @@
       });
       if (a < 0) return null;
       var cells = isFinite(dist[a]) ? (a === from ? [from] : chainTo(parent, from, a)) : null;
-      var path = cells ? smoothPath(gr, cells, x0, z0, null) : null, len = path ? path.total : Infinity;
+      var path = cells ? smoothRound(gr, cells, x0, z0) : null, len = path ? path.total : Infinity;
       if (path && len < 0.05) return { a: a, path: null, run: 0, zip: null };
       if (path && len / WALK.run <= maxLead) return { a: a, path: path, run: Math.max(0.2, Math.min(maxLead, len / WALK.run)), zip: null };
       /* too far: a sparkle zip to the approach side, then a short dash */
@@ -1870,7 +1984,7 @@
     function performV3(kind, ob, petId, o) {
       if (brain.reduced || brain.danceOn) return -1;
       var p = byId[petId || brain.activeId()] || null;
-      if (!p || away[p.id] || brain.pets.indexOf(p) < 0 || p.guest) return -1;      /* a land's guest never performs (D112) */
+      if (!p || away[p.id] || brain.pets.indexOf(p) < 0 || p.guest || playing(p)) return -1;      /* a land's guest never performs (D112); nor a playing pet (IA-3) */
       if (p.state === 'travel') return queueV3(p, kind, ob, o);
       if (kind === 'bounce') { if (p.state === 'dance') finishDancer(p, true, null); return performSeat('bounce', ob, p); }
       var pf = p.perf;
@@ -2069,7 +2183,9 @@
     function walkPts(x0, z0, to, out) {
       var gr = g(), from = cellOf(x0, z0), fr = brain.frame;
       if (from < 0 || !gr.walk[from]) from = nearestFree(gr, x0, z0, null, -1, gr.largest);
-      var cells = from >= 0 && to >= 0 ? astar(gr, from, to, null) : null, path = cells ? smoothPath(gr, cells, x0, z0, null) : null;
+      var vb = from >= 0 && to >= 0 ? visitorBlock(from) : null, cells = vb ? astar(gr, from, to, vb) : null;   /* round the visitor (IA-3) */
+      if (!cells) { vb = null; cells = from >= 0 && to >= 0 ? astar(gr, from, to, null) : null; }
+      var path = cells ? smoothPath(gr, cells, x0, z0, vb) : null;
       if (!path) { out.push(centreX(to) + fr.ox, heightAt(gr, centreX(to), centreZ(to)) + fr.oy, centreZ(to) + fr.oz); return; }
       var n = Math.max(1, Math.ceil(path.total / CROSS.step));
       for (var i = 0; i <= n; i++) {
@@ -2333,6 +2449,7 @@
       }
       res.fill(-1);
       if (am.on && am.cell >= 0) res[am.cell] = AVATAR_RES;
+      holdVisitor();
       var left = brain.pets.slice();
       function nearestPet(x, z) {
         var bi = -1, bd = Infinity;
@@ -2356,7 +2473,9 @@
         around = approaches;
       }
       if (left.length && !brain.reduced) {
-        var spots = around.length ? pickSpots(left.length, preferred, around) : danceSpots(gr, left.length, res);
+        var vsc = brain.visitor ? brain.visitor.cell : -1;            /* never the visitor's cell (IA-3) */
+        var spots = around.length ? pickSpots(left.length, preferred, around) :
+          danceSpots(gr, left.length + (vsc >= 0 ? 1 : 0), res).filter(function (c) { return c !== vsc; }).slice(0, left.length);
         spots.forEach(function (sc) {
           var p = nearestPet(centreX(sc), centreZ(sc));
           if (p) gather = Math.max(gather, gatherCell(p, sc, DANCE.gatherMax - 0.15));
@@ -2377,7 +2496,7 @@
       o = o || {};
       var gr = g();
       if (!on) { if (brain.danceOn) endDance(true); return 0; }
-      if (!gr || !brain.pets.length || brain.mode !== 'play') return 0;
+      if (!gr || !brain.pets.length || brain.mode !== 'play' || playBusy()) return 0;      /* the dance break waits for fetch / hide (IA-3) */
       startDance('break', null, o, false);
       return brain.danceReduced ? DANCE.reducedDur : brain.danceEnd - brain.now;
     }
@@ -2385,6 +2504,7 @@
        the same building keeps the dance going) */
     function performGroup(kind, ob, o) {
       if (brain.danceOn && brain.danceKind === kind && brain.danceUid === ob.uid) return Math.max(0, brain.danceT0 - brain.now);
+      if (playBusy()) return -1;                                   /* a fetch / hide is on: the building plays alone (IA-3) */
       if (kind === 'studio' && !brain.reduced && !studioSpots(ob).length) return -1;
       if (kind === 'stage' && !stageApproaches(ob).length) return -1;
       startDance(kind, ob, o, !!o.avatar);
@@ -2454,6 +2574,8 @@
         case 'perform': performStep(p, dt); break;
         case 'dance': danceStep(p, dt); break;
         case 'travel': travelStep(p, dt); break;
+        case 'fetch': fetchStep(p, dt); break;
+        case 'hide': hideStep(p, dt); break;
       }
     }
     function step(dt) {
@@ -2464,11 +2586,12 @@
         brain.danceOn = false;
         if (brain.avatarMark.on) { brain.avatarMark.on = false; if (brain.avatarMark.cell >= 0 && res[brain.avatarMark.cell] === AVATAR_RES) res[brain.avatarMark.cell] = -1; brain.avatarMark.cell = -1; }
       }
-      var moving = false;
+      var moving = visitorStep(dt);
       for (var k = 0; k < brain.pets.length; k++) {
         var p = brain.pets[k];
         stepPet(p, dt);
-        if (p.speed > 0.001 || Math.abs(p.omega) > 0.001 || p.state === 'perform' || p.state === 'dance' || p.state === 'act' || p.state === 'travel') moving = true;
+        if (p.speed > 0.001 || Math.abs(p.omega) > 0.001 || p.state === 'perform' || p.state === 'dance' || p.state === 'act' || p.state === 'travel' ||
+            p.state === 'fetch' || (p.state === 'hide' && p.action === 'hideGo')) moving = true;
       }
       return moving;
     }
@@ -2591,6 +2714,10 @@
           if (!gr.walk[p.trav.cell]) p.trav.cell = nearestFree(gr, centreX(p.trav.cell), centreZ(p.trav.cell), res, p.index, gr.largest);
           return;
         }
+        if (p.state === 'fetch' || p.state === 'hide') {          /* IA-3: a fetch / hide goes on while its way is still open */
+          if (playStillValid(p, gr)) return;
+          stopPlay(p); toIdle(p, null);
+        }
         if (p.state === 'perform') {
           if (performStillValid(p, gr)) return;
           finishSeat(p, true);
@@ -2629,6 +2756,7 @@
           }
         }
       });
+      validateVisitor(gr);
       setMode(r.mode);
       rebuildReservations();
       brain.synced = true;
@@ -2642,6 +2770,7 @@
       if (mode !== 'play') {
         if (brain.danceOn) dance(false);
         brain.pets.forEach(function (p) {
+          stopPlay(p);                                          /* IA-3: editing ends a fetch / hide */
           if (p.state === 'travel') landNow(p);
           if (p.state === 'perform') finishSeat(p, true);
           if (p.state === 'dance') finishDancer(p, true, null);
@@ -2661,6 +2790,7 @@
       if (on) {
         if (brain.danceOn) dance(false);
         brain.pets.forEach(function (p) {
+          endPlayNow(p);                                        /* IA-3: a fetch / hide jumps to its end state */
           if (p.state === 'travel') landNow(p);
           if (p.state === 'perform') finishSeat(p, true);
           if (p.state === 'dance') finishDancer(p, true, IDLE.first);
@@ -2759,10 +2889,492 @@
       if (now >= p.actEnd) fed(p);
     }
 
+    /* ================================================================
+       ISLAND ACTIVITIES v1 (IA-3): fetch, hide and seek, the visitor (see the header)
+       ================================================================ */
+    var _ball = { x: 0, y: 0, z: 0, phase: '' }, _vsp = { x: 0, z: 0, dx: 0, dz: 1, seg: 1 };
+    function playing(p) { return !!p && (p.state === 'fetch' || p.state === 'hide' || !!(p.fetch && p.fetch.on) || !!(p.hide && p.hide.on)); }
+    function playBusy() { for (var k = 0; k < brain.pets.length; k++) if (playing(brain.pets[k])) return true; return false; }
+    function eating(p) { return p.state === 'act' && (p.action === 'eatWait' || p.action === 'eat'); }
+    /* stop a pet's fetch or hide now (the ball drops where it is; a hiding pet stops hiding where it is) */
+    function stopPlay(p) {
+      if (p.fetch && p.fetch.on) { p.fetch.keep = false; cutFetch(p); }
+      if (p.hide && p.hide.on) p.hide.on = false;
+    }
+    /* reduced motion: a fetch jumps to its end state; a pet on its way to hide is in its hiding place at once */
+    function endPlayNow(p) {
+      var f = p.fetch, h = p.hide;
+      if (f && f.on) {
+        f.keep = true; f.phase = 'end';
+        if (p.state === 'perform') finishSeat(p, true);
+        f.keep = false;
+        fetchNow(p);
+      }
+      if (h && h.on && p.state === 'hide' && p.action === 'hideGo') hideAt(p);
+    }
+    /* the ball lands at (x, z) on the ground (a point off the land: under the pet) and lies there */
+    function dropAt(p, f, x, z) {
+      var gr = g(), c = cellOf(x, z);
+      if (!gr || c < 0 || !gr.land[c]) { x = p.x; z = p.z; }
+      f.held = false; f.dropped = true; f.dx = x; f.dz = z; f.dy = (gr ? heightAt(gr, x, z) : p.y) + FETCH.ballR;
+    }
+    function cutFetch(p) {
+      var f = p.fetch;
+      if (!f || !f.on) return;
+      f.on = false; f.keep = false;
+      if (!f.dropped) dropAt(p, f, p.x + Math.sin(p.yaw) * 0.25, p.z + Math.cos(p.yaw) * 0.25);
+      f.phase = 'done';
+      brain.events.push({ type: 'fetchCut', id: p.id, n: f.n, x: f.dx, y: f.dy, z: f.dz });
+    }
+    /* a trampoline (or a v3 net whose LOOK performs 'bounce') the pet bounces on for the ball, or '' */
+    function bounceKindOf(ob) {
+      if (ob.id === 'trampoline') return 'trampoline';
+      var L = lookOf(ob.id);
+      return L && L.perform === 'bounce' ? 'bounce' : '';
+    }
+    /* the race (or trot) to cell R is too long: a sparkle zip to ≤ 1.2 u from it, then a short dash */
+    function zipTo(p, R) {
+      var gr = g(), x0 = p.x, y0 = p.y, z0 = p.z, ax = centreX(R), az = centreZ(R), ddx = p.x - ax, ddz = p.z - az, dd = Math.sqrt(ddx * ddx + ddz * ddz) || 1;
+      var back = Math.min(1.2, dd), sx = ax + ddx / dd * back, sz = az + ddz / dd * back;
+      if (!losClear(gr, sx, sz, ax, az, null, 0, -1)) { sx = ax; sz = az; }
+      p.x = sx; p.z = sz; p.y = heightAt(gr, sx, sz); p.cell = cellOf(sx, sz);
+      brain.events.push({ type: 'pop', id: p.id, x0: x0, y0: y0, z0: z0, x: p.x, y: p.y, z: p.z });
+      return finishPath([sx, ax], [sz, az], [cellOf(sx, sz), R], R);
+    }
+    /* the child's spot (the avatar's cell, else the throw's hand) and the free cell in front of it (toward the camera) */
+    function childAt(f, out) {
+      var gr = g();
+      if (gr.avatar >= 0) { out.x = gr.avatarX; out.z = gr.avatarZ; } else { out.x = f ? f.hx : 0; out.z = f ? f.hz : 0; }
+      return out;
+    }
+    var _ch = { x: 0, z: 0 };
+    function backCell(p) {
+      var gr = g(), c = childAt(p.fetch, _ch), here = cellOf(p.x, p.z), comp = here >= 0 && gr.walk[here] ? gr.comp[here] : gr.largest;
+      var a = brain.camYaw + FETCH.side;                 /* in front of the child and to one side: both stay in view, and the ball */
+      var B = nearestFree(gr, c.x + Math.sin(a) * FETCH.front, c.z + Math.cos(a) * FETCH.front, res, p.index, comp || gr.largest);
+      return B >= 0 ? B : here;
+    }
+    function fetch(id, x, z, o) {
+      o = o || {};
+      var p = byId[id], gr = g();
+      if (!p || !gr || away[id] || p.guest || brain.pets.indexOf(p) < 0 || p.state === 'travel' || brain.mode !== 'play') return -1;
+      if (typeof x !== 'number' || typeof z !== 'number' || !isFinite(x) || !isFinite(z) || eating(p) || (p.fetch && p.fetch.on)) return -1;
+      var here = cellOf(p.x, p.z), comp = here >= 0 && gr.walk[here] ? gr.comp[here] : gr.largest;
+      var c = cellOf(x, z), onLand = c >= 0 && gr.land[c] === 1, ob = onLand && gr.obj[c] ? gr.objects[gr.obj[c].uid] : null;
+      var bk = ob && !brain.reduced ? bounceKindOf(ob) : '', seat = null;
+      if (bk) {
+        seat = bk === 'bounce' ? anchorV3(ob, 'seat', { x: 0, y: 0, z: 0 }) : seatOf(ob, 'trampoline');
+        var side = false;
+        ob.adj.forEach(function (a) { if (res[a] < 0 || res[a] === p.index) side = true; });
+        if (!seat || !side) bk = '';
+      }
+      /* the ball rests on the free cell nearest the tap (never a blocked or reserved one), in the pet's own part of the island */
+      var R = bk ? -1 : nearestFree(gr, x, z, res, p.index, comp || gr.largest);
+      if (!bk && R < 0) return -1;
+      /* whatever it was doing stops, as for a meal */
+      if (p.state === 'perform') finishSeat(p, true);
+      if (p.state === 'dance') finishDancer(p, true, null);
+      stopPlay(p);
+      toIdle(p, null);
+      here = cellOf(p.x, p.z);
+      var now = brain.now, f = p.fetch || (p.fetch = { n: 0 }), fr = o.from, hx, hy, hz, rx, ry, rz, lx, lz, mx, mz, splash = null;
+      if (fr && typeof fr.x === 'number' && typeof fr.z === 'number' && isFinite(fr.x) && isFinite(fr.z)) { hx = fr.x; hz = fr.z; hy = typeof fr.y === 'number' && isFinite(fr.y) ? fr.y : heightAt(gr, hx, hz) + FETCH.hand; }
+      else if (gr.avatar >= 0) { hx = gr.avatarX; hz = gr.avatarZ; hy = heightAt(gr, hx, hz) + FETCH.hand; }
+      else { hx = p.x; hz = p.z; hy = p.y + FETCH.hand; }
+      if (bk) { rx = seat.x; ry = seat.y + FETCH.ballR; rz = seat.z; lx = mx = rx; lz = mz = rz; }
+      else {
+        rx = centreX(R); rz = centreZ(R); ry = heightAt(gr, rx, rz) + FETCH.ballR;
+        var ex = x - rx, ez = z - rz, ed = Math.sqrt(ex * ex + ez * ez), ux = ed > 1e-6 ? ex / ed : 0, uz = ed > 1e-6 ? ez / ed : 1;
+        if (c === R) { lx = x; lz = z; }                                   /* it comes down where the child tapped… */
+        else { lx = rx + ux * Math.min(FETCH.edge, ed); lz = rz + uz * Math.min(FETCH.edge, ed); }   /* …or on the edge of the free cell nearest it */
+        if (!onLand) splash = { x: rx + ux * FETCH.splash, z: rz + uz * FETCH.splash };              /* a sea tap: the splash just off the beach */
+        mx = lx + (rx - lx) * 0.6; mz = lz + (rz - lz) * 0.6;
+      }
+      var ly = bk ? ry : heightAt(gr, lx, lz) + FETCH.ballR, my = bk ? ry : heightAt(gr, mx, mz) + FETCH.ballR;
+      var dist = Math.sqrt((lx - hx) * (lx - hx) + (lz - hz) * (lz - hz)), fl = clamp(0.45 + FETCH.perU * dist, FETCH.flight[0], FETCH.flight[1]);
+      f.on = true; f.kind = bk ? 'bounce' : 'ball'; f.perf = bk; f.uid = bk ? ob.uid : ''; f.obx = bk ? ob.x : 0; f.obz = bk ? ob.z : 0;
+      f.keep = false; f.sea = !onLand; f.splash = splash; f.tx = x; f.tz = z;
+      f.t0 = now; f.hx = hx; f.hy = hy; f.hz = hz; f.lx = lx; f.ly = ly; f.lz = lz; f.mx = mx; f.my = my; f.mz = mz; f.rx = rx; f.ry = ry; f.rz = rz;
+      f.arc = clamp(FETCH.arc[0] + FETCH.arcPerU * dist, FETCH.arc[0], FETCH.arc[1]); f.b1 = FETCH.bounces[0][1]; f.b2 = FETCH.bounces[1][1];
+      f.land1 = now + fl; f.mid = f.land1 + FETCH.bounces[0][0]; f.rest = f.mid + FETCH.bounces[1][0];
+      f.held = false; f.dropped = false; f.cell = R; f.back = -1; f.wait = -1; f.n = (f.n || 0) + 1;
+      f.path = null; f.stopS = 0; f.runT0 = now; f.runDur = 0; f.arr = now; f.pickAt = -1; f.cpath = null; f.carryT0 = now; f.carryDur = 0;
+      f.dropAt = -1; f.end = -1; f.dx = 0; f.dy = 0; f.dz = 0;
+      if (brain.reduced) { fetchNow(p); return 0; }
+      p.state = 'fetch'; p.speed = 0;
+      p.desiredYaw = Math.atan2(lx - p.x, lz - p.z); p.hasDesired = true; p.lookX = lx; p.lookZ = lz; p.lookK = 1;
+      if (bk) {                                    /* the ball comes down on the mat: the pet watches, then bounces for it */
+        f.phase = 'wait'; p.action = 'fetchWait'; f.wait = here >= 0 && freeFor(p, here) ? here : -1;
+        reserve(p, f.wait);
+        return f.land1 - now + BOUNCE.maxLead;
+      }
+      /* the race: it watches the throw, then a time-driven run that stops short of the ball (a sparkle zip when too far) */
+      var sp = clamp(WALK.run * paceOf(p.species), FETCH.run[0], FETCH.run[1]), path;
+      if (here === R) path = finishPath([p.x, rx], [p.z, rz], [R], R);
+      else {
+        path = planTo(p, R, -1);
+        if (!path || path.total / sp > FETCH.maxRun) path = zipTo(p, R);
+      }
+      f.path = path; f.stopS = Math.max(0, path.total - FETCH.stop);
+      f.runT0 = now + FETCH.react; f.runDur = f.stopS < 0.05 ? 0 : Math.max(0.2, f.stopS / sp); f.arr = f.runT0 + f.runDur;
+      f.pickAt = Math.max(f.arr, f.rest) + FETCH.pick;
+      f.phase = 'run'; p.action = 'fetchRun'; p.cruise = sp; p.pathS = 0; p.seg = 1;
+      reserve(p, R);
+      return f.pickAt - now;
+    }
+    /* the ball is in its mouth: it trots back to the free cell in front of the child */
+    function carryBack(p) {
+      var f = p.fetch, gr = g(), now = brain.now;
+      if (!f || !gr) return;
+      var here = cellOf(p.x, p.z), B = backCell(p);
+      p.state = 'fetch'; p.action = 'fetchCarry'; f.phase = 'carry'; f.keep = false; f.back = B;
+      if (!f.held) { f.held = true; f.pickAt = now; brain.events.push({ type: 'caught', id: p.id, n: f.n, x: p.x, y: p.y, z: p.z }); }
+      reserve(p, B);
+      var sp = clamp(WALK.run * FETCH.carryK * paceOf(p.species), FETCH.carry[0], FETCH.carry[1]), path = null;
+      if (B >= 0 && B === here) path = finishPath([p.x, centreX(B)], [p.z, centreZ(B)], [B], B);
+      else if (B >= 0) {
+        path = planTo(p, B, -1);
+        if (!path || path.total / sp > FETCH.maxRun) path = zipTo(p, B);
+      }
+      f.cpath = path; f.carryT0 = now; f.carryDur = path && path.total > 0.02 ? Math.max(0.15, path.total / sp) : 0;
+      p.cruise = sp; p.pathS = 0; p.seg = 1; p.lookK = 0; p.hasDesired = false; p.onSeat = ''; p.flip = 0; p.bounce = 0; p.hop = 0; p.perfPhase = '';
+    }
+    /* the ball's place at the child's feet: just in front of them, on the camera's side, so the child, the pet (beside
+       them) and the ball all stay in view */
+    function feetDrop(p, f) {
+      var c = childAt(f, _ch);
+      dropAt(p, f, c.x + Math.sin(brain.camYaw) * FETCH.feet, c.z + Math.cos(brain.camYaw) * FETCH.feet);
+      var dx = f.dx - p.x, dz = f.dz - p.z;
+      return dx * dx + dz * dz > 1e-8 ? Math.atan2(dx, dz) : null;
+    }
+    /* at the child's feet: it drops the ball with its happy reaction */
+    function dropBall(p) {
+      var f = p.fetch, now = brain.now, face = feetDrop(p, f);
+      f.phase = 'drop'; f.dropAt = now; f.end = now + FETCH.drop;
+      p.action = 'fetchDrop'; p.speed = 0; p.cell = cellOf(p.x, p.z);
+      if (face != null) { p.desiredYaw = face; p.hasDesired = true; }
+      p.tapKind = tapOf(p.species); p.happyUntil = now + 2.5;
+      if (!brain.reduced) p.tapT = now;
+      brain.events.push({ type: 'fetched', id: p.id, n: f.n, x: f.dx, y: f.dy, z: f.dz });
+    }
+    function finishFetch(p) {
+      var f = p.fetch;
+      if (f) { f.on = false; f.phase = 'done'; }
+      toIdle(p, IDLE.first + 0.6);
+    }
+    /* the end state at once (reduced motion): the pet at the child's feet facing them, the ball dropped there */
+    function fetchNow(p) {
+      var f = p.fetch, gr = g(), now = brain.now;
+      if (!f || !gr) return;
+      f.keep = true; clearMotion(p); f.keep = false;
+      var B = backCell(p), x0 = p.x, y0 = p.y, z0 = p.z;
+      if (B >= 0 && B !== cellOf(p.x, p.z)) { place(p, B); brain.events.push({ type: 'pop', id: p.id, x0: x0, y0: y0, z0: z0, x: p.x, y: p.y, z: p.z }); }
+      p.cell = cellOf(p.x, p.z);
+      reserve(p, freeFor(p, p.cell) ? p.cell : -1);
+      p.state = 'idle'; p.action = ''; f.back = B; f.phase = 'done';
+      if (!f.held) brain.events.push({ type: 'caught', id: p.id, n: f.n, x: p.x, y: p.y, z: p.z });
+      var face = feetDrop(p, f);
+      if (face != null) { p.yaw = face; p.desiredYaw = face; p.hasDesired = true; }
+      f.pickAt = f.dropAt = now; f.end = now + FETCH.still; f.on = false;
+      p.tapKind = tapOf(p.species); p.happyUntil = now + 2.5; p.nextAt = now + FETCH.still + IDLE.first;
+      brain.events.push({ type: 'fetched', id: p.id, n: f.n, x: f.dx, y: f.dy, z: f.dz });
+    }
+    function fetchStep(p, dt) {
+      var f = p.fetch, now = brain.now, gr = g();
+      if (!f || !f.on) { p.state = 'idle'; p.action = ''; p.speed = 0; return; }
+      if (f.phase === 'wait') {                    /* the trampoline: once the ball is on the mat the pet bounces for it */
+        p.speed = 0;
+        turnToward(p, Math.atan2(f.rx - p.x, f.rz - p.z), WALK.turn, dt);
+        if (now < f.land1) return;
+        var ob = gr.objects[f.uid], lead = -1;
+        f.keep = true;
+        if (ob) lead = performSeat(f.perf, ob, p);
+        if (lead >= 0) { f.phase = 'bounce'; p.lookK = 0; return; }
+        f.keep = false; cutFetch(p); toIdle(p, IDLE.first);
+        return;
+      }
+      var mv, px = p.x, pz = p.z, u;
+      if (f.phase === 'run') {
+        if (now < f.runT0 || f.runDur <= 0) {     /* watching the throw (or already beside it): the head follows the ball */
+          p.speed = 0;
+          var bp = ballAt(f, now, _ball);
+          if ((bp.x - p.x) * (bp.x - p.x) + (bp.z - p.z) * (bp.z - p.z) > 1e-6) turnToward(p, Math.atan2(bp.x - p.x, bp.z - p.z), WALK.turn, dt);
+          p.lookX = bp.x; p.lookZ = bp.z; p.lookK = 1;
+          if (f.runDur <= 0 && now >= f.pickAt) carryBack(p);
+          return;
+        }
+        u = clamp01((now - f.runT0) / f.runDur);
+        samplePath(f.path, f.stopS * runProfile(u), _sp, p.seg);
+        p.seg = _sp.seg; p.x = _sp.x; p.z = _sp.z; p.y = heightAt(gr, p.x, p.z); p.cell = cellOf(p.x, p.z); p.lookK = 0;
+        mv = Math.sqrt((p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz));
+        p.speed = u < 1 && dt > 0 ? mv / dt : 0;
+        if (mv > 1e-6) turnToward(p, Math.atan2(p.x - px, p.z - pz), WALK.turn * 2, dt);
+        else if (u >= 1) turnToward(p, Math.atan2(f.rx - p.x, f.rz - p.z), WALK.turn, dt);
+        if (u >= 1 && now >= f.pickAt) carryBack(p);
+        return;
+      }
+      if (f.phase === 'carry') {
+        if (!f.cpath || f.carryDur <= 0) { dropBall(p); return; }
+        u = clamp01((now - f.carryT0) / f.carryDur);
+        samplePath(f.cpath, f.cpath.total * runProfile(u), _sp, p.seg);
+        p.seg = _sp.seg; p.x = _sp.x; p.z = _sp.z; p.y = heightAt(gr, p.x, p.z); p.cell = cellOf(p.x, p.z);
+        mv = Math.sqrt((p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz));
+        p.speed = u < 1 && dt > 0 ? mv / dt : 0;
+        if (mv > 1e-6) turnToward(p, Math.atan2(p.x - px, p.z - pz), WALK.turn * 2, dt);
+        if (u >= 1) dropBall(p);
+        return;
+      }
+      if (f.phase === 'drop') {
+        p.speed = 0;
+        if (p.hasDesired) turnToward(p, p.desiredYaw, WALK.turn, dt); else p.omega = 0;
+        if (now >= f.end) finishFetch(p);
+        return;
+      }
+      p.speed = 0;
+    }
+    /* the k-th automatic throw's spot (My pets → Play): a free cell in front of the child, turning ±0.6 rad in turn → {x, z} | null */
+    function throwSpot(k, out) {
+      var gr = g();
+      if (!gr) return null;
+      k = Math.max(0, Math.floor(+k || 0));
+      var a = brain.activeId(), q = a ? byId[a] : null, ax = gr.avatar >= 0 ? gr.avatarX : q ? q.x : 0, az = gr.avatar >= 0 ? gr.avatarZ : q ? q.z : 0;
+      var yaw = brain.camYaw + FETCH.autoTurn[k % FETCH.autoTurn.length], d = FETCH.auto[k % FETCH.auto.length];
+      var c = nearestFree(gr, ax + Math.sin(yaw) * d, az + Math.cos(yaw) * d, res, q ? q.index : -1, gr.largest);
+      if (c < 0) return null;
+      out = out || {};
+      out.x = centreX(c); out.z = centreZ(c);
+      return out;
+    }
+
+    /* ---------- hide and seek ---------- */
+    /* the free cell of the ring round item ob's footprint (its side and corner neighbours) farthest along the camera's
+       forward (fx, fz); of equals, the one farthest across the view from the thing's middle (a back corner: the pet
+       peeks out past the thing's edge), then the lowest index → cell | -1 */
+    function hideCellOf(p, ob, fx, fz) {
+      var gr = g(), best = -1, bs = -Infinity, bl = -1, xx, yy, lx = -fz, lz = fx;
+      for (yy = ob.r - 1; yy <= ob.r + ob.h; yy++) for (xx = ob.c - 1; xx <= ob.c + ob.w; xx++) {
+        var c = cellIndex(xx, yy);
+        if (c < 0 || ob.cells.indexOf(c) >= 0 || gr.walk[c] !== 1 || (res[c] >= 0 && res[c] !== p.index)) continue;
+        var dx = centreX(c) - ob.x, dz = centreZ(c) - ob.z, s = dx * fx + dz * fz, l = Math.abs(dx * lx + dz * lz);
+        if (s > bs + 1e-9 || (Math.abs(s - bs) <= 1e-9 && (l > bl + 1e-9 || (Math.abs(l - bl) <= 1e-9 && c < best)))) { bs = s; bl = l; best = c; }
+      }
+      return best;
+    }
+    function hide(id, uid, camYaw) {
+      var p = byId[id], gr = g();
+      if (!p || !gr || away[id] || p.guest || brain.pets.indexOf(p) < 0 || p.state === 'travel' || brain.mode !== 'play' || eating(p)) return -1;
+      var ob = gr.objects[uid];
+      if (!ob) return -1;
+      var yaw = typeof camYaw === 'number' && isFinite(camYaw) ? camYaw : brain.camYaw;
+      if (p.state === 'perform') finishSeat(p, true);
+      if (p.state === 'dance') finishDancer(p, true, null);
+      stopPlay(p);
+      var cell = hideCellOf(p, ob, -Math.sin(yaw), -Math.cos(yaw));
+      if (cell < 0) return -1;
+      toIdle(p, null);
+      var h = p.hide || (p.hide = { n: 0 });
+      h.on = true; h.uid = ob.uid; h.cell = cell; h.ix = ob.x; h.iz = ob.z; h.t0 = brain.now; h.n++; h.path = null; h.dur = 0; h.at = -1;
+      /* its spot in the cell: across the camera's view, toward the edge of the thing's footprint as the camera sees it
+         (on the side the cell is on; a cell right behind the middle takes its side by round), at most HIDE.peek u
+         from the cell's middle: half of it peeks out past that edge */
+      var lx = Math.cos(yaw), lz = -Math.sin(yaw), cx = centreX(cell), cz = centreZ(cell), side = (cx - ob.x) * lx + (cz - ob.z) * lz;
+      var sg = side > 1e-6 ? 1 : side < -1e-6 ? -1 : (h.n % 2 ? 1 : -1), halfW = (ob.w * Math.abs(lx) + ob.h * Math.abs(lz)) / 2;
+      var shift = clamp(sg * halfW - side, -HIDE.peek, HIDE.peek);
+      h.px = cx + lx * shift; h.pz = cz + lz * shift;
+      if (cellOf(h.px, h.pz) !== cell) { h.px = cx; h.pz = cz; }
+      p.state = 'hide'; p.action = 'hideGo'; p.speed = 0;
+      reserve(p, cell);
+      if (brain.reduced) { hideAt(p); return cell; }
+      var here = cellOf(p.x, p.z), path = here === cell ? finishPath([p.x, h.px], [p.z, h.pz], [cell], cell) : planTo(p, cell, -1);
+      if (path && here !== cell) {                    /* the planned way, then the last step to its spot in the cell */
+        var xs = [], zs = [];
+        for (var k = 0; k < path.n; k++) { xs.push(path.pts[k * 2]); zs.push(path.pts[k * 2 + 1]); }
+        xs.push(h.px); zs.push(h.pz);
+        path = finishPath(xs, zs, path.cells, cell);
+      }
+      var dur = path ? clamp(path.total / (walkSpeed(p) * HIDE.pace), HIDE.minTrot, HIDE.trot) : 0;
+      if (!path || path.total < 0.02 || path.total / dur > WALK.zip) { hideAt(p); return cell; }
+      h.path = path; h.dur = dur; p.cruise = path.total / dur; p.pathS = 0; p.seg = 1;
+      return cell;
+    }
+    /* in its hiding place now (no sparkle: the host's veil covers the move; under reduced motion there is none) */
+    function hideAt(p) {
+      var h = p.hide, gr = g();
+      p.x = h.px; p.z = h.pz; p.y = heightAt(gr, p.x, p.z); p.cell = h.cell;
+      p.path = null; p.speed = 0;
+      peek(p);
+    }
+    function peek(p) {
+      var h = p.hide;
+      p.action = 'peek'; p.actT0 = brain.now; p.actDur = 1e6; p.speed = 0; h.at = brain.now;
+      p.desiredYaw = Math.atan2(h.ix - p.x, h.iz - p.z); p.hasDesired = true;
+      if (brain.reduced) p.yaw = p.desiredYaw;
+      brain.events.push({ type: 'hidden', id: p.id, uid: h.uid, cell: h.cell, x: p.x, y: p.y, z: p.z });
+    }
+    function hideStep(p, dt) {
+      var h = p.hide;
+      if (!h || !h.on) { p.state = 'idle'; p.action = ''; p.speed = 0; return; }
+      if (p.action === 'hideGo') {
+        var u = clamp01((brain.now - h.t0) / Math.max(1e-6, h.dur)), px = p.x, pz = p.z;
+        samplePath(h.path, h.path.total * runProfile(u), _sp, p.seg);
+        p.seg = _sp.seg; p.x = _sp.x; p.z = _sp.z; p.y = heightAt(g(), p.x, p.z); p.cell = cellOf(p.x, p.z);
+        var mv = Math.sqrt((p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz));
+        p.speed = u < 1 && dt > 0 ? mv / dt : 0;
+        if (mv > 1e-6) turnToward(p, Math.atan2(p.x - px, p.z - pz), WALK.turn * 2, dt);
+        if (u >= 1) hideAt(p);
+        return;
+      }
+      p.speed = 0;
+      if (p.hasDesired) turnToward(p, p.desiredYaw, WALK.turn, dt); else p.omega = 0;
+    }
+    /* found: out it comes with its happy reaction (the host's 'Found you!'; actors' sparkle ring on 'found') */
+    function unhide(id) {
+      var p = byId[id], h = p && p.hide;
+      if (!h || !h.on || p.state !== 'hide') return false;
+      var now = brain.now;
+      h.on = false;
+      toIdle(p, IDLE.first + 1);
+      p.tapKind = tapOf(p.species); p.happyUntil = now + 2.5;
+      if (!brain.reduced) p.tapT = now;
+      p.desiredYaw = brain.camYaw; p.hasDesired = true;
+      brain.events.push({ type: 'found', id: p.id, uid: h.uid, x: p.x, y: p.y, z: p.z });
+      return true;
+    }
+    /* is a fetch / hide still possible on this layout (its cells free, its item where it was)? */
+    function playStillValid(p, gr) {
+      var t = wantedCell(p);
+      if (t >= 0 && !gr.walk[t]) return false;
+      if (p.state === 'hide') {
+        var h = p.hide, ob = h && gr.objects[h.uid];
+        return !!(h && h.on && ob && Math.abs(ob.x - h.ix) < 1e-6 && Math.abs(ob.z - h.iz) < 1e-6);
+      }
+      var f = p.fetch;
+      if (!f || !f.on) return false;
+      if (f.phase === 'wait') { var o2 = gr.objects[f.uid]; return !!o2 && Math.abs(o2.x - f.obx) < 1e-6 && Math.abs(o2.z - f.obz) < 1e-6; }
+      return !(f.phase === 'run' && f.cell >= 0 && !gr.walk[f.cell]);
+    }
+
+    /* ---------- the visitor (a guest of the brain, never one of its pets) ---------- */
+    function holdVisitor() {
+      var v = brain.visitor, gr = g();
+      if (v && v.cell >= 0 && gr && gr.walk[v.cell] && res[v.cell] < 0) res[v.cell] = VISITOR_RES;
+    }
+    /* the ▶ PLAY pads: the entrance rows of the items that launch a game */
+    function launchPads(gr, bad) {
+      var Cc = core(Cx);
+      gr.items.forEach(function (ob) {
+        var it = itemOf(Cc, ob.id);
+        if (!it || it.act !== 'launch') return;
+        var keys = null;
+        if (Cc && typeof Cc.entranceCells === 'function') { try { keys = Cc.entranceCells(it, ob.c, ob.r); } catch (e) { keys = null; } }
+        if (keys && keys.length) keys.forEach(function (k) { var i = parseKey(k); if (i >= 0) bad[i] = 1; });
+        else for (var dx = 0; dx < ob.w; dx++) { var i2 = cellIndex(ob.c + dx, ob.r + ob.h); if (i2 >= 0) bad[i2] = 1; }
+      });
+    }
+    function visitorSpot() {
+      var gr = g();
+      if (!gr) return -1;
+      var ox = 0, oz = 0, bad = {}, v = brain.visitor, best = -1, bd = Infinity;
+      if (gr.house && gr.house.entrance >= 0) { ox = centreX(gr.house.entrance); oz = centreZ(gr.house.entrance); }
+      else if (gr.avatar >= 0) { ox = gr.avatarX; oz = gr.avatarZ; }
+      launchPads(gr, bad);
+      brain.pets.forEach(function (q) { var fd = q.feed; if (fd && fd.on && brain.now < fd.end) { var bc = cellOf(fd.x, fd.z); if (bc >= 0) bad[bc] = 1; } });   /* a bowl that is out (actors draws it until end) */
+      for (var pass = 0; pass < 2 && best < 0; pass++) {
+        for (var i = 0; i < NCELL; i++) {
+          if (!gr.walk[i] || bad[i]) continue;
+          if (res[i] >= 0 && !(res[i] === VISITOR_RES && v && v.cell === i)) continue;
+          if (pass === 0 && gr.largest && gr.comp[i] !== gr.largest) continue;
+          var dx = centreX(i) - ox, dz = centreZ(i) - oz, d = dx * dx + dz * dz;
+          if (d < bd - 1e-9) { bd = d; best = i; }
+        }
+      }
+      return best;
+    }
+    function setVisitor(v, o) {
+      o = o || {};
+      var gr = g(), cur = brain.visitor;
+      if (!v || typeof v !== 'object' || typeof v.id !== 'string' || !v.id) {
+        if (cur) { if (cur.cell >= 0 && res[cur.cell] === VISITOR_RES) res[cur.cell] = -1; brain.visitor = null; }
+        return -1;
+      }
+      if (cur && cur.id === v.id && cur.cell >= 0) return cur.cell;          /* the same visitor stays where it is */
+      if (cur && cur.cell >= 0 && res[cur.cell] === VISITOR_RES) res[cur.cell] = -1;
+      brain.visitor = null;
+      if (!gr || isleDef) return -1;                                          /* visitors come to Home */
+      var cell = visitorSpot();
+      if (cell < 0) return -1;
+      var vs = { id: v.id, cell: cell, x: centreX(cell), y: 0, z: centreZ(cell), yaw: brain.camYaw, state: 'stand', speed: 0, path: null, s0: 0, t0: brain.now, dur: 0, seg: 1 };
+      vs.y = heightAt(gr, vs.x, vs.z);
+      brain.visitor = vs;
+      res[cell] = VISITOR_RES;
+      var fr = o.from || v.from, instant = !!(o.instant || v.instant) || brain.reduced;
+      if (!instant && fr && typeof fr.x === 'number' && typeof fr.z === 'number' && isFinite(fr.x) && isFinite(fr.z)) {
+        var s0 = cellOf(fr.x, fr.z), from = s0 >= 0 && gr.walk[s0] ? s0 : nearestFree(gr, fr.x, fr.z, null, -1, gr.largest), cells = null;
+        if (from >= 0 && from !== cell) {
+          extra.fill(0);
+          brain.pets.forEach(function (q) { var qc = cellOf(q.x, q.z); if (qc >= 0 && qc !== from && q.state !== 'walk' && q.state !== 'travel') extra[qc] = 1; });
+          cells = astar(gr, from, cell, extra) || astar(gr, from, cell, null);
+        }
+        var path = cells ? smoothPath(gr, cells, centreX(from), centreZ(from), null) : null;
+        if (path && path.total > 0.05) {
+          vs.s0 = Math.max(0, path.total - VISIT.max);
+          samplePath(path, vs.s0, _vsp, 1);
+          vs.x = _vsp.x; vs.z = _vsp.z; vs.y = heightAt(gr, vs.x, vs.z); vs.yaw = Math.atan2(_vsp.dx, _vsp.dz);
+          vs.path = path; vs.state = 'walk'; vs.t0 = brain.now; vs.dur = (path.total - vs.s0) / VISIT.speed; vs.speed = VISIT.speed; vs.seg = 1;
+        }
+      }
+      brain.events.push({ type: 'visitor', id: v.id, arrive: true, x: vs.x, y: vs.y, z: vs.z });
+      return cell;
+    }
+    function visitorStep(dt) {
+      var vs = brain.visitor;
+      if (!vs || vs.state !== 'walk' || !vs.path) return false;
+      var u = clamp01((brain.now - vs.t0) / Math.max(1e-6, vs.dur)), px = vs.x, pz = vs.z;
+      samplePath(vs.path, vs.s0 + (vs.path.total - vs.s0) * u, _vsp, vs.seg);
+      vs.seg = _vsp.seg; vs.x = _vsp.x; vs.z = _vsp.z; vs.y = heightAt(g(), vs.x, vs.z);
+      var mv = Math.sqrt((vs.x - px) * (vs.x - px) + (vs.z - pz) * (vs.z - pz));
+      if (mv > 1e-6) vs.yaw = Math.atan2(vs.x - px, vs.z - pz);
+      vs.speed = dt > 0 ? mv / dt : vs.speed;
+      if (u >= 1) { vs.state = 'stand'; vs.speed = 0; vs.path = null; vs.x = centreX(vs.cell); vs.z = centreZ(vs.cell); vs.y = heightAt(g(), vs.x, vs.z); }
+      return true;
+    }
+    /* after a layout change: a visitor whose cell went (or whose way in is blocked) stands on the next spot at once */
+    function validateVisitor(gr) {
+      var vs = brain.visitor;
+      if (!vs) return;
+      if (vs.state === 'walk' && vs.path && !pathValid(gr, vs.path, vs.s0, null, cellOf(vs.x, vs.z))) { vs.state = 'stand'; vs.path = null; vs.speed = 0; vs.x = centreX(vs.cell); vs.z = centreZ(vs.cell); }
+      if (vs.cell >= 0 && gr.walk[vs.cell] && (res[vs.cell] < 0 || res[vs.cell] === VISITOR_RES)) { vs.y = heightAt(gr, vs.x, vs.z); return; }
+      if (vs.cell >= 0 && res[vs.cell] === VISITOR_RES) res[vs.cell] = -1;
+      vs.cell = -1;
+      var c = visitorSpot(), x0 = vs.x, y0 = vs.y, z0 = vs.z;
+      if (c < 0) { vs.state = 'none'; vs.path = null; vs.speed = 0; return; }
+      vs.cell = c; vs.x = centreX(c); vs.z = centreZ(c); vs.y = heightAt(gr, vs.x, vs.z); vs.state = 'stand'; vs.path = null; vs.speed = 0;
+      res[c] = VISITOR_RES;
+      brain.events.push({ type: 'visitor', id: vs.id, x0: x0, y0: y0, z0: z0, x: vs.x, y: vs.y, z: vs.z });
+    }
+
     brain.sync = sync;
     brain.step = step;
     brain.tap = tap;
     brain.feed = feed;
+    /* island activities v1 (IA-3) */
+    brain.fetch = fetch;
+    brain.throwSpot = throwSpot;
+    brain.hide = hide;
+    brain.unhide = unhide;
+    brain.setVisitor = setVisitor;
+    brain.visitorSpot = visitorSpot;
+    brain.playing = function (id) { return playing(byId[id] || null); };
+    /* stopPlay(id) → bool: a fetch is cut where it is ('fetchCut'), a hiding pet comes out ('found') */
+    brain.stopPlay = function (id) {
+      var p = byId[id];
+      if (!p || !playing(p)) return false;
+      if (p.state === 'hide' && p.hide && p.hide.on) return unhide(id);
+      if (p.state === 'perform') finishSeat(p, true);
+      stopPlay(p);
+      if (p.state === 'fetch' || p.state === 'hide') toIdle(p, IDLE.first);
+      return true;
+    };
     brain.perform = perform;
     brain.dance = dance;
     brain.setMode = function (m) { setMode(m); };
@@ -2832,6 +3444,8 @@
     playOf: playOf, tapOf: tapOf, weightsOf: weightsOf,
     /* the kids update (P2.5) */
     V454_PLAY: V454_PLAY, MOOD: MOOD, FEED: FEED, GIVE_WAY: GIVE_WAY, paceOf: paceOf, speedOf: speedOf, moodOf: moodOf, moodWeights: moodWeights,
+    /* island activities v1 (IA-3) */
+    FETCH: FETCH, HIDE: HIDE, VISIT: VISIT, VISITOR_RES: VISITOR_RES, ballAt: ballAt,
     buildGraph: buildGraph, astar: astar, distMap: distMap, smoothPath: smoothPath, pathValid: pathValid, samplePath: samplePath,
     losClear: losClear, heightAt: heightAt, nearestFree: nearestFree, danceSpots: danceSpots, danceAt: danceAt,
     alignDelay: alignDelay, glanceAt: glanceAt, bounceAt: bounceAt, posesOf: posesOf, makeRng: makeRng, hash: hash,

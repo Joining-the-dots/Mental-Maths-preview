@@ -87,13 +87,68 @@
                            0.6 for it (actors.js leaves the voice to the host here) and still counts the pat
      info().care           {feeding: petId | null, stars: n, view: the last moment's swing {dYaw, dElev, n (rays still
                            crossing a box), boxes} | null}
+     ISLAND ACTIVITIES v1 (IA-3; chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §2 A2 / A5, §5 IA-3, §7; on actors.js and
+     pets-brain.js). Free play: nothing here earns, spends or decays, and nothing is chance. Every method below is
+     feature-detected by the host (IA-5) and the stub stage has each one (false / null / -1 / 0).
+     view.visitor          today's visitor on Home ({id, name, color, emoji, look, wear, vr, sig, lk, wr, isle?, instant?}:
+                           SLPeopleCore.avatarInfo-style; null / absent: none) → actors.setVisitor: it walks in from its
+                           land's gate on the first sync that names it (one sparkle; a visitor met before in this stage's
+                           life, instant or reduced motion: on its spot at once) to the free cell nearest the house
+                           entrance (never a ▶ PLAY pad, the bowl's cell or the child's), using Home's land-guest slot,
+                           never a pet's. It shows on Home in play mode only (a land visit, edit and place mode hide it;
+                           the host leaves it out during a feed, a game, the Sky map and travel). With no rig (LOW before
+                           the people shapes load, the V4.54 scene) the host shows SLPeopleArt's portrait tag:
+                           setAnchors [{el, visitor: true}] places it where the visitor stands (the key 'visitor').
+     on.tapVisitor(id)     a tap on the visitor (it waves). Pick priority (PICK_ORDER): pets and the avatar > the visitor
+                           > items > cells; on a stage under VISITOR_PICK.narrowPx wide its tap sphere is VISITOR_PICK.r.
+     emote('visitor', kind, at?) → bool   kind 'wave' | 'hello' | 'cheer' | 'move' (its signature clip; false without
+                           one); at: a thing's uid (or a world {x, z}) it turns to for the moment (Show me round's cheer).
+                           false with no visitor shown or no rig (the portrait tag: the host shows its own moment).
+                           emote('me', 'wave') is the child's wave, as before.
+     say(target, text, {sec}) → bool   a speech bubble over target ('pet:<id>' | 'me' | 'visitor' | 'u:<uid>' | a uid
+                           or pet id; sayKey) for sec s (SAY.sec = 4, 1–10), kept whole inside the stage (bubbleAt) and
+                           lifted over a ▶ PLAY / ✋ tag; the words also go to a polite live region (div.slw-say,
+                           role status) for screen readers. false (but still read out) when target is not on screen.
+                           A new bubble replaces the one showing; calling again repeats the line.
+     play(kind, {petId, auto, onEvent}) → session | null   kind 'fetch' | 'hide'; petId (default the active pet) must be
+                           out on the island shown. null (playRefusal) during a flight, the
+                           Sky map or the tour, outside play mode, while suspended or covered, during a feeding moment,
+                           with no such pet out, or without actors that play (the V4.54 scene) or a ball (fetch); the
+                           reason is info().activities.refused. One
+                           session at a time (a new one ends the old: 'replaced'). session = {kind, petId, done:
+                           Promise<{kind, petId, reason, thrown, caught, fetched, found}>, end(reason?) → bool, live() →
+                           bool, info() → actors.playInfo(), throwTo(x, z) (fetch), hideIn(uid) / found() /
+                           covers(uid) (hide: is the hiding pet behind thing uid from the camera now?), wobble(uid)}. onEvent({type 'caught' | 'fetched' | 'cut' | 'hidden' | 'found', petId, n}) as
+                           the brain reports them (polled each frame). auto: n (fetch): the session throws n times by
+                           itself to throwSpot(k) spots in front of the child and ends ('auto') after the last drop: My
+                           pets → Play's seam. Ends ('edit', 'suspend', 'covered', 'travel', 'feed', 'gone' (the pet is
+                           no longer out), 'dispose') whenever the island stops being playable; the pet's fetch is cut
+                           where it is, a hiding pet comes out, the ball goes. Reduced motion: each throw / hide is its
+                           end state at once (auto throws FEED_STILL s apart).
+     playTaps(on) → bool   while a session lives: a tap on land calls on.tapCell(c, r, isle, {x, y, z}) and a tap on the
+                           sea (or on a locked land's hologram) on.tapSea(x, z, isle) (world x, z) instead of zooming;
+                           pets, the avatar, the visitor and items still answer as ever. Off again when the session ends.
+     throwTo(x, z) → seconds | -1   (world; or ({x, z})) a throw in the live fetch session: the seconds until the pet has
+                           the ball; -1 with no fetch session, while the ball is still away, or nowhere to land.
+     hideIn(petId, uid) → bool   the live hide session's pet hides behind thing uid (on the island shown): the free side
+                           cell farthest from the camera, a trot of at most 1.8 s (under the host's 2 s veil; at once
+                           under reduced motion); hideIn(petId, null) → found: it comes out with a sparkle ring.
+     wobble(uid) → bool    the thing rocks ±WOBBLE.deg at WOBBLE.hz (≤ 2 Hz) for WOBBLE.dur s (a still highlight under
+                           reduced motion).
+     burst(uid, kind) → n  fx3d's season burst (IA-4: leaves | blossom | snow | butterflies or the season's name) from the
+                           thing's crown, keyed by its uid (at most once a second); 0 without fx3d's burst.
+     setWeather(o) → bool  forwards to the sky's setWeather (IA-4: {kind | weather, season, looks} | today() | null) and
+                           keeps it for a rebuilt sky; true when the sky draws the weather itself (else the host's
+                           overlay shows it); false on the V4.54 scene.
+     info().activities     {play: {kind, petId} | null, taps, refused (the last play() refusal), visitor (actors'
+                           {id, shown, rig, person, act} | null), ball}
      setCovered(on) · suspend() · resume() · setReduced(on) · setUser(user) · info() · dispose()
    Pointer: tap = 8 px, up to 1 s — a slow press released in place still counts as a tap. At
    450 ms (long-press) the item / pet shows its name bubble without moving the camera; held still
    for a full second (a deliberate hold, play mode only) the camera frames it and the release is
    no tap. An edit-mode drag > 10 px on an item calls on.dragStart(uid), then on.dragCell /
    on.dragEnd; in place mode the ghost can be dragged the same way. Pick priority: pets/avatar >
-   items > locked land (env.lockedAt) > cells. Camera: camera.js (window.SLIslandCamera).
+   the visitor (IA-3, play mode) > items > locked land (env.lockedAt) > cells. Camera: camera.js (window.SLIslandCamera).
    ENCORE CITY (v2)
      · On ready (play mode, unless opts.skyline === false or reduced motion) the camera opens on the
        skyline hero shot over the bay and eases to the child's view; a press holds it still (so a tap
@@ -300,8 +355,9 @@
   }
   /* pick priority (island-architecture → hit volumes and picking):
      place mode: the ghost, then cells. Otherwise pets/avatar (play only, unless an item box is
-     clearly nearer) > the nearest item > land cells > the locked hologram > sea cells > sea.
-     h = {actor: {t, target}, item: {t, uid}, ghost: t, cell: {c, r, land}, land: region, sea: point} */
+     clearly nearer) > the visitor (IA-3: play only, the same rule) > the nearest item > land cells > the locked
+     hologram > sea cells > sea.
+     h = {actor: {t, target}, visitor: {t, id}, item: {t, uid}, ghost: t, cell: {c, r, land}, land: region, sea: point} */
   function choosePick(mode, h) {
     mode = normMode(mode);
     h = h || {};
@@ -311,6 +367,7 @@
       return { kind: 'none' };
     }
     if (mode === 'play' && h.actor && (!h.item || h.actor.t <= h.item.t + OCCLUDE_U)) return { kind: 'actor', target: h.actor.target };
+    if (mode === 'play' && visitorWins('item', h.item, h.visitor)) return { kind: 'visitor', id: h.visitor.id };      /* IA-3 */
     if (h.item) return { kind: 'item', uid: h.item.uid };
     if (h.cell && h.cell.land) return { kind: 'cell', c: h.cell.c, r: h.cell.r };
     if (h.land) return { kind: 'land', region: h.land };
@@ -620,6 +677,88 @@
     return best || { dYaw: 0, dElev: 0, n: 0 };
   }
   function feedTiming(sec) { sec = +sec > 0 ? +sec : 0; return { end: sec, backstopMs: Math.round((sec + FEED_GRACE) * 1000) }; }
+
+  /* ISLAND ACTIVITIES v1 (IA-3) — pure pieces. SAY: a say() bubble's seconds (default, least, most) and the longest
+     line the copy rules allow (plan §7: at most 60 characters; a longer line still shows, whole). VISITOR_PICK: on a
+     stage narrower than narrowPx the visitor's tap sphere grows to r (u). WOBBLE: hide and seek's wobble, a rock of
+     ±deg at hz (at most 2 Hz) easing out over dur s; reduced motion: a still highlight for dur s instead. */
+  var SAY = { sec: 4, min: 1, max: 10, chars: 60 };
+  var VISITOR_PICK = { narrowPx: 480, r: 0.55 };
+  var WOBBLE = { dur: 1.2, deg: 7, hz: 1.6 };
+  /* COVER: hide and seek's covers(uid) aims body u under the top of the hiding pet's head, and widens the thing's box
+     by pad u on the ground (a pet peeking out just past a thing's edge is still behind it) */
+  var COVER = { body: 0.12, pad: 0.35 };
+  var PLAY_KINDS = ['fetch', 'hide'];
+  /* the pick priority (plan §5 IA-3): pets and the avatar > the visitor > items > the rest (choosePick, pick3) */
+  var PICK_ORDER = ['actor', 'visitor', 'item', 'cell', 'land', 'sea'];
+  /* say(target): 'pet:<id>' | '<petId>' (pet_…) | 'me' | 'visitor' | 'u:<uid>' | '<uid>' → the stage's key, or null */
+  function sayKey(target) {
+    if (typeof target !== 'string' || !target) return null;
+    if (target === 'me' || target === 'avatar' || target === 'you') return 'me';
+    if (target === 'visitor') return 'visitor';
+    if (target.indexOf('pet:') === 0) return target.length > 4 ? target : null;
+    if (/^pet_/.test(target)) return 'pet:' + target;
+    if (target.indexOf('u:') === 0) return target.length > 2 ? target : null;
+    return 'u:' + target;
+  }
+  function saySec(sec) { return typeof sec === 'number' && isFinite(sec) && sec > 0 ? clamp(sec, SAY.min, SAY.max) : SAY.sec; }
+  /* a bubble of size sz {w, h} whose point projects at (x, y) on a W × H stage: it rises from its point, centred
+     on it, and stays whole inside the stage (4 px in from the sides, its top on screen) → out {x, y} */
+  function bubbleAt(x, y, sz, W, H, out) {
+    out = out || {};
+    if (sz && W > sz.w + 8) x = Math.min(Math.max(x, sz.w / 2 + 4), W - sz.w / 2 - 4);
+    if (sz) y = Math.max(y, Math.min(sz.h + 4, H));
+    out.x = x; out.y = y;
+    return out;
+  }
+  /* the visitor's tap sphere (actors.hits kind 'visitor') along ray (o, d) → {id, t} | null; narrow: a phone stage
+     (the sphere grows to VISITOR_PICK.r) */
+  function pickVisitor(o, d, hits, narrow) {
+    for (var i = 0; hits && i < hits.length; i++) {
+      var h = hits[i];
+      if (!h || h.kind !== 'visitor' || h.pickable === false) continue;
+      var r = Math.max(h.r > 0 ? h.r : 0.4, narrow ? VISITOR_PICK.r : 0);
+      var t = raySphere(o, d, +h.x || 0, +h.y || 0, +h.z || 0, r);
+      if (t >= 0) return { id: String(h.id || ''), t: t };
+    }
+    return null;
+  }
+  /* pets and the avatar > the visitor > items: the visitor wins a tap unless a pet or the avatar was hit, or an
+     item's box is clearly nearer (OCCLUDE_U, as for the pets; a tap on a thing's tag is t 0: the thing) */
+  function visitorWins(kind, item, vh) {
+    if (!vh || !(vh.t >= 0) || kind === 'actor' || kind === 'pet' || kind === 'avatar' || kind === 'ghost') return false;
+    return !item || !(typeof item.t === 'number' && isFinite(item.t)) || vh.t <= item.t + OCCLUDE_U;
+  }
+  /* why stage.play(kind) is refused ('' = it may start): s {kind, mode, suspended, covered, trip, map, tour, feed, pet,
+     out (the pet is out on the island shown: true | false | undefined = cannot say), can (the actors can play it)} */
+  function playRefusal(s) {
+    s = s || {};
+    if (PLAY_KINDS.indexOf(s.kind) < 0) return 'kind';
+    if (s.mode !== 'play') return 'mode';
+    if (s.suspended) return 'suspended';
+    if (s.covered) return 'covered';
+    if (s.trip) return 'trip';
+    if (s.map) return 'map';
+    if (s.tour) return 'tour';
+    if (s.feed) return 'feed';
+    if (typeof s.pet !== 'string' || !s.pet) return 'pet';
+    if (s.out === false) return 'out';
+    if (!s.can) return 'actors';
+    return '';
+  }
+  /* the wobble's roll (deg) t s in */
+  function wobbleAt(t, reduced) {
+    if (reduced || !(t >= 0) || t >= WOBBLE.dur) return 0;
+    return WOBBLE.deg * Math.sin(2 * Math.PI * WOBBLE.hz * t) * (1 - t / WOBBLE.dur);
+  }
+  /* view.visitor (rewards-world's islandView: an SLPeopleCore.avatarInfo-style record) → a copy for actors.js, or null */
+  var VISITOR_KEYS = ['id', 'name', 'color', 'emoji', 'look', 'wear', 'vr', 'sig', 'lk', 'wr', 'isle', 'instant'];
+  function visitorOf(v) {
+    if (!v || typeof v !== 'object' || typeof v.id !== 'string' || !v.id) return null;
+    var c = {};
+    VISITOR_KEYS.forEach(function (k) { if (v[k] != null) c[k] = v[k]; });
+    return c;
+  }
   /* what actors.sync(v) receives (the island protocol). view = rewards-world's island view;
      o = {user (normUser), placed (the placeable list), unlocked (the risen land), land, mode, reduced} */
   function actorState(view, o) {
@@ -648,6 +787,9 @@
       world: view.world && Array.isArray(view.world.placed) ? view.world : { placed: placed },
       mode: normMode(o.mode || view.mode), reduced: !!o.reduced
     };
+    /* island activities v1 (IA-3): today's visitor on Home (a copy; no key at all when there is none) */
+    var vis = visitorOf(view.visitor);
+    if (vis) s.visitor = vis;
     /* v3: the island brains read the sky islands' layouts (pets may carry isle / fresh, D112) */
     if (o.isles) { s.v3 = true; s.isles = o.isles; }
     return s;
@@ -677,7 +819,7 @@
     var best = Infinity, tgt = null;
     for (var i = 0; hits && i < hits.length; i++) {
       var h = hits[i];
-      if (!h || h.pickable === false) continue;
+      if (!h || h.pickable === false || h.kind === 'visitor') continue;        /* the visitor: pickVisitor (IA-3) */
       var t = raySphere(o, d, +h.x || 0, +h.y || 0, +h.z || 0, h.r > 0 ? h.r : 0.4);
       if (t >= 0 && t < best) { best = t; tgt = h.kind === 'me' || h.id === 'me' ? 'me' : 'pet:' + String(h.id).replace(/^pet:/, ''); }
     }
@@ -878,6 +1020,7 @@
         if (v.land && typeof v.land === 'object') world.land = v.land;
         if (v.v3) { world.isles = v.isles || {}; if (v.world && Array.isArray(v.world.placed)) world.world = v.world; }
         A.sync(Array.isArray(v.pets) ? v.pets : [], v.avatar ? v.avatar : null, world);
+        if (typeof A.setVisitor === 'function') A.setVisitor(v.visitor || null);          /* IA-3 */
       },
       /* v3 travel: the active pet crosses with a flight; setIsle = the same at once */
       follow: function (o) { var r = call0(A, 'follow', o); return typeof r === 'number' ? r : 0; },
@@ -893,7 +1036,7 @@
       pick: function (o, d) { return pickHits(o, d, A.hits(hitList)); },
       anchor: function (target, out) { return A.anchorOf(target, out); },
       tap: function (target) { return typeof A.tap === 'function' ? !!A.tap(target) : false; },
-      emote: function (target, kind) { return A.emote(target, kind); },
+      emote: function (target, kind, at) { return A.emote(target, kind, at); },
       perform: function (kind, uid) { var r = call0(A, 'perform', kind, uid); return typeof r === 'number' && r > 0 ? r : 0; },
       active: function () { return call0(A, 'active') || null; },
       dance: function (o) { var s = call0(A, 'dance', o !== false); return typeof s === 'number' ? s : 0; },
@@ -956,7 +1099,17 @@
         return true;
       },
       /* the reaction the last tap played ('hungry': the softer answer, and the stage's hungry bubble) */
-      tapKind: function (id) { var b = feedBrain(A, id), p = b && b.pet(id); return p && typeof p.tapKind === 'string' ? p.tapKind : ''; }
+      tapKind: function (id) { var b = feedBrain(A, id), p = b && b.pet(id); return p && typeof p.tapKind === 'string' ? p.tapKind : ''; },
+      /* ISLAND ACTIVITIES v1 (IA-3, on actors.js's own): the visitor's tap sphere, fetch, hide and seek */
+      pickVisitor: function (o, d, narrow) { return pickVisitor(o, d, A.hits(hitList), !!narrow); },
+      startPlay: function (kind, id) { return typeof A.startPlay === 'function' ? !!A.startPlay(kind, id) : false; },
+      endPlay: function () { return typeof A.endPlay === 'function' ? !!A.endPlay() : false; },
+      playInfo: function () { return typeof A.playInfo === 'function' ? A.playInfo() : null; },
+      fetch: function (id, x, z) { var r = typeof A.fetch === 'function' ? A.fetch(id, x, z) : -1; return typeof r === 'number' && r >= 0 ? r : -1; },
+      hide: function (id, uid, yaw) { var r = typeof A.hide === 'function' ? A.hide(id, uid, yaw) : -1; return typeof r === 'number' && r >= 0 ? r : -1; },
+      unhide: function (id) { return typeof A.unhide === 'function' ? !!A.unhide(id) : false; },
+      throwSpot: function (k) { return typeof A.throwSpot === 'function' ? A.throwSpot(k) : null; },
+      visitorInfo: function () { var i = call0(A, 'info'); return i && i.visitor ? i.visitor : null; }
     };
   }
   /* the brain a pet is out on (the visited land's, else Home's) | null */
@@ -1172,6 +1325,9 @@
     /* the kids update's care (P3.3): the feeding moment playing now ({id, end (clockT), resolve, timer}),
        the memory stars the host gave (re-applied whenever the sky is rebuilt) */
     var care = { feed: null, stars: [], view: null };
+    /* island activities v1 (IA-3): the play session ({kind, petId, seen, auto, on, resolve, session}), play taps, the last
+       refusal, the weather the sky was given, the live region say() reads out, the still highlight of a reduced wobble */
+    var acts = { play: null, taps: false, refused: '', weather: undefined, sayEl: null, glow: null };
     /* v3: per-island displays, the last isles-view items and policy, the job queue, travel */
     var I3 = {}, V3 = {
       items: null, view: null, pol: null, est: null, unl: ['home'], isles: {}, visit: 'home', live: 'home', hold: null, holdAt: 0,
@@ -1251,6 +1407,10 @@
       if (v3) { V3.dipEl = el('div', 'slw-skydip', { 'aria-hidden': 'true' }); container.appendChild(V3.dipEl); }
       container.appendChild(camctlEl);
       if (srEl) container.appendChild(srEl);
+      /* IA-3: say()'s words for screen readers (visually hidden, polite) */
+      acts.sayEl = el('div', 'slw-say', { role: 'status', 'aria-live': 'polite' });
+      acts.sayEl.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;';
+      container.appendChild(acts.sayEl);
     }
     function placeCanvas() {
       if (!lease || !container) return;
@@ -1321,6 +1481,7 @@
         layers.owner = 'env';
         V3.isleSig = '';
         if (care.stars.length) applyStars();                /* a rebuilt sky keeps the memory stars (P3.3) */
+        if (acts.weather !== undefined && typeof env.setWeather === 'function') { try { env.setWeather(acts.weather); } catch (e) { issue('setWeather: ' + errText(e)); } }   /* …and the weather (IA-3) */
         return;
       }
       var Env = root.SLIslandEnv;
@@ -1628,6 +1789,7 @@
       if (sys.edit && xcall('edit', 'update', dt, clockT, ctx)) busy = true;
       if (sys.fx && xcall('fx', 'update', dt, clockT, ctx)) busy = true;
       if (care.feed && stepFeed()) busy = true;     /* the feeding moment (P3.3) keeps the frames coming until it ends */
+      if (acts.play && stepPlay()) busy = true;     /* IA-3: a play session's events; its automatic throws */
       if (riseFx) { stepRiseFx(dt); busy = true; }
       /* Showtime dance breaks every 16 bars */
       scheduleDance();
@@ -1864,7 +2026,7 @@
         isle: n.isle || 'home', ns: n.ns || null, place: n.place || null,
         uid: n.uid, id: n.id, it: it, x: n.x, y: n.y, fp: fp, st: n.st, sk: n.sk, b: b, batch: b.batch, tpl: b.tpl, model: model,
         jit: n.jit || null, jsig: n.jsig || '', pyaw: typeof n.yaw === 'number' ? n.yaw : 0, wx: 0, wy: 0, wz: 0, hit: null, h: 1, rad: 1, inView: true,
-        a: null, act: null, anims: { squish: animSlot(), drop: animSlot(), debut: animSlot(), store: animSlot() }, animOn: 0,
+        a: null, act: null, anims: { squish: animSlot(), drop: animSlot(), debut: animSlot(), store: animSlot(), wobble: animSlot() }, animOn: 0,
         rootModel: { rx: 0, ry: 0, rz: 0, px: 0, py: 0, pz: 0, sx: 1, sy: 1, sz: 1 }, rootDirty: false, rootOn: false, inLive: false,
         idleOn: idleOnFor(model, n.sk) && n.ns !== 'vox-lod1', idlePending: true, hidden: false, storing: false, removeAfter: false,
         halos: {}, decalOn: null, decalVia: null, pathD: undefined, bad: 0, badIdle: false, badShow: false, dead: false, debutP: null, storeP: null
@@ -2055,7 +2217,7 @@
 
     /* ---------------- controller anims: squish, drop-in, debut, store ---------------- */
     var ANIM_ACT = { squish: 'squish', drop: 'dropIn', debut: 'debut', store: 'store' };
-    var ANIM_KEYS = ['squish', 'drop', 'debut', 'store'];
+    var ANIM_KEYS = ['squish', 'drop', 'debut', 'store', 'wobble'];      /* wobble: IA-3's hide-and-seek hint (startWobble) */
     function startAnim(rec, which, silent) {
       if (!rec || rec.dead || !Mo) return 0;
       var s = rec.anims[which], name = ANIM_ACT[which];
@@ -2123,17 +2285,18 @@
     function composeRoot(rec) {
       if (rec.dead) return;
       var m = rec.rootModel, an = rec.anims;
-      var sy = 1, sxz = 1, dy = 0, yaw = 0, s = 1;
+      var sy = 1, sxz = 1, dy = 0, yaw = 0, s = 1, rz = 0;
       if (an.squish.t >= 0) { Mo.sample('squish', an.squish.t, _sq, optR); sy *= _sq.sy; sxz *= _sq.sxz; }
+      if (an.wobble && an.wobble.t >= 0) rz = wobbleAt(an.wobble.t, reduced);
       if (an.drop.t >= 0) { Mo.sample('dropIn', an.drop.t, _dr, optR); dy += _dr.dy; sy *= _dr.sy; sxz *= _dr.sxz; }
       if (an.debut.t >= 0) { Mo.sample('debut', an.debut.t, _db, optR); yaw += _db.deg; s *= _db.s; }
       if (an.store.t >= 0) { Mo.sample('store', an.store.t, _st, optR); s *= Math.max(0.0001, _st.s); }
       var ident = m.rx === 0 && m.ry === 0 && m.rz === 0 && m.px === 0 && m.py === 0 && m.pz === 0 && m.sx === 1 && m.sy === 1 && m.sz === 1;
-      var any = !ident || sy !== 1 || sxz !== 1 || dy !== 0 || yaw !== 0 || s !== 1;
+      var any = !ident || sy !== 1 || sxz !== 1 || dy !== 0 || yaw !== 0 || s !== 1 || rz !== 0;
       if (!any && !rec.rootOn) return;
       var mat = rec.batch.pivot(rec.uid, 'root');
       if (!any) { mat.identity(); rec.rootOn = false; return; }
-      _e.set(m.rx * DEG, (m.ry + yaw) * DEG, m.rz * DEG, 'XYZ');
+      _e.set(m.rx * DEG, (m.ry + yaw) * DEG, (m.rz + rz) * DEG, 'XYZ');
       _q.setFromEuler(_e);
       _p.set(m.px, m.py + dy, m.pz);
       _s.set(m.sx * sxz * s, m.sy * sy * s, m.sz * sxz * s);
@@ -2377,7 +2540,7 @@
       xcall('actors', 'setMode', m);
       syncCamButtons();
       applyTouchAction();
-      if (m !== 'play') { hideBubble(); endFeed(true, false, true); }      /* editing ends a feeding moment at its end state */
+      if (m !== 'play') { hideBubble(); endFeed(true, false, true); endPlay('edit'); }      /* editing ends a feeding moment at its end state, and a play session (IA-3) */
     }
     function setSelected(uid) {
       if (uid === selectedUid) return;
@@ -2855,10 +3018,11 @@
       return sec;
     }
     function noTravel() { return resolved(false); }
-    function visitIsle(isle, o) { if (!V3.travel) return noTravel(); hideBubble(); var p = V3.travel.visitIsle(isle, o || {}); wake(); return p; }
-    function skyMapOn(on) { if (!V3.travel) return noTravel(); hideBubble(); var p = V3.travel.skyMap(!!on); wake(); return p; }
+    function visitIsle(isle, o) { if (!V3.travel) return noTravel(); hideBubble(); endPlay('travel'); var p = V3.travel.visitIsle(isle, o || {}); wake(); return p; }
+    function skyMapOn(on) { if (!V3.travel) return noTravel(); hideBubble(); if (on) endPlay('travel'); var p = V3.travel.skyMap(!!on); wake(); return p; }
     function unlockIsle(isle) {
       if (!V3.travel) return noTravel();
+      endPlay('travel');
       V3.unlocking[isle] = true;
       if (V3.hold === isle) { V3.hold = null; if (lastView) V3.items = itemsFrom(lastView, { isles: V3.isles }); V3.itemsDirty = true; }
       hideBubble();
@@ -2925,6 +3089,11 @@
       }
       var route = V3.travel ? V3.travel.pick(hit, mode) : IV.routeTap(hit, { mode: mode, visit: visit, skyMap: false, unlocked: V3.unl });
       route = route || { kind: 'none' };
+      /* IA-3: pets and the avatar > the visitor > items (never while a trip is being skipped) */
+      if (mode === 'play' && !wide && !route.skipped) {
+        var vh = xcall('actors', 'pickVisitor', _ro, _rd, cssW > 0 && cssW < VISITOR_PICK.narrowPx);
+        if (vh && visitorWins(route.kind, hit.item, vh)) { PICK.route = route; PICK.kind = 'visitor'; PICK.vid = vh.id; PICK.has = true; return PICK; }
+      }
       PICK.route = route;
       var k = route.kind;
       PICK.kind = k === 'pet' || k === 'avatar' ? 'actor' : k === 'item' || k === 'ghost' || k === 'cell' || k === 'none' ? k : 'route';
@@ -2999,7 +3168,7 @@
       tell.apply(null, [h.hook].concat(h.args));
     }
     function pick(x, y) {
-      PICK.kind = 'none'; PICK.uid = null; PICK.target = null; PICK.region = null; PICK.route = null; PICK.c = PICK.r = -1; PICK.has = false; PICK.near = false;
+      PICK.kind = 'none'; PICK.uid = null; PICK.target = null; PICK.region = null; PICK.route = null; PICK.c = PICK.r = -1; PICK.has = false; PICK.near = false; PICK.vid = null;
       if (!rayAt(x, y)) return PICK;
       if (v3) return pick3(x, y);
       var h = { actor: null, item: null, ghost: -1, cell: null, land: null, sea: null };
@@ -3011,6 +3180,8 @@
       if (mode === 'play') {
         var ah = xcall('actors', 'pick', _ro, _rd);
         if (ah && ah.target) h.actor = { t: typeof ah.t === 'number' ? ah.t : 0, target: ah.target };
+        var vh2 = xcall('actors', 'pickVisitor', _ro, _rd, cssW > 0 && cssW < VISITOR_PICK.narrowPx);      /* IA-3 */
+        if (vh2) h.visitor = vh2;
       }
       if (mode !== 'place') {
         var best = Infinity, bu = null;
@@ -3033,6 +3204,7 @@
       var res = choosePick(mode, h);
       PICK.kind = res.kind; PICK.has = res.kind !== 'none';
       if (res.kind === 'item') PICK.uid = res.uid;
+      else if (res.kind === 'visitor') PICK.vid = res.id;
       else if (res.kind === 'actor') PICK.target = res.target;
       else if (res.kind === 'land') PICK.region = res.region;
       else if (res.kind === 'cell') { PICK.c = res.c; PICK.r = res.r; }
@@ -3061,6 +3233,7 @@
         else if (p.kind === 'cell') tellCell('tapCell', p.c, p.r);
         return;
       }
+      if (acts.taps && acts.play && mode === 'play' && playTap(p)) return;      /* IA-3: a throw's land or sea tap */
       /* a memory star in Home's night sky (the island's crew and items in front of it win) */
       if (p.kind !== 'actor' && p.kind !== 'item') {
         var sh = starHit();
@@ -3068,6 +3241,7 @@
       }
       switch (p.kind) {
         case 'actor': tapActor(p.target); break;
+        case 'visitor': tapVisitor(p.vid); break;
         case 'item': tapItemUid(p.uid); break;
         case 'route': tapRoute(p.route); break;
         case 'land': { var lid = landIdOf(p.region); if (lid) { sfx('pop', 0.6); tell('tapLand', lid); } break; }
@@ -3123,6 +3297,7 @@
       var p = pick(x, y);
       if (p.kind === 'item') showBubble('u:' + p.uid, nameOf(p.uid));
       else if (p.kind === 'actor' && p.target) showBubble(p.target, actorName(p.target));
+      else if (p.kind === 'visitor') showBubble('visitor', actorName('visitor'));
     }
     /* held still for a full second (a deliberate hold, play mode only — never while an edit-mode
        drag claim is pending): frame the item / pet; this press is no tap */
@@ -3139,6 +3314,7 @@
     function nameOf(uid) { var r = recs.get(uid); return r && r.it ? r.it.name : ''; }
     function actorName(target) {
       if (target === 'me') return user.name || 'You';
+      if (target === 'visitor') { var vv = lastView && lastView.visitor; return vv && typeof vv.name === 'string' ? vv.name : ''; }
       var id = String(target).replace(/^pet:/, ''), pets = lastView && Array.isArray(lastView.pets) ? lastView.pets : [];
       for (var i = 0; i < pets.length; i++) if (pets[i] && pets[i].id === id && pets[i].name) return pets[i].name;
       var it = C.item(id);
@@ -3243,6 +3419,7 @@
       if (a.me) return 'me';
       if (a.region) return 'region:' + a.region;
       if (v3 && a.isle) return 'isle:' + a.isle;
+      if (a.visitor) return 'visitor';                    /* IA-3: the visitor's card / portrait tag */
       if (a.key) return String(a.key);
       return null;
     }
@@ -3250,7 +3427,7 @@
     function worldOfKey(key, out) {
       if (!key) return null;
       if (key.indexOf('u:') === 0) { var rec = recs.get(key.slice(2)); if (!rec || rec.hidden) return null; return anchorOf(rec, 'top', out); }
-      if (key.indexOf('pet:') === 0 || key === 'me') return actorPoint(key, out);
+      if (key.indexOf('pet:') === 0 || key === 'me' || key === 'visitor') return actorPoint(key, out);
       if (key.indexOf('star:') === 0) {                 /* a memory star (its name bubble after a tap) */
         var life = v3 && env ? env.life : null, list = life && typeof life.petStars === 'function' ? life.petStars() : [];
         for (var si = 0; si < list.length; si++) if ('star:' + (list[si].key || list[si].id) === key) { out.set(list[si].x, list[si].y + 0.65, list[si].z); return out; }
@@ -3290,7 +3467,7 @@
         else if (kind === 'sign' && wrap.classList) wrap.classList.add('slw-z-sign');
         anchorsEl.appendChild(wrap);
         anchorList.push({ key: k, wrap: wrap, dy: g.dy, dyPx: g.dyPx, x: -1e9, y: -1e9, vis: false, show: true, at: null, kind: kind, sz: null,
-          src: v3 ? { el: wrap, uid: s.uid, pet: s.pet, me: s.me, region: s.region, isle: s.isle, key: s.key } : null });
+          src: v3 ? { el: wrap, uid: s.uid, pet: s.pet, me: s.me, region: s.region, isle: s.isle, key: s.visitor ? 'visitor' : s.key } : null });
       });
       V3.anchorSig = '';
       anchorsDirty = true; tagSizesDirty = true;
@@ -3385,6 +3562,7 @@
       if (_v.z < -1 || _v.z > 1) return null;
       return toScreen(_v.x, _v.y, cssW, cssH, _scr2);
     }
+    var _bAt = { x: 0, y: 0 };
     function placeTag(a, wp, inside) {
       var s = wp ? screenOf(wp) : null;
       if (!s) { if (a.vis) { a.wrap.style.visibility = 'hidden'; a.vis = false; } return; }
@@ -3392,8 +3570,7 @@
       /* QA#2: the name bubble stays whole inside the stage (a landmark at the island's back edge would push it
          off the top): it rises from its point, centred on it */
       var sz = inside ? tagSize(a.wrap) : null;
-      if (sz && cssW > sz.w + 8) x = Math.min(Math.max(x, sz.w / 2 + 4), cssW - sz.w / 2 - 4);
-      if (sz) y = Math.max(y, Math.min(sz.h + 4, cssH));
+      if (sz) { var at = bubbleAt(x, y, sz, cssW, cssH, _bAt); x = at.x; y = at.y; }
       if (!a.vis) { a.wrap.style.visibility = ''; a.vis = true; }
       if (Math.abs(x - a.x) >= 0.5 || Math.abs(y - a.y) >= 0.5) {
         a.x = x; a.y = y;
@@ -3419,10 +3596,11 @@
       }
       placeRing();
     }
-    function showBubble(key, text, icon) {
-      if (!text) return;
+    function showBubble(key, text, icon, sec, quiet) {
+      if (!text) return false;
       hideBubble();
-      var wrap = el('div', 'slw-tag3d slw-bubble3d', { role: 'status' });
+      var life = typeof sec === 'number' && sec > 0 ? sec : 2.5;
+      var wrap = el('div', 'slw-tag3d slw-bubble3d', quiet ? { 'aria-hidden': 'true' } : { role: 'status' });
       var nm = el('span', 'nm');
       if (icon) {                                      /* a care badge before the words, inside the pill (decoration: the words say it) */
         var ic = el('span', 'ic', { 'aria-hidden': 'true' }), tx = el('span', 'tx');
@@ -3438,10 +3616,11 @@
       anchorsEl.appendChild(wrap);
       var lift = 0;
       for (var i = 0; i < anchorList.length; i++) if (anchorList[i].key === key) lift = 0.35;   /* above ▶ PLAY / ✋ */
-      bubble = { key: key, wrap: wrap, until: clockT + 2.5, lift: lift, dy: 0, dyPx: 0, x: -1e9, y: -1e9, vis: false };
-      later(function () { if (bubble && bubble.wrap === wrap) hideBubble(); }, 2600);
+      bubble = { key: key, wrap: wrap, until: clockT + life, lift: lift, dy: 0, dyPx: 0, x: -1e9, y: -1e9, vis: false };
+      later(function () { if (bubble && bubble.wrap === wrap) hideBubble(); }, Math.round(life * 1000) + 100);
       anchorsDirty = true;
       wake();
+      return true;
     }
     function hideBubble() {
       if (!bubble) return;
@@ -3546,6 +3725,7 @@
         if (on !== undefined && on !== visitNow()) return resolved(false);
       }
       endFeed(true, false, true);                            /* one bowl: a moment still playing ends now */
+      endPlay('feed');                                       /* feeding first (IA-3) */
       var sec = xcall('actors', 'feed', id, typeof foodId === 'string' ? foodId : '', { fav: !!o.fav });
       if (typeof sec !== 'number' || !(sec >= 0)) return resolved(false);
       var d = deferred(), f = { id: id, end: 0, resolve: d.resolve, timer: 0 };
@@ -3632,6 +3812,204 @@
       showBubble('pet:' + id, copyT('care.bubble.' + key) || BUBBLE[key], icon);
     }
     function copyT(key) { try { return Copy && typeof Copy.t === 'function' ? String(Copy.t(key, null, '') || '') : ''; } catch (e) { return ''; } }
+    /* ================================================================
+       ISLAND ACTIVITIES v1 (IA-3; see the header): say, the visitor's tap, play sessions, the wobble, the burst,
+       the weather
+       ================================================================ */
+    function say(target, text, o) {
+      o = o || {};
+      var key = sayKey(target), words = typeof text === 'string' ? text.trim() : '';
+      if (!key || !words) return false;
+      if (acts.sayEl) acts.sayEl.textContent = words;           /* read out (the pill itself stays quiet) */
+      if (!worldOfKey(key, _v2)) return false;
+      return showBubble(key, words, null, saySec(o.sec), true);
+    }
+    /* the visitor waves ('wave' | 'hello'), cheers or plays its move ('move'); at: a thing's uid or a world {x, z} it
+       turns to for the moment (Show me round) → bool (false: no visitor shown, no rig, or no move) */
+    function visitorEmote(kind, at) {
+      var to = null;
+      if (typeof at === 'string' || typeof at === 'number') { var r = recs.get(at); if (r && !r.dead) to = { x: r.wx, z: r.wz }; }
+      else if (at && typeof at === 'object' && isFinite(at.x) && isFinite(at.z)) to = { x: +at.x, z: +at.z };
+      var ok = !!xcall('actors', 'emote', 'visitor', typeof kind === 'string' ? kind : 'wave', to);
+      if (ok) markEmote('visitor');
+      return ok;
+    }
+    function tapVisitor(id) {
+      if (xcall('actors', 'tap', 'visitor')) markEmote('visitor');
+      tell('tapVisitor', id);
+    }
+    function playStart(kind, o) {
+      o = o || {};
+      var id = typeof o.petId === 'string' && o.petId ? o.petId.replace(/^pet:/, '') : xcall('actors', 'active');
+      if (typeof id !== 'string') id = '';
+      var st = v3 ? travelState() : {}, where = id ? xcall('actors', 'onIsle', id) : undefined;
+      var why = playRefusal({
+        kind: kind, mode: mode, suspended: suspended || revoked, covered: covered, trip: !!st.trip, map: !!(st.map || st.skyMap), tour: !!st.tour,
+        feed: !!care.feed, pet: id, out: where === undefined ? undefined : where === (v3 ? visitNow() : 'home'),
+        can: !!(sys.actors && sys.actors.obj && typeof sys.actors.obj.startPlay === 'function')
+      });
+      if (!why) {
+        endPlay('replaced');
+        if (!xcall('actors', 'startPlay', kind, id)) why = kind === 'fetch' ? 'ball' : 'pet';
+      }
+      acts.refused = why;
+      if (why) return null;
+      var d = deferred(), n = Math.max(0, Math.floor(+o.auto || 0));
+      var s = { kind: kind, petId: id, seen: { caught: 0, fetched: 0, cut: 0, hid: 0, found: 0 }, on: typeof o.onEvent === 'function' ? o.onEvent : null,
+                auto: kind === 'fetch' && n > 0 ? { n: n, k: 0, next: clockT, fail: 0 } : null, resolve: d.resolve, session: null };
+      var session = {
+        kind: kind, petId: id, done: d.promise || resolved(null),
+        end: function (why2) { return endPlay(typeof why2 === 'string' && why2 ? why2 : 'end', s); },
+        live: function () { return acts.play === s; },
+        info: function () { return acts.play === s ? xcall('actors', 'playInfo') || null : null; },
+        wobble: function (uid) { return acts.play === s ? wobble(uid) : false; }
+      };
+      if (kind === 'fetch') session.throwTo = function (x, z) { return acts.play === s ? throwTo(x, z) : -1; };
+      else {
+        session.hideIn = function (uid) { return acts.play === s ? hideIn(id, uid) : false; };
+        session.found = function () { return acts.play === s ? hideIn(id, null) : false; };
+        session.covers = function (uid) { return acts.play === s ? coversPet(id, uid) : false; };
+      }
+      s.session = session;
+      acts.play = s;
+      wake();
+      return session;
+    }
+    var PLAY_EVENTS = [['caught', 'caught'], ['fetched', 'fetched'], ['cut', 'cut'], ['hid', 'hidden'], ['found', 'found']];
+    /* the brain's counts since the last frame → onEvent calls, in order */
+    function playEvents(s, info) {
+      for (var i = 0; i < PLAY_EVENTS.length; i++) {
+        var k = PLAY_EVENTS[i][0], have = +info[k] || 0;
+        while (s.seen[k] < have) {
+          s.seen[k]++;
+          if (s.on) { try { s.on({ type: PLAY_EVENTS[i][1], petId: s.petId, n: s.seen[k] }); } catch (e) { issue('play onEvent threw: ' + errText(e)); } }
+        }
+      }
+    }
+    function stepPlay() {
+      var s = acts.play;
+      if (!s) return false;
+      var info = xcall('actors', 'playInfo');
+      if (!info || info.id !== s.petId || info.kind !== s.kind || info.out === false) { endPlay('gone', s); return false; }
+      playEvents(s, info);
+      if (acts.play !== s) return false;                         /* the host ended it from onEvent */
+      var A = s.auto;
+      if (!A) return false;
+      if (clockT < A.next || info.fetching) return true;
+      if (A.k >= A.n) { endPlay('auto', s); return false; }
+      var spot = xcall('actors', 'throwSpot', A.k), lead = spot ? throwTo(spot.x, spot.z) : -1;
+      if (lead >= 0) { A.k++; A.next = clockT + (reduced ? feedStill() : 0.15); }
+      else if (++A.fail > 3) { endPlay('auto', s); return false; }
+      else A.next = clockT + 0.5;
+      return true;
+    }
+    function endPlay(reason, only) {
+      var s = acts.play;
+      if (!s || (only && only !== s)) return false;
+      var info = xcall('actors', 'playInfo');
+      if (info && info.id === s.petId) playEvents(s, info);
+      acts.play = null; acts.taps = false;
+      xcall('actors', 'endPlay');
+      var res = { kind: s.kind, petId: s.petId, reason: reason || 'end', thrown: info ? +info.thrown || 0 : 0,
+                  caught: s.seen.caught, fetched: s.seen.fetched, found: s.seen.found };
+      try { s.resolve(res); } catch (e) { /* the host's handler */ }
+      wake();
+      return true;
+    }
+    function playTaps(on) { acts.taps = !!on && !!acts.play; return acts.taps; }
+    /* a tap while play taps are on: land → tapCell with the point, sea (or a locked land's hologram) → tapSea;
+       → true when it was one of those (pets, the avatar, the visitor, items and other islands answer as ever) */
+    function playTap(p) {
+      var k = p.kind, r = p.route;
+      if (k === 'actor' || k === 'item' || k === 'visitor' || k === 'ghost') return false;
+      if (k === 'route' && !(r && r.kind === 'region')) return false;
+      var landCell = k === 'cell' && (v3 ? !!(r && r.land) : !!(landKeys && landKeys[p.c + ',' + p.r]));
+      if (landCell) { tell('tapCell', p.c, p.r, v3 ? visitNow() : 'home', { x: p.x, y: p.y, z: p.z }); return true; }
+      var seaY = v3 ? Gr.V3.frame(visitNow()).seaY : Gr.SEA_Y, sp = isFinite(seaY) ? Gr.rayPlane(_ro, _rd, seaY) : null;
+      if (!sp) return false;
+      tell('tapSea', sp.x, sp.z, v3 ? visitNow() : 'home');
+      return true;
+    }
+    function throwTo(x, z) {
+      var s = acts.play;
+      if (x && typeof x === 'object') { z = x.z; x = x.x; }
+      if (!s || s.kind !== 'fetch' || mode !== 'play' || suspended) return -1;
+      if (typeof x !== 'number' || typeof z !== 'number' || !isFinite(x) || !isFinite(z)) return -1;
+      var r = xcall('actors', 'fetch', s.petId, x, z);
+      wake();
+      return typeof r === 'number' && r >= 0 ? r : -1;
+    }
+    function hideIn(petId, uid) {
+      var s = acts.play, id = typeof petId === 'string' ? petId.replace(/^pet:/, '') : '';
+      if (!s || s.kind !== 'hide' || s.petId !== id || mode !== 'play' || suspended) return false;
+      var ok;
+      if (uid == null) ok = !!xcall('actors', 'unhide', id);
+      else {
+        var rec = recs.get(uid);
+        if (!rec || rec.hidden || rec.storing || rec.dead || (v3 && rec.isle !== visitNow())) return false;
+        var cell = xcall('actors', 'hide', id, uid);
+        ok = typeof cell === 'number' && cell >= 0;
+      }
+      wake();
+      return ok;
+    }
+    function wobble(uid) {
+      var rec = recs.get(uid);
+      if (!rec || rec.hidden || rec.storing || rec.dead || mode !== 'play' || (v3 && rec.isle !== visitNow())) return false;
+      if (reduced) {                                         /* a still highlight instead of the rock */
+        var g0 = acts.glow;
+        if (g0) { cancelLater(g0.timer); unglow(g0.uid); }
+        rec.batch.setHighlight(uid, 1);
+        var gl = { uid: uid, timer: 0 };
+        gl.timer = later(function () { if (acts.glow === gl) { acts.glow = null; unglow(uid); } }, Math.round(WOBBLE.dur * 1000));
+        acts.glow = gl;
+        wake();
+        return true;
+      }
+      var sl = rec.anims.wobble;
+      sl.t = 0; sl.ci = 0; sl.dur = WOBBLE.dur; sl.cues = null; sl.silent = true;
+      rec.animOn |= 1; rec.rootDirty = true;
+      addLive(rec);
+      wake();
+      return true;
+    }
+    /* hide and seek (the integration pass): is the hiding pet behind thing uid from where the child looks now? The line
+       from the camera to the pet's body passes through the thing's box before it reaches the pet. A look at the
+       thing in front of the hiding place finds the pet too (the child saw it go behind there), whatever the thing
+       itself is */
+    var _cvP = { x: 0, y: 0, z: 0 }, _cvD = { x: 0, y: 0, z: 0 }, _cvMin = [0, 0, 0], _cvMax = [0, 0, 0];
+    function coversPet(petId, uid) {
+      var rec = recs.get(uid);
+      if (!rec || !rec.hit || rec.hidden || rec.storing || rec.dead || !camera || (v3 && rec.isle !== visitNow())) return false;
+      var p = actorPoint('pet:' + petId, _cvP);
+      if (!p) return false;
+      var o = camera.position, dx = p.x - o.x, dy = p.y - COVER.body - o.y, dz = p.z - o.z, L = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (!(L > 1e-6)) return false;
+      _cvD.x = dx / L; _cvD.y = dy / L; _cvD.z = dz / L;
+      /* the thing's box widened on the ground by COVER.pad: a pet peeking out just past its edge is still behind it */
+      for (var i = 0; i < 3; i++) { var pd = i === 1 ? 0 : COVER.pad; _cvMin[i] = rec.hit.min[i] - pd; _cvMax[i] = rec.hit.max[i] + pd; }
+      var t = rayBox(o, _cvD, _cvMin, _cvMax);
+      return t >= 0 && t < L;
+    }
+    function unglow(uid) {
+      var r = recs.get(uid);
+      if (r && !r.dead) r.batch.setHighlight(uid, selectedUid === uid ? 2 : focusKey === 'u:' + uid ? 1 : 0);
+    }
+    function burst(uid, kind) {
+      var rec = recs.get(uid);
+      if (!rec || rec.hidden || rec.storing || rec.dead || (v3 && rec.isle !== visitNow())) return 0;
+      if (!sys.fx || !sys.fx.obj || typeof sys.fx.obj.burst !== 'function') return 0;
+      var n = xcall('fx', 'burst', kind, { x: rec.wx, y: rec.wy + rec.h * 0.75, z: rec.wz }, { key: uid });
+      wake();
+      return typeof n === 'number' ? n : 0;
+    }
+    function setWeather(o) {
+      acts.weather = o === undefined ? null : o;
+      var r = env && typeof env.setWeather === 'function' ? env.setWeather(o) === true : false;
+      wake();
+      return r;
+    }
+
     /* setPetStars(list) → the stars drawn: the memory stars in Home's night sky (skylife); kept, so a
        rebuilt sky gets them again */
     function setPetStars(list) {
@@ -4097,6 +4475,7 @@
       covered = !!v;
       if (lease) lease.setCovered(covered);
       if (covered && controls) controls.cancel();
+      if (covered) endPlay('covered');                 /* IA-3: a sheet over the island ends a play session */
       if (!covered) {
         if (pendingMusic) musicContext(pendingMusic);       /* a context change that waited for the sheet */
         wake();
@@ -4109,6 +4488,7 @@
       if (controls) controls.cancel();
       hideBubble();
       endFeed(true, false, true);                      /* a feeding moment ends at its end state */
+      endPlay('suspend');                              /* IA-3 */
       endEncoreQuietly();
       pendingMusic = null;
       if (v3 && V3.travel) V3.travel.skip();
@@ -4230,6 +4610,11 @@
       } catch (e3) { fail('env rebuild: ' + errText(e3)); }
       wake();
     }
+    function actsInfo() {
+      var s = acts.play;
+      return { play: s ? { kind: s.kind, petId: s.petId } : null, taps: acts.taps, refused: acts.refused,
+               visitor: xcall('actors', 'visitorInfo') || null, ball: !!(xcall('actors', 'info') || {}).ball };
+    }
     function info() {
       var out = {
         version: VERSION, tier: tier, mode: mode, ready: readyFired, failed: failed, reduced: reduced,
@@ -4240,7 +4625,8 @@
         layers: { owner: layers.owner, city: !!layers.city, life: !!layers.life, terrain: !!root.SLTerrain3D },
         stageEncore: encoreLive() ? encoreLock.uid : null, debugGrid: DEBUG.grid, seeded: user.seed != null,
         camera: rig ? rig.info() : null, beat: { bpm: beat.bpm, bar: beat.bar, music: !!beat.music }, issues: issues.slice(),
-        care: { feeding: care.feed ? care.feed.id : null, stars: care.stars.length, view: care.view }      /* P3.3 */
+        care: { feeding: care.feed ? care.feed.id : null, stars: care.stars.length, view: care.view },     /* P3.3 */
+        activities: actsInfo()                                                                              /* IA-3 */
       };
       try { if (merged) out.merged = merged.info(); } catch (e) {}      /* {groups, calls, entries, vertices, holes, bones} */
       try { if (layers.city && typeof layers.city.info === 'function') out.city = layers.city.info(); } catch (e) {}
@@ -4307,6 +4693,7 @@
     }
     function teardownContent() {
       endFeed(true, false);                            /* the moment's crew is going: the host still gets its answer */
+      endPlay('dispose');                              /* IA-3: so does a play session */
       if (v3) {
         /* travel goes before the rig and the sky it drives */
         if (V3.travel) { try { V3.travel.dispose(); } catch (e) { issue('travel dispose: ' + errText(e)); } V3.travel = null; }
@@ -4408,7 +4795,11 @@
     stage.attach = guard('attach', attach, function () { return stage; });
     stage.sync = guard('sync', function (v) { syncView(v); return stage; }, function () { return stage; });
     stage.act = guard('act', act, noP);
-    stage.emote = guard('emote', function (target, kind) { if (target != null) localEmote(String(target), kind || null); wake(); });
+    stage.emote = guard('emote', function (target, kind, at) {
+      if (target === 'visitor') { var vr = visitorEmote(kind, at); wake(); return vr; }      /* IA-3: → bool */
+      if (target != null) localEmote(String(target), kind || null);
+      wake();
+    });
     stage.setLit = guard('setLit', function (uid, v) { return setLitInternal(uid, v, true); }, noP);
     stage.unlockLand = guard('unlockLand', unlockLand, noP);
     stage.debut = guard('debut', debut, noP);
@@ -4433,6 +4824,15 @@
     stage.feed = guard('feed', feedPet, noP);
     stage.skipFeed = guard('skipFeed', skipFeed, false);
     stage.setPetStars = guard('setPetStars', setPetStars, 0);
+    /* island activities v1 (IA-3) */
+    stage.say = guard('say', say, false);
+    stage.play = guard('play', playStart, null);
+    stage.playTaps = guard('playTaps', playTaps, false);
+    stage.throwTo = guard('throwTo', throwTo, -1);
+    stage.hideIn = guard('hideIn', hideIn, false);
+    stage.wobble = guard('wobble', wobble, false);
+    stage.burst = guard('burst', burst, 0);
+    stage.setWeather = guard('setWeather', setWeather, false);
     stage.placement = guard('placement', function (s) { placementState(s || null); wake(); });
     stage.setCovered = guard('setCovered', setCovered);
     stage.suspend = guard('suspend', suspend);
@@ -4462,6 +4862,10 @@
     stage.focusMe = function () { return false; };
     stage.booting = function () { return false; };
     stage.feed = noP; stage.skipFeed = function () { return false; }; stage.setPetStars = function () { return 0; };
+    /* island activities v1 (IA-3): nothing to play on a stage that does nothing */
+    stage.say = function () { return false; }; stage.play = function () { return null; }; stage.playTaps = function () { return false; };
+    stage.throwTo = function () { return -1; }; stage.hideIn = function () { return false; }; stage.wobble = function () { return false; };
+    stage.burst = function () { return 0; }; stage.setWeather = function () { return false; };
     ['attach', 'sync'].forEach(function (k) { stage[k] = self; });
     ['emote', 'danceNow', 'setAnchors', 'focusItem', 'resetView', 'frameItem', 'placement', 'setCovered', 'suspend', 'resume', 'setReduced', 'setUser'].forEach(function (k) { stage[k] = nop; });
     stage.info = function () { return { failed: true }; };
@@ -5141,6 +5545,10 @@
     focusMe: focusMeLive, focusMeOn: focusMeOn, CHAR_KEYS: CHAR_KEYS,
     /* the kids update's care (P3.3): moods, the memory stars, the feeding moment's timing */
     petMood: petMood, starsOf: starsOf, STAR_MAX: STAR_MAX, feedTiming: feedTiming, FEED_GRACE: FEED_GRACE, FEED_STILL: FEED_STILL, feedStill: feedStill,
-    feedBrain: feedBrain, BUBBLE: BUBBLE, FEED_VIEWS: FEED_VIEWS, feedView: feedView
+    feedBrain: feedBrain, BUBBLE: BUBBLE, FEED_VIEWS: FEED_VIEWS, feedView: feedView,
+    /* island activities v1 (IA-3): say, the visitor's pick, play sessions, the wobble */
+    SAY: SAY, VISITOR_PICK: VISITOR_PICK, WOBBLE: WOBBLE, PLAY_KINDS: PLAY_KINDS, PICK_ORDER: PICK_ORDER, VISITOR_KEYS: VISITOR_KEYS,
+    sayKey: sayKey, saySec: saySec, bubbleAt: bubbleAt, pickVisitor: pickVisitor, visitorWins: visitorWins, playRefusal: playRefusal,
+    wobbleAt: wobbleAt, visitorOf: visitorOf, stubStage: stubStage
   };
 }));

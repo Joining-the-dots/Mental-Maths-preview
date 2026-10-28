@@ -51,6 +51,12 @@
    picked on the device, never a likeness. One key has {sign} (buy.game.look, c-copy-core): a game's
    ▶ sign, which the host fills in itself.
 
+   Island activities v1 (IA-0, 26 Oct 2026) adds the act.* family (the Today board, weather and seasons,
+   the visitor, show time, I spy, fetch and hide and seek, a pet's wish, My island book and its stamps,
+   the Next step card's visitor idea and goal bar, the Games sheet's 'Play on your island' block), word
+   for word from docs/island3d/v3/kids-update/activities.json (copy.keys); its own rules and oracle are in
+   tests/world-copy-acts.test.js. It also uses {move} and {date}.
+
    A count line may have a singular form '<key>.one'; t() uses it when vars.n is 1
    ('1 more of your crew is resting indoors', not 'are'). Callers pass n as usual.
 
@@ -109,6 +115,9 @@
     'shop.tab.city': 'City',
     /* home sheet */
     'home.tray.shape': 'Shape',
+    /* the house inside a line (island activities, IA-5: 'Yes! The {item} fits.', 'Not behind the {item}…'): its
+       catalogue name 'Your Home' would read 'the Your Home' */
+    'home.house': 'house',
     'unlock.city': 'A city building. Place it, then tap it.',
     'unlock.shape': 'A whole new shape for your home. Your walls, roof, door and extras come with you.',
     /* the one-time makeover toast for existing saves (the default home became the City loft) */
@@ -682,7 +691,167 @@
     'coins.trialOver.body': 'From now on, island things cost 🪙 coins, which you earn by learning.',
     'coins.trialOver.keep': 'Your points stay for My rewards. Everything you already picked is still on your island.',
     'coins.goal.trial': 'Test mode: everything on the island is free. Nothing is spent.',
-    'coins.balance': 'Your island coins'
+    'coins.balance': 'Your island coins',
+
+    /* ---------------- Island activities v1 (IA-0; chatgpt-feedback/ISLAND-ACTIVITIES-PLAN.md §3, James 25-26 Oct 2026) ----------------
+       The act.* family, word for word from docs/island3d/v3/kids-update/activities.json copy.keys (tests/world-copy-acts.test.js).
+       Free play: nothing here earns or spends; only the goal lines name the money. Five plan keys are not here because the
+       table already says the same thing (activities.json copy.reused): act.today.go reads isle.goThere ('Go there'), and the
+       Next step card's ride, visit and decorate ideas keep James's decisions build words (next.ride / next.tryThing,
+       next.visit, next.bag / next.bagBtn). These keys also use {move} and {date} (a date the host formats). */
+    /* the 📋 Today sign over the house, and its sheet */
+    'act.today.sign': '📋 Today',
+    'act.today.title': 'Today on your island',
+    'act.today.day': 'Island day {n}',
+    'act.today.visitor': '{name} is visiting today.',
+    'act.today.nextVisitor': 'Coming next time: {name}.',
+    'act.today.show': 'Show day on {island}!',
+    'act.today.nextShow': 'Next show: {island}.',
+    'act.today.spy': 'Today’s I spy is on {island}.',
+    'act.today.goal': '🎯 My goal: {item}',
+    'act.today.up': 'Up {n} 🪙 since last time.',
+    'act.today.watch': '▶ Watch',
+    'act.today.book': '📖 My island book',
+    /* the aria label of the sign's dot (never shown as text) */
+    'act.today.newStamps': 'You have new stamps in your book.',
+    'act.today.calm': 'Visitors and shows wait for your next island day. Nothing is missed while you’re away.',
+    'act.today.hint': '📋 New on your island: tap Today over your house to see what’s on.',
+    'act.help.today': '📋 Today shows who’s visiting, the weather and the day’s show.',
+    /* weather (from the date: the same for siblings) and the UK seasons; Season looks is a per-device switch in ❓ Help */
+    'act.wx.sunny': 'Sunny all day.',
+    'act.wx.breezy': 'Breezy: the clouds are racing today.',
+    'act.wx.starry': 'Clear skies: lots of stars at Showtime.',
+    'act.wx.snow': 'Snow day! Your pets love it.',
+    'act.wx.next.sunny': 'Tomorrow looks sunny.',
+    'act.wx.next.breezy': 'Tomorrow looks breezy.',
+    'act.wx.next.starry': 'Tomorrow night looks clear and starry.',
+    'act.wx.next.snow': 'Tomorrow looks snowy.',
+    'act.wx.spring': 'Spring: blossom is drifting on the breeze.',
+    'act.wx.summer': 'Summer: the butterflies are out.',
+    'act.wx.autumn': 'Autumn: the leaves are falling.',
+    'act.wx.winter': 'Winter: frosty mornings on the island.',
+    'act.wx.looks': 'Season looks',
+    'act.wx.looksHelp': 'Snow, leaves and blossom on your island. Switch them off here if you like.',
+    /* the day's visitor (one of the 12 characters, never a price, Buy or the shop); act.vis.waves is for screen readers */
+    'act.vis.title': '{name} is visiting',
+    'act.vis.hi': 'Hello! I’m {name}. I’ve come to see your island.',
+    'act.vis.hello': '👋 Say hello',
+    'act.vis.tour': 'Show me round',
+    'act.vis.tourAsk': 'What should I try? Tap something to show me.',
+    'act.vis.loved': '{name} loved the {item}!',
+    'act.vis.move': 'Show me your move!',
+    'act.vis.moveSay': 'This is my {move}!',
+    'act.vis.bye': 'Thanks for having me! See you another day.',
+    'act.vis.waves': '{name} waves back.',
+    /* show time */
+    'act.show.start': '▶ Start the show',
+    'act.show.here': '▶ Put on a show here',
+    'act.show.open': 'Welcome to the show on {island}!',
+    'act.show.host': '{name} is hosting today’s show.',
+    'act.show.skip': 'Skip',
+    'act.show.end': 'That’s the show! Thanks for watching.',
+    'act.show.again': 'Watch again',
+    'act.show.pill': 'Show today',
+    /* I spy: the 12 clues (act.spy.c.<clue id>, activities.json CLUES) and the play bar's words */
+    'act.spy.title': '👀 I spy',
+    'act.spy.c.round': 'I spy something that goes round and round.',
+    'act.spy.c.updown': 'I spy something that goes up and down.',
+    'act.spy.c.slide': 'I spy something you could slide down.',
+    'act.spy.c.music': 'I spy something that makes music.',
+    'act.spy.c.food': 'I spy something you could eat.',
+    'act.spy.c.light': 'I spy something that lights up.',
+    'act.spy.c.rest': 'I spy somewhere a pet could have a rest.',
+    'act.spy.c.bounce': 'I spy something you could bounce on.',
+    'act.spy.c.water': 'I spy something with water in it.',
+    'act.spy.c.swing': 'I spy something that swings.',
+    'act.spy.c.animal': 'I spy an animal that isn’t a pet.',
+    'act.spy.c.biggest': 'I spy the biggest thing on {island}.',
+    'act.spy.yes': 'Yes! The {item} fits.',
+    'act.spy.clue': 'Need a clue?',
+    'act.spy.near': 'Look near the {item}.',
+    'act.spy.show': 'Show me',
+    'act.spy.read': '🔊 Read it to me',
+    'act.spy.next': 'Next one',
+    'act.spy.again': 'You’ve spied them all here. They start again from the first one.',
+    /* playing with a pet: fetch, hide and seek */
+    'act.fetch.chip': '🎾 Fetch',
+    'act.fetch.how': 'Tap the island to throw the ball.',
+    'act.fetch.good': 'Good catch, {name}!',
+    'act.fetch.done': '{name} had a great game of fetch!',
+    'act.hide.chip': '🙈 Hide and seek',
+    'act.hide.count': 'Close your eyes… 3, 2, 1!',
+    'act.hide.where': 'Where’s {name}? Turn the island to look behind things.',
+    'act.hide.where2d': 'Where’s {name}? Tap things to look behind them.',     /* integration (28 Oct): the 2D island cannot turn */
+    'act.hide.no': 'Not behind the {item}…',
+    'act.hide.wobble': 'Watch for something that wobbles…',
+    'act.hide.found': 'Found you, {name}!',
+    'act.hide.end': 'You found {name} {n} times!',
+    'act.pet.again': 'Again',
+    'act.pet.done': 'Done',
+    'act.pet.wantsFetch': '{name} wants to play fetch.',
+    'act.pet.wantsHide': '{name} wants to play hide and seek.',
+    'act.pet.play': 'Let’s play',
+    /* a pet's wish of the day (never for a hungry, Hotel, Rescue or star pet) */
+    'act.wish.ride': '{name} would love a go on the {item} today.',
+    'act.wish.rest': '{name} would like a rest on the {item}.',
+    'act.wish.visit': '{name} would love to see {island}.',
+    'act.wish.meet': '{name} would love to meet today’s visitor.',
+    'act.wish.done': '{name} had a great time on the {item}!',
+    'act.wish.doneVisit': '{name} is loving {island}!',
+    'act.wish.doneMeet': '{name} has made a new friend.',
+    'act.wish.calm': 'Wishes change every island day. There’s no rush.',
+    /* 📖 My island book: owned islands only, it counts up ('{n} stamps so far'), never 'x of y' */
+    'act.book.title': '📖 My island book',
+    'act.book.open': 'Open my book',
+    'act.book.newOne': '📖 New stamp: {item}',
+    'act.book.newMany': '📖 New stamps in your book: {n}',
+    'act.book.found': 'Found on {date}',
+    'act.book.count': '{n} stamps so far',
+    'act.book.count.one': '1 stamp so far',
+    'act.book.empty': 'Do things on your island to fill this page.',
+    'act.book.complete': 'Your {island} page is complete!',
+    'act.book.flag': 'Look out for your explorer flag by the bridge.',
+    'act.book.first': 'Your island’s first day: {date}.',
+    'act.book.visitors': 'Visitors’ book',
+    'act.book.visited': 'Visited {n} times.',
+    'act.book.visited.one': 'Visited once.',
+    'act.book.noVisitors': 'Visitors sign here when they come to your island.',
+    'act.book.passports': '🧳 Pet passports',
+    'act.book.ppIslands': '{name} has been to {n} islands.',
+    'act.book.ppIslands.one': '{name} has been to 1 island.',
+    'act.book.ppNone': 'Islands {name} visits with you show here.',
+    'act.book.ppStamp': '{name} visited {island}',
+    'act.book.ppTake': 'Take {name} travelling',
+    /* the stamps' how-lines (activities.json STAMPS) */
+    'act.st.house': 'Tap your house',
+    'act.st.map': 'Open the Sky map',
+    'act.st.findme': 'Find yourself on the island',
+    'act.st.showtime': 'Switch on Showtime',
+    'act.st.hello': 'Say hello to a visitor',
+    'act.st.tree': 'Shake a tree',
+    'act.st.visit': 'Visit {island}',
+    'act.st.landmark': 'Make the {landmark} go',
+    'act.st.night': 'Visit at Showtime',
+    'act.st.pat': 'Pat a pet here',
+    'act.st.fetch': 'Play fetch here',
+    'act.st.hide': 'Play hide and seek here',
+    'act.st.show': 'Watch a show here',
+    'act.st.spy': 'Spy something here',
+    'act.st.try3': 'Try 3 of your things here',
+    'act.st.tryAll': 'Try every ride you have here',
+    'act.st.gear': 'Bring a pet in {island} gear',
+    'act.st.new': 'Try your new {item}',
+    /* the Next step card's visitor idea, and the slim goal bar's aria label under every other card while a goal is set */
+    'act.next.visitor': '{name} is visiting today. Say hello!',
+    'act.next.goalBar': '🎯 My goal: {item}, {n} of {price}',
+    /* the Games sheet's 'Play on your island' block, and the toast when Learn and come back sets the goal */
+    'act.free.title': 'Play on your island',
+    'act.free.note': 'Just for fun: nothing to earn or spend.',
+    'act.free.fetch': '🎾 Fetch with {name}',
+    'act.free.hide': '🙈 Hide and seek with {name}',
+    'act.free.spy': '👀 I spy',
+    'act.free.today': '📋 Today on your island',
+    'act.goal.set': '🎯 My goal is now {item}.'
   };
 
   /* re-voiced descriptions: every CATALOG desc with a banned word, plus a few that read young */
